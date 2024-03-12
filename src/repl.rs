@@ -1,8 +1,8 @@
 mod parse;
-use std::io::Write;
 
+#[allow(dead_code)]
 fn main() {
-    parse::test::test_number_lexing();
+    parse::test::run_tests();
     
  
 

@@ -125,6 +125,8 @@ fn lex_word_token(state: &mut LexicalState) -> bool {
 
 
 fn lex_type(state: &mut LexicalState) -> bool {
+    state.advance(); // skip the ::
+    state.advance();
     let type_string: String = read_data_to_string(state);
     state.add_token_data(SyntacticToken(Syntactic::Type), TokenData::String(type_string));
     true
@@ -143,12 +145,12 @@ fn lex_modifier(state: &mut LexicalState) -> bool {
 // TODO handle nested strings
 fn lex_string_literal(state: &mut LexicalState) -> bool {
     let mut string_data = String::new();
-    string_data.push(state.curr_char);
-
-    let c: char = state.peek();
-    while !is_def_end(c) && c != '"' {
+    
+    while state.have_next() && state.peek() != '"' {
         string_data.push(state.advance());
     }
+    
+    state.advance(); // Consume closing "
     state.add_token_data(LiteralToken(Literal::String), TokenData::String(string_data));
     true
 }
@@ -157,9 +159,10 @@ fn read_data_to_string(state: &mut LexicalState) -> String {
     let mut string_data = String::new();
     string_data.push(state.curr_char);
     
-    let c: char = state.peek();
+    let mut c: char = state.peek();
     while state.have_next() && !is_def_end(c) && is_alpha_numeric(c) {
         string_data.push(state.advance());
+        c = state.peek()
     }
     string_data
 }

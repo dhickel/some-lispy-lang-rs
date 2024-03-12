@@ -1,3 +1,4 @@
+use std::string::String;
 use crate::parse::token::Lexical::*;
 use crate::parse::token::Literal::*;
 use crate::parse::token::Operation::*;
@@ -7,56 +8,56 @@ use crate::parse::token::Definition::*;
 use crate::parse::token::Modifier::*;
 use crate::parse::TokenType::*;
 
-pub fn match_single_token(input: &str) -> Option<TokenType> {
+pub fn match_single_token(input: char) -> Option<TokenType> {
     match input {
-        "(" => Some(LexicalToken(LeftParen)),
-        ")" => Some(LexicalToken(RightParen)),
-        "{" => Some(LexicalToken(LeftBrace)),
-        "}" => Some(LexicalToken(RightBrace)),
-        "[" => Some(LexicalToken(LeftBracket)),
-        "]" => Some(LexicalToken(RightBracket)),
-        "," => Some(LexicalToken(Comma)),
-        "\\" => Some(LexicalToken(BackSlash)),
-        "'" => Some(LexicalToken(SingleQuote)),
-        "\"" => Some(LexicalToken(DoubleQuote)),
-        "." => Some(SyntacticToken(Period)),
-        "&" => Some(SyntacticToken(Ampersand)),
-        "`" => Some(SyntacticToken(Grave)),
-        ":" => Some(SyntacticToken(Colon)),
-        ";" => Some(SyntacticToken(SemiColon)),
-        "#" => Some(SyntacticToken(Pound)),
-        "$" => Some(SyntacticToken(Cache)),
-        "@" => Some(SyntacticToken(At)),
-        "|" => Some(SyntacticToken(Bar)),
-        "~" => Some(SyntacticToken(Tilde)),
-        "=" => Some(SyntacticToken(Equal)),
-        "+" => Some(OperationToken(Plus)),
-        "-" => Some(OperationToken(Minus)),
-        "*" => Some(OperationToken(Asterisk)),
-        "/" => Some(OperationToken(Slash)),
-        "^" => Some(OperationToken(Caret)),
-        "%" => Some(OperationToken(Percent)),
-        ">" => Some(OperationToken(Greater)),
-        "<" => Some(OperationToken(Less)),
+        '(' => Some(LexicalToken(LeftParen)),
+        ')' => Some(LexicalToken(RightParen)),
+        '{' => Some(LexicalToken(LeftBrace)),
+        '}' => Some(LexicalToken(RightBrace)),
+        '[' => Some(LexicalToken(LeftBracket)),
+        ']' => Some(LexicalToken(RightBracket)),
+        ',' => Some(LexicalToken(Comma)),
+        '\\' => Some(LexicalToken(BackSlash)),
+        '\'' => Some(LexicalToken(SingleQuote)),
+        '"' => Some(LexicalToken(DoubleQuote)),
+        '.' => Some(SyntacticToken(Period)),
+        '&' => Some(SyntacticToken(Ampersand)),
+        '`' => Some(SyntacticToken(Grave)),
+        ':' => Some(SyntacticToken(Colon)),
+        ';' => Some(SyntacticToken(SemiColon)),
+        '#' => Some(SyntacticToken(Pound)),
+        '$' => Some(SyntacticToken(Cache)),
+        '@' => Some(SyntacticToken(At)),
+        '|' => Some(SyntacticToken(Bar)),
+        '~' => Some(SyntacticToken(Tilde)),
+        '=' => Some(SyntacticToken(Equal)),
+        '+' => Some(OperationToken(Plus)),
+        '-' => Some(OperationToken(Minus)),
+        '*' => Some(OperationToken(Asterisk)),
+        '/' => Some(OperationToken(Slash)),
+        '^' => Some(OperationToken(Caret)),
+        '%' => Some(OperationToken(Percent)),
+        '>' => Some(OperationToken(Greater)),
+        '<' => Some(OperationToken(Less)),
         _ => None
     }
 }
 
-pub fn match_double_token(input: &str) -> Option<TokenType> {
+pub fn match_double_token(input: (char, char)) -> Option<TokenType> {
     match input {
-        "::" => Some(SyntacticToken(Type)),
-        "++" => Some(OperationToken(PlusPlus)),
-        "--" => Some(OperationToken(MinusMinus)),
-        ">=" => Some(OperationToken(GreaterEqual)),
-        "<=" => Some(OperationToken(LessEqual)),
-        "!=" => Some(OperationToken(BangEquals)),
-        "==" => Some(OperationToken(RefEqual)),
-        "=>" => Some(SyntacticToken(EqualGreater)),
-        "#t" => Some(LiteralToken(True)),
-        "#f" => Some(LiteralToken(False)),
-        ":=" => Some(ExpressionToken(Assign)),
-        "if" => Some(ExpressionToken(If)),
-        _ => None
+        (':', ':') => Some(SyntacticToken(Type)),
+        ('+', '+') => Some(OperationToken(PlusPlus)),
+        ('-', '-') => Some(OperationToken(MinusMinus)),
+        ('>', '=') => Some(OperationToken(GreaterEqual)),
+        ('<', '=') => Some(OperationToken(LessEqual)),
+        ('!', '=') => Some(OperationToken(BangEquals)),
+        ('=', '=') => Some(OperationToken(RefEqual)),
+        ('=', '>') => Some(SyntacticToken(EqualGreater)),
+        (':', '=') => Some(ExpressionToken(Assign)),
+        ('#', 't') => Some(LiteralToken(True)),
+        ('#', 'f') => Some(LiteralToken(False)),
+        ('i', 'f') => Some(ExpressionToken(If)),
+        _ => None,
     }
 }
 
@@ -85,9 +86,15 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
         "lacc" => Some(ExpressionToken(Lacc)),
         "define" => Some(DefinitionToken(Define)),
         "defunc" => Some(DefinitionToken(DefineFunc)),
-        "def-class" => Some(DefinitionToken(DefineRecord)),
+        "def-class" => Some(DefinitionToken(DefineClass)),
         "def-record" => Some(DefinitionToken(DefineRecord)),
         "lambda" => Some(DefinitionToken(Lambda)),
+        _ => None
+    }
+}
+
+pub fn match_modifier_token(input: &str) -> Option<TokenType> {
+    match input {
         "&mut" => Some(ModifierToken(Mutable)),
         "&pub" => Some(ModifierToken(Public)),
         "&priv" => Some(ModifierToken(Private)),
@@ -99,6 +106,8 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
     }
 }
 
+
+#[derive(Debug)]
 pub enum TokenType {
     LexicalToken(Lexical),
     SyntacticToken(Syntactic),
@@ -109,6 +118,7 @@ pub enum TokenType {
     ModifierToken(Modifier),
 }
 
+#[derive(Debug)]
 pub enum Lexical {
     LeftParen,
     RightParen,
@@ -123,6 +133,7 @@ pub enum Lexical {
     EOF,
 }
 
+#[derive(Debug)]
 pub enum Syntactic {
     Period,
     Ampersand,
@@ -137,9 +148,10 @@ pub enum Syntactic {
     Tilde,
     Equal,
     Else,
-    EqualGreater
+    EqualGreater,
 }
 
+#[derive(Debug)]
 pub enum Operation {
     And,
     Or,
@@ -165,6 +177,7 @@ pub enum Operation {
     RefEqual,
 }
 
+#[derive(Debug)]
 pub enum Literal {
     True,
     False,
@@ -175,6 +188,7 @@ pub enum Literal {
     Nil,
 }
 
+#[derive(Debug)]
 pub enum Expression {
     Assign,
     If,
@@ -191,6 +205,7 @@ pub enum Expression {
     Lacc,
 }
 
+#[derive(Debug)]
 pub enum Definition {
     Define,
     DefineFunc,
@@ -199,6 +214,7 @@ pub enum Definition {
     Lambda,
 }
 
+#[derive(Debug)]
 pub enum Modifier {
     Mutable,
     Public,
@@ -209,16 +225,16 @@ pub enum Modifier {
     Do,
 }
 
+#[derive(Debug)]
 pub enum TokenData {
     String(String),
     Integer(i64),
     Float(f64),
-    Boolean(bool),
 }
 
+#[derive(Debug)]
 pub struct Token {
     pub token_type: TokenType,
-    pub lexeme: String,
-    pub data: TokenData,
+    pub data: Option<TokenData>,
     pub line: i32,
 }

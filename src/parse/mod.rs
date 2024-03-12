@@ -1,3 +1,7 @@
+pub use token::*;
+
+
 mod token;
-pub use token::TokenType;
-pub use token::Token;
+mod lexer;
+pub(crate) mod test;
+

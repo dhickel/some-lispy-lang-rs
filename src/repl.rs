@@ -1,7 +1,6 @@
 use std::io;
 use std::io::Write;
 use std::time::SystemTime;
-use crate::parse::Token;
 
 pub mod parse;
 pub mod lang;

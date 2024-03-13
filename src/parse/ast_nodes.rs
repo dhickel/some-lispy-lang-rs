@@ -33,10 +33,11 @@ pub struct Param {
 pub enum ExprNode {
     Assignment { name: String, value: AstNode },
     MultiExpr(Vec<AstNode>),
+    SingleExpr(AstNode),
     PrintExpr(AstNode),
-    IfExpr { if_branch: CondBranch, else_branch: Option<CondBranch> },
-    CondExpr { cond_branches: Vec<CondBranch>, else_branch: Option<CondBranch> },
-    WhileLoop { condition: AstNode, body: AstNode, is_do: bool },
+    IfExpr { if_branch: CondBranch, else_branch: Option<AstNode> },
+    CondExpr { cond_branches: Vec<CondBranch>, else_branch: Option<AstNode> },
+    WhileLoop { condition: CondBranch, body: AstNode, is_do: bool },
     ConsExpr { car: AstNode, cdr: AstNode },
     PairList(Vec<AstNode>),
     ListAccess { index_expr: Option<AstNode>, pattern: Option<String> },
@@ -46,20 +47,20 @@ pub enum ExprNode {
 
 #[derive(Debug)]
 pub struct CondBranch {
-    cond_node: AstNode,
-    then_node: AstNode,
+    pub cond_node: AstNode,
+    pub then_node: AstNode,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Accessor {
-    name: String,
-    is_field: bool,
+    pub name: String,
+    pub is_field: bool,
 }
 
 #[derive(Debug)]
 pub struct FuncArg {
-    value: AstNode,
-    name: Option<String>,
+    pub value: AstNode,
+    pub name: Option<String>,
 }
 
 
@@ -106,7 +107,7 @@ pub enum LitNode {
     Quote(AstNode),
     Boolean(bool),
     Object(()), // TODO figure this out
-    Nil(),
+    Nil,
     Vector(Vec<LitNode>),
     Pair(Box<Pair>),
     Lambda { def: DefNode, env: Env },

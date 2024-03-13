@@ -1,9 +1,11 @@
-use std::fmt::format;
-use crate::parse::{Def, Lex, Lit, Op, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{AstNode, LitNode, OpNode, OpType};
-use crate::parse::ast_nodes::AstNode::{LiteralNode, OperationNode};
+use crate::parse::{Def, Expr, Lex, Lit, Op, Syn, Token, TokenData, TokenType};
+use crate::parse::ast_nodes::{AstNode, CondBranch, ExprNode, LitNode, OpNode, OpType};
+use crate::parse::ast_nodes::AstNode::{ExpressionNode, LiteralNode, OperationNode};
+use crate::parse::ast_nodes::ExprNode::{CondExpr, IfExpr, ListAccess, MultiExpr, PairList, PrintExpr, SingleExpr};
 use crate::parse::Lex::RightParen;
-use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic};
+use crate::parse::Syn::Grave;
+
+use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
 
 struct ParserState {
     pub tokens: Vec<Token>,
@@ -108,7 +110,7 @@ impl ParserState {
             Lexical(Lex::RightParen) => {
                 // Needed, this function is entered by parse_s_expr, but could be null list lit
                 if matches!(self.previous().token_type, Lexical(Lex::LeftParen)) {
-                    Ok(LiteralNode(Box::new(LitNode::Nil())))
+                    Ok(LiteralNode(Box::new(LitNode::Nil)))
                 } else { Err(format!("Right paren with no matching open, line: {}", self.peek().line)) }
             }
             Operation(_) => self.parse_operation(),
@@ -125,8 +127,8 @@ impl ParserState {
     pub fn parse_s_expr(&mut self) -> Result<AstNode, String> {
         self.consume_left_paren()?;
 
-        if self.peek().token_type == Lexical(RightParen) {// empty list if () is found
-            return Ok(LiteralNode(Box::new(LitNode::Nil())));
+        if self.peek().token_type == Lexical(Lex::RightParen) {// empty list if () is found
+            return Ok(LiteralNode(Box::new(LitNode::Nil)));
         }
         let expression = self.parse_expr_data();
         // if matches!(&self.peek().token_type, SyntacticToken(Syntactic::Colon)) {
@@ -142,9 +144,10 @@ impl ParserState {
         self.advance()?;
 
         let mut operands = Vec::<AstNode>::new();
-        while self.have_next() && !matches!(&self.peek().token_type, Lexical(Lex::RightParen)) {
+        while self.have_next() && self.peek().token_type != Lexical(Lex::RightParen) {
             operands.push(self.parse_expr_data()?);
         }
+
         match operation {
             Operation(Op::And) => Ok(OperationNode(OpNode::And { op_type: OpType::Boolean, operands })),
             Operation(Op::Or) => Ok(OperationNode(OpNode::Or { op_type: OpType::Boolean, operands })),
@@ -200,14 +203,129 @@ impl ParserState {
                             Ok(LiteralNode(Box::new(LitNode::String(value.to_string()))))
                         } else { Err(format!("Invalid data for identifier: {:?}", token.data)) }
                     }
-                    Lit::Nil => Ok(LiteralNode(Box::new(LitNode::Nil())))
+                    Lit::Nil => Ok(LiteralNode(Box::new(LitNode::Nil)))
                 }
             }
             _ => Err(format!("Expected literal value found: {:?}", token))
         }
     }
 
-    pub fn parse_exact_expr(&mut self) -> Result<AstNode, String> { panic!("Invalid token should not be reached") }
+    pub fn parse_exact_expr(&mut self) -> Result<AstNode, String> {
+        let expression = self.advance()?;
+        match expression.token_type {
+            Expression(Expr::Assign) => self.parse_assign(),
+
+            _ => Err(format!("Expected expression found {:?}", expression))
+        }
+    }
+
+    pub fn parse_assign(&mut self) -> Result<AstNode, String> {
+        self.advance()?;
+        self.parse_expr_data()
+    }
+
+    pub fn parse_if(&mut self) -> Result<AstNode, String> {
+        let condition = self.parse_expr_data()?;
+        let then = self.parse_expr_data()?;
+        let if_branch = CondBranch { cond_node: condition, then_node: then };
+        let else_branch: Option<AstNode> = if self.peek().token_type
+            == Lexical(Lex::RightParen) { Some(self.parse_expr_data()?) } else { None };
+
+        Ok(ExpressionNode(Box::new(IfExpr { if_branch, else_branch })))
+    }
+
+    pub fn parse_cond(&mut self) -> Result<AstNode, String> {
+        let mut cond_branches = Vec::<CondBranch>::new();
+        let mut else_branch = None;
+
+        while self.peek().token_type != Lexical(Lex::RightParen) {
+            if self.peek_n(2).token_type == Syntactic(Syn::Else) {
+                self.consume_left_paren()?;
+                self.consume(&Syntactic(Syn::Else))?;
+                else_branch = Some(self.parse_expr_data()?);
+                self.consume_right_paren()?;
+                break;
+            }
+            cond_branches.push(self.parse_cond_branch()?)
+        }
+
+        if cond_branches.is_empty() {
+            Err(format!("Cond expression must have at least one branch, line: {}", self.peek().line))
+        } else {
+            Ok(ExpressionNode(Box::new(CondExpr { cond_branches, else_branch })))
+        }
+    }
+
+    pub fn parse_cond_branch(&mut self) -> Result<CondBranch, String> {
+        self.consume_left_paren()?;
+        let cond_node = self.parse_expr_data()?;
+        let then_node = self.parse_expr_data()?;
+        self.consume_right_paren()?;
+        Ok(CondBranch { cond_node, then_node })
+    }
+
+    pub fn parse_multi_expr(&mut self) -> Result<AstNode, String> {
+        let mut expressions = Vec::<AstNode>::new();
+
+        while (self.peek().token_type != Lexical(Lex::RightParen)) {
+            expressions.push(self.parse_expr_data()?);
+        }
+
+        if expressions.is_empty() {
+            Err(format!("Expected one or more expressions, line: {}", self.peek().line))
+        } else if expressions.len() == 1 {
+            Ok(ExpressionNode(Box::new(SingleExpr(expressions.pop().unwrap()))))
+        } else {
+            Ok(ExpressionNode(Box::new(MultiExpr(expressions))))
+        }
+    }
+
+    // Todo add some checks for define nodes and things that would get evaled
+    //  but shouldn't be in a print statement
+    pub fn parse_print(&mut self) -> Result<AstNode, String> {
+        let expr = self.parse_expr_data()?;
+        Ok(ExpressionNode(Box::new(PrintExpr(expr))))
+    }
+
+    pub fn parse_list(&mut self) -> Result<AstNode, String> {
+        let mut elements = Vec::<AstNode>::new();
+        while self.peek().token_type != Lexical(Lex::RightParen) {
+            elements.push(self.parse_expr_data()?);
+        }
+        if elements.is_empty() {
+            Ok(LiteralNode(Box::new(LitNode::Nil)))
+        } else {
+            Ok(ExpressionNode(Box::new(PairList(elements))))
+        }
+    }
+
+    pub fn parse_list_head(&mut self) -> Result<AstNode, String> {
+        let head = self.parse_expr_data()?;
+        if self.peek().token_type != Lexical(RightParen) {
+            Err(format!("Invalid argument count, line: {}", self.peek().line))
+        } else {
+            Ok(head)
+        }
+    }
+
+    pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
+        if self.peek().token_type == Syntactic(Grave) {
+            self.advance()?;
+            let token_data = &self.consume(&Literal(Lit::Identifier))?.data;
+            if let Some(TokenData::String(s)) = token_data {
+                Ok(ExpressionNode(Box::new(ListAccess { index_expr: None, pattern: Some(s.clone()) })))
+            } else {
+                Err("Expected fr... access patterh".to_string())
+            }
+        } else {
+            let index = self.parse_expr_data()?;
+            Ok(ExpressionNode(Box::new(ListAccess { index_expr: Some(index), pattern: None })))
+        }
+    }
+
+    pub fn parse_while(&mut self) -> Result<AstNode, String> {}
+
+    pub fn parse_cons(&mut self) -> Result<AstNode, String> {}
 
     pub fn parse_define(&mut self) -> Result<AstNode, String> { panic!("Invalid token should not be reached") }
 

@@ -1,8 +1,8 @@
 use std::iter::Peekable;
 use std::str::Chars;
-use crate::parse::{Lexical, Literal, match_single_token, Operation, Syntactic, Token, token, TokenData, TokenType};
-use crate::parse::Literal::Identifier;
-use crate::parse::TokenType::{LexicalToken, LiteralToken, SyntacticToken, OperationToken};
+use crate::parse::{Lex, Lit, match_single_token, Op, Syn, Token, token, TokenData, TokenType};
+use crate::parse::Lit::Identifier;
+use crate::parse::TokenType::{Lexical, Literal, Syntactic, Operation};
 
 struct LexicalState<'a> {
     pub tokens: Vec<Token>,
@@ -32,12 +32,12 @@ impl<'a> LexicalState<'a> {
 
     pub fn advance(&mut self) -> char {
         self.last_char = self.curr_char;
-        self.curr_char = self.char_iter.next().expect("Error: Advanced past end");
+        self.curr_char = self.char_iter.next().expect("Advanced past end");
         self.curr_char
     }
 
     pub fn peek(&mut self) -> char {
-        return *self.char_iter.peek().expect("Error: Advanced past end");
+        return *self.char_iter.peek().expect("Advanced past end");
     }
 
     pub fn add_token(&mut self, token_type: TokenType) -> bool {
@@ -82,7 +82,7 @@ pub fn process(input: String) -> Result<Vec<Token>, String> {
 
         return Err(format!("Error while lexing line {}, char {}", state.line_num, c));
     }
-    state.add_token(LexicalToken(Lexical::EOF));
+    state.add_token(Lexical(Lex::EOF));
     Ok(state.tokens)
 }
 
@@ -93,7 +93,7 @@ fn lex_double_token(state: &mut LexicalState) -> bool {
     match token::match_double_token((state.curr_char, state.peek())) {
         None => false,
         Some(value) => {
-            if matches!(value, SyntacticToken(Syntactic::Type)) {
+            if matches!(value, Syntactic(Syn::Type)) {
                 lex_type(state)
             } else { state.add_token(value) }
         }
@@ -104,9 +104,9 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
     match match_single_token(state.curr_char) {
         None => false,
         Some(value) => {
-            if matches!(value, SyntacticToken(Syntactic::Ampersand)) {
+            if matches!(value, Syntactic(Syn::Ampersand)) {
                 lex_modifier(state)
-            } else if matches!(value, LexicalToken(Lexical::DoubleQuote)) {
+            } else if matches!(value, Lexical(Lex::DoubleQuote)) {
                 lex_string_literal(state)
             } else { state.add_token(value) }
         }
@@ -116,19 +116,17 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
 fn lex_word_token(state: &mut LexicalState) -> bool {
     let string_data = read_data_to_string(state);
     match token::match_word_token(&string_data) {
-        None => state.add_token_data(LiteralToken(Identifier), TokenData::String(string_data)),
+        None => state.add_token_data(Literal(Identifier), TokenData::String(string_data)),
         Some(value) => state.add_token_data(value, TokenData::String(string_data))
     }
 }
-
-
 
 
 fn lex_type(state: &mut LexicalState) -> bool {
     state.advance(); // skip the ::
     state.advance();
     let type_string: String = read_data_to_string(state);
-    state.add_token_data(SyntacticToken(Syntactic::Type), TokenData::String(type_string));
+    state.add_token_data(Syntactic(Syn::Type), TokenData::String(type_string));
     true
 }
 
@@ -145,20 +143,20 @@ fn lex_modifier(state: &mut LexicalState) -> bool {
 // TODO handle nested strings
 fn lex_string_literal(state: &mut LexicalState) -> bool {
     let mut string_data = String::new();
-    
+
     while state.have_next() && state.peek() != '"' {
         string_data.push(state.advance());
     }
-    
+
     state.advance(); // Consume closing "
-    state.add_token_data(LiteralToken(Literal::String), TokenData::String(string_data));
+    state.add_token_data(Literal(Lit::String), TokenData::String(string_data));
     true
 }
 
 fn read_data_to_string(state: &mut LexicalState) -> String {
     let mut string_data = String::new();
     string_data.push(state.curr_char);
-    
+
     let mut c: char = state.peek();
     while state.have_next() && !is_def_end(c) && is_alpha_numeric(c) {
         string_data.push(state.advance());
@@ -172,14 +170,14 @@ fn lex_number_token(state: &mut LexicalState) -> bool {
     let mut is_float: bool = false;
     let mut is_neg: bool = false;
 
-    if matches!(state.tokens.last().unwrap().token_type, OperationToken(Operation::Minus)) {
+    if matches!(state.tokens.last().unwrap().token_type, Operation(Op::Minus)) {
         is_neg = true;
         state.tokens.remove(state.tokens.len() - 1);
     }
 
     let mut num_string = String::new();
     num_string.push(state.curr_char);
-    
+
     if state.peek() == '.' {
         is_float = true;
         num_string.push(state.advance());
@@ -195,18 +193,17 @@ fn lex_number_token(state: &mut LexicalState) -> bool {
     if is_float {
         let number: f64 = num_string.parse::<f64>().expect("Failed parsing number");
         state.add_token_data(
-            LiteralToken(Literal::Float),
+            Literal(Lit::Float),
             TokenData::Float(if is_neg { -number } else { number }),
         )
     } else {
         let number: i64 = num_string.parse::<i64>().expect("Failed parsing number");
         state.add_token_data(
-            LiteralToken(Literal::Int),
+            Literal(Lit::Int),
             TokenData::Integer(if is_neg { -number } else { number }),
         )
     }
 }
-
 
 
 fn is_def_end(c: char) -> bool {

@@ -23,6 +23,7 @@ fn main() {
                 }
                 match parse::lexer::process(input) {
                     Ok(tokens) => {
+                        println!("Tokens: {:?}\n", tokens);
                         let ast = parse::parser::process(tokens);
                         println!("\nSyntax Tree: {:?}\n", ast)
                         

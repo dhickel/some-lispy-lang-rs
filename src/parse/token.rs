@@ -107,7 +107,7 @@ pub fn match_modifier_token(input: &str) -> Option<TokenType> {
 }
 
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     Lexical(Lex),
     Syntactic(Syn),
@@ -118,7 +118,7 @@ pub enum TokenType {
     Modifier(Mod),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Lex {
     LeftParen,
     RightParen,
@@ -133,7 +133,7 @@ pub enum Lex {
     EOF,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Syn {
     Period,
     Ampersand,
@@ -151,7 +151,7 @@ pub enum Syn {
     EqualGreater,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Op {
     And,
     Or,
@@ -177,7 +177,7 @@ pub enum Op {
     RefEqual,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Lit {
     True,
     False,
@@ -188,7 +188,7 @@ pub enum Lit {
     Nil,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Expr {
     Assign,
     If,
@@ -205,7 +205,7 @@ pub enum Expr {
     Lacc,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Def {
     Define,
     DefineFunc,
@@ -214,7 +214,7 @@ pub enum Def {
     Lambda,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Mod {
     Mutable,
     Public,

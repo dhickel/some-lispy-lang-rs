@@ -1,9 +1,10 @@
-use crate::parse::{Def, Expr, Lex, Lit, Op, Syn, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{AstNode, CondBranch, ExprNode, LitNode, OpNode, OpType};
-use crate::parse::ast_nodes::AstNode::{ExpressionNode, LiteralNode, OperationNode};
-use crate::parse::ast_nodes::ExprNode::{CondExpr, IfExpr, ListAccess, MultiExpr, PairList, PrintExpr, SingleExpr};
-use crate::parse::Lex::RightParen;
-use crate::parse::Syn::Grave;
+use std::io::BufRead;
+
+use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
+use crate::parse::ast_nodes::{AstNode, CondBranch, DefNode, ExprNode, FuncArg, LitNode, OpNode, OpType, Param};
+use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, LiteralNode, OperationNode};
+use crate::parse::ast_nodes::ExprNode::{CondExpr, ConsExpr, IfExpr, ListAccess, MultiExpr, PairList, PrintExpr, SingleExpr, WhileLoop};
+
 
 use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
 
@@ -12,6 +13,7 @@ struct ParserState {
     pub current: usize,
     pub end: usize,
     pub depth: i32,
+    pub warnings: Vec<String>,
 }
 
 impl ParserState {
@@ -22,18 +24,31 @@ impl ParserState {
             current: 0,
             end: len,
             depth: 0,
+            warnings: Vec::<String>::new(),
         }
+    }
+
+    pub fn process(&mut self) -> Result<Vec<AstNode>, String> {
+        let mut root_expressions = Vec::<AstNode>::new();
+        while self.have_next() {
+            root_expressions.push(self.parse_expr_data()?);
+        }
+        Ok(root_expressions)
+    }
+
+    pub fn push_warning(&mut self, warning: String) {
+        self.warnings.push(warning);
     }
 
     pub fn have_next(&mut self) -> bool {
         self.current + 1 < self.end
     }
 
-    pub fn peek(&mut self) -> &Token {
+    pub fn peek(&self) -> &Token {
         &self.tokens[self.current]
     }
 
-    pub fn peek_n(&mut self, n: usize) -> &Token {
+    pub fn peek_n(&self, n: usize) -> &Token {
         &self.tokens[self.current + (n - 1)]
     }
 
@@ -54,7 +69,8 @@ impl ParserState {
     pub fn advance(&mut self) -> Result<&Token, String> {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
-        if matches!(self.peek().token_type,Lexical(Lex::LeftParen)|Lexical(Lex::RightParen)) {
+        if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
+            panic!("Parenthesis should only be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         self.current += 1;
@@ -65,60 +81,63 @@ impl ParserState {
         self.tokens.iter().find(|token| tokens.contains(&token.token_type))
     }
 
-    pub fn consume(&mut self, token_type: &TokenType) -> Result<&Token, String> {
+    pub fn consume(&mut self, token_type: TokenType) -> Result<&Token, String> {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
         if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
+            panic!("Parenthesis should only be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         if !self.check(&token_type) {
+            panic!("Expected: {:?}, Found: {:?}", token_type, self.peek());
             return Err(format!("Expected: {:?}, Found: {:?}", token_type, self.peek()));
         }
-        self.current += 1;
-        Ok(&self.tokens[self.current])
+        self.advance()
     }
 
     pub fn consume_left_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::LeftParen)) {
+            panic!("Expected: LeftParen, Found: {:?}", self.peek());
             return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
         }
-        self.depth += 1;
         self.current += 1;
+        self.depth += 1;
         Ok(())
     }
 
     pub fn consume_right_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::RightParen)) {
+            panic!("Expected: RightParent, Found: {:?}", self.peek());
             return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
         }
-        self.depth -= 1;
         self.current += 1;
+        self.depth -= 1;
         Ok(())
     }
 
-    pub fn process(&mut self) -> Result<Vec<AstNode>, String> {
-        let mut root_expressions = Vec::<AstNode>::new();
-        while self.have_next() {
-            root_expressions.push(self.parse_expr_data()?);
-        }
-        Ok(root_expressions)
-    }
-
     pub fn parse_expr_data(&mut self) -> Result<AstNode, String> {
+        if (self.current > 1) {
+            println!("prev: {:?}", self.previous());
+            println!("prev: {:?}", self.peek());
+        }
         match &self.peek().token_type {
             Lexical(Lex::LeftParen) => self.parse_s_expr(),
             Lexical(Lex::RightParen) => {
                 // Needed, this function is entered by parse_s_expr, but could be null list lit
                 if matches!(self.previous().token_type, Lexical(Lex::LeftParen)) {
                     Ok(LiteralNode(Box::new(LitNode::Nil)))
-                } else { Err(format!("Right paren with no matching open, line: {}", self.peek().line)) }
+                } else {
+                    panic!();
+                    Err(format!("Right paren with no matching open, line: {}", self.peek().line))
+                }
             }
             Operation(_) => self.parse_operation(),
             Literal(_) => self.parse_literal(),
+            Syntactic(Syn::Grave) => self.parse_quote(),
             Expression(_) => self.parse_exact_expr(),
             Definition(Def::Define) => self.parse_define(),
             Definition(Def::DefineFunc) => self.parse_func(),
-            Definition(Def::Lambda) => self.parse_lambda(),
+            Definition(Def::Lambda) => self.parse_lambda(false),
             Syntactic(_) => Err(format!("Unexpected token: {:?}", &self.peek())), // TODO implement quote
             _ => Err(format!("Unexpected token: {:?}", &self.peek()))
         }
@@ -126,14 +145,16 @@ impl ParserState {
 
     pub fn parse_s_expr(&mut self) -> Result<AstNode, String> {
         self.consume_left_paren()?;
-
-        if self.peek().token_type == Lexical(Lex::RightParen) {// empty list if () is found
-            return Ok(LiteralNode(Box::new(LitNode::Nil)));
-        }
         let expression = self.parse_expr_data();
         // if matches!(&self.peek().token_type, SyntacticToken(Syntactic::Colon)) {
         //     parse object call
         // }
+        let expr = &expression;
+        if let Ok((s)) = expr {
+            println!("expr: {:?}", s)
+        }
+        println!("Prev: {:?}", self.previous());
+
 
         self.consume_right_paren()?;
         expression
@@ -214,7 +235,20 @@ impl ParserState {
         let expression = self.advance()?;
         match expression.token_type {
             Expression(Expr::Assign) => self.parse_assign(),
-
+            Expression(Expr::If) => self.parse_if(),
+            Expression(Expr::Cond) => self.parse_cond(),
+            Expression(Expr::Begin) => self.parse_multi_expr(),
+            Expression(Expr::Print) => self.parse_print(),
+            Expression(Expr::List) => self.parse_list(),
+            Expression(Expr::Lacc) => self.parse_list_access(),
+            Expression(Expr::While) => self.parse_while(),
+            Expression(Expr::Cons) => self.parse_cons(),
+            Expression(Expr::Car) => {
+                Ok(ExpressionNode(Box::new(ListAccess { index_expr: None, pattern: Some("f".to_string()) })))
+            }
+            Expression(Expr::Cdr) => {
+                Ok(ExpressionNode(Box::new(ListAccess { index_expr: None, pattern: Some("r".to_string()) })))
+            }
             _ => Err(format!("Expected expression found {:?}", expression))
         }
     }
@@ -228,9 +262,9 @@ impl ParserState {
         let condition = self.parse_expr_data()?;
         let then = self.parse_expr_data()?;
         let if_branch = CondBranch { cond_node: condition, then_node: then };
-        let else_branch: Option<AstNode> = if self.peek().token_type
-            == Lexical(Lex::RightParen) { Some(self.parse_expr_data()?) } else { None };
-
+        let else_branch = if self.peek().token_type == Lexical(Lex::LeftParen) {
+            Some(self.parse_expr_data()?)
+        } else { None };
         Ok(ExpressionNode(Box::new(IfExpr { if_branch, else_branch })))
     }
 
@@ -241,7 +275,7 @@ impl ParserState {
         while self.peek().token_type != Lexical(Lex::RightParen) {
             if self.peek_n(2).token_type == Syntactic(Syn::Else) {
                 self.consume_left_paren()?;
-                self.consume(&Syntactic(Syn::Else))?;
+                self.consume(Syntactic(Syn::Else))?;
                 else_branch = Some(self.parse_expr_data()?);
                 self.consume_right_paren()?;
                 break;
@@ -251,13 +285,12 @@ impl ParserState {
 
         if cond_branches.is_empty() {
             Err(format!("Cond expression must have at least one branch, line: {}", self.peek().line))
-        } else {
-            Ok(ExpressionNode(Box::new(CondExpr { cond_branches, else_branch })))
-        }
+        } else { Ok(ExpressionNode(Box::new(CondExpr { cond_branches, else_branch }))) }
     }
 
     pub fn parse_cond_branch(&mut self) -> Result<CondBranch, String> {
         self.consume_left_paren()?;
+
         let cond_node = self.parse_expr_data()?;
         let then_node = self.parse_expr_data()?;
         self.consume_right_paren()?;
@@ -266,8 +299,7 @@ impl ParserState {
 
     pub fn parse_multi_expr(&mut self) -> Result<AstNode, String> {
         let mut expressions = Vec::<AstNode>::new();
-
-        while (self.peek().token_type != Lexical(Lex::RightParen)) {
+        while self.peek().token_type != Lexical(Lex::RightParen) {
             expressions.push(self.parse_expr_data()?);
         }
 
@@ -275,9 +307,7 @@ impl ParserState {
             Err(format!("Expected one or more expressions, line: {}", self.peek().line))
         } else if expressions.len() == 1 {
             Ok(ExpressionNode(Box::new(SingleExpr(expressions.pop().unwrap()))))
-        } else {
-            Ok(ExpressionNode(Box::new(MultiExpr(expressions))))
-        }
+        } else { Ok(ExpressionNode(Box::new(MultiExpr(expressions)))) }
     }
 
     // Todo add some checks for define nodes and things that would get evaled
@@ -292,51 +322,232 @@ impl ParserState {
         while self.peek().token_type != Lexical(Lex::RightParen) {
             elements.push(self.parse_expr_data()?);
         }
+
         if elements.is_empty() {
             Ok(LiteralNode(Box::new(LitNode::Nil)))
-        } else {
-            Ok(ExpressionNode(Box::new(PairList(elements))))
-        }
+        } else { Ok(ExpressionNode(Box::new(PairList(elements)))) }
     }
 
     pub fn parse_list_head(&mut self) -> Result<AstNode, String> {
         let head = self.parse_expr_data()?;
-        if self.peek().token_type != Lexical(RightParen) {
+        if self.peek().token_type != Lexical(Lex::RightParen) {
             Err(format!("Invalid argument count, line: {}", self.peek().line))
-        } else {
-            Ok(head)
-        }
+        } else { Ok(head) }
     }
 
     pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
-        if self.peek().token_type == Syntactic(Grave) {
+        if self.peek().token_type == Syntactic(Syn::Grave) {
             self.advance()?;
-            let token_data = &self.consume(&Literal(Lit::Identifier))?.data;
+            let token_data = &self.consume(Literal(Lit::Identifier))?.data;
+
             if let Some(TokenData::String(s)) = token_data {
                 Ok(ExpressionNode(Box::new(ListAccess { index_expr: None, pattern: Some(s.clone()) })))
-            } else {
-                Err("Expected fr... access patterh".to_string())
-            }
+            } else { Err("Expected fr... access pattern".to_string()) }
         } else {
             let index = self.parse_expr_data()?;
             Ok(ExpressionNode(Box::new(ListAccess { index_expr: Some(index), pattern: None })))
         }
     }
 
-    pub fn parse_while(&mut self) -> Result<AstNode, String> {}
+    pub fn parse_while(&mut self) -> Result<AstNode, String> {
+        let is_do = if self.peek().token_type == Modifier(Mod::Do) {
+            self.advance()?;
+            true
+        } else { false };
 
-    pub fn parse_cons(&mut self) -> Result<AstNode, String> {}
+        let condition = self.parse_expr_data()?;
+        let body = self.parse_multi_expr()?;
+        Ok(ExpressionNode(Box::new(WhileLoop { condition, body, is_do })))
+    }
 
-    pub fn parse_define(&mut self) -> Result<AstNode, String> { panic!("Invalid token should not be reached") }
+    pub fn parse_cons(&mut self) -> Result<AstNode, String> {
+        let car = self.parse_expr_data()?;
+        let cdr = self.parse_expr_data()?;
 
-    pub fn parse_func(&mut self) -> Result<AstNode, String> { panic!("Invalid token should not be reached") }
+        if self.peek().token_type == Lexical(Lex::RightParen) {
+            Err("Cons expression may only have 2 arguments".to_string())
+        } else { Ok(ExpressionNode(Box::new(ConsExpr { car, cdr }))) }
+    }
 
-    pub fn parse_lambda(&mut self) -> Result<AstNode, String> { panic!("Invalid token should not be reached") }
+    pub fn parse_type_if_exists(&mut self) -> Result<Option<String>, String> {
+        let typ = if let (
+            Syntactic(Syn::Type), Some(TokenData::String(s))
+        ) = (&self.peek().token_type, &self.peek().data) {
+            Some(s.clone())
+        } else { None };
+
+        if typ.is_some() { self.advance()?; }
+        Ok(typ)
+    }
+
+    pub fn parse_define(&mut self) -> Result<AstNode, String> {
+        self.consume(Definition(Def::Define))?;
+
+        let name = match &self.consume(Literal(Lit::Identifier))?.data {
+            Some(TokenData::String(name)) => name.clone(),
+            _ => return Err("Expected a string identifier".to_string())
+        };
+        let modifiers = self.parse_modifiers()?;
+        let var_type = self.parse_type_if_exists()?;
+
+        let definition = match self.peek().token_type {
+            Lexical(Lex::LeftParen) => {
+                if self.peek_n(2).token_type == Definition(Def::Lambda) {
+                    if var_type != None {
+                        self.push_warning(format!(
+                            "Type specifier: {}, is unused for function definition, line: {}",
+                            var_type.unwrap(), self.peek().line))
+                    }
+
+                    self.consume_left_paren()?;
+                    let lambda = self.parse_lambda(false)?;
+                    self.consume_right_paren()?;
+                    DefinitionNode(Box::new(DefNode::Function { name, lambda }))
+                } else {
+                    let value = Box::new(self.parse_expr_data()?);
+                    DefinitionNode(Box::new(DefNode::Variable { name, modifiers, value, var_type }))
+                }
+            }
+            Literal(_) => {
+                let value = Box::new(self.parse_literal()?);
+                DefinitionNode(Box::new(DefNode::Variable { name, modifiers, value, var_type }))
+            }
+            Syntactic(Syn::Grave) => self.parse_quote()?,
+            _ => return Err(format!("Invalid syntax in define, line: {}", self.peek().line))
+        };
+
+        return Ok(definition);
+    }
+
+
+    pub fn parse_quote(&mut self) -> Result<AstNode, String> {
+        self.consume(Syntactic(Syn::Grave))?;
+        Ok(LiteralNode(Box::new(LitNode::Quote(self.parse_expr_data()?))))
+    }
+
+
+    pub fn parse_func(&mut self) -> Result<AstNode, String> {
+        self.consume(Definition(Def::DefineFunc))?;
+
+        let name = match &self.consume(Literal(Lit::Identifier))?.data {
+            Some(TokenData::String(name)) => name.clone(),
+            _ => return Err("Expected name for function".to_string())
+        };
+        let lambda = self.parse_lambda(true)?;
+        println!("exiting defunc with: {:?}", self.peek());
+        Ok(DefinitionNode(Box::new(DefNode::Function { name, lambda })))
+    }
+
+    pub fn parse_lambda(&mut self, is_defunc: bool) -> Result<AstNode, String> {
+        if !is_defunc { self.consume(Definition(Def::Lambda))?; }
+
+        let modifiers = if matches!(self.peek().token_type, Modifier(_)) {
+            self.parse_modifiers()?
+        } else { None };
+
+        let parameters = self.parse_parameters()?;
+        let body = self.parse_multi_expr()?;
+        //self.consume_right_paren();
+
+
+        let rtn_type = self.parse_type_if_exists()?;
+        Ok(DefinitionNode(Box::new(DefNode::Lambda { modifiers, parameters, body, rtn_type })))
+    }
+
+    pub fn parse_modifiers(&mut self) -> Result<Option<Vec<Mod>>, String> {
+        if !matches!(self.peek().token_type, Modifier(_)) { return Ok(None); };
+
+        let mut modifiers = Vec::<Mod>::new();
+        while let Modifier(modifier) = &self.peek().token_type {
+            modifiers.push(*modifier);
+            self.advance()?;
+        }
+        if modifiers.is_empty() {
+            Ok(None)
+        } else { Ok(Some(modifiers)) }
+    }
+
+    pub fn parse_func_args(&mut self) -> Result<Option<Vec<FuncArg>>, String> {
+        let mut func_args = Vec::<FuncArg>::new();
+        while self.peek().token_type != Lexical(Lex::RightParen) {
+            if self.peek().token_type == Syntactic(Syn::Colon) {
+                self.advance()?; // consume colon
+                let token_data = self.consume(Literal(Lit::Identifier))?;
+                let name = match token_data.data {
+                    Some(TokenData::String(ref s)) => s.clone(), // Clone to get owned String
+                    _ => return Err("Expected a string identifier".to_string())
+                };
+                let value = self.parse_expr_data()?;
+                func_args.push(FuncArg { name: Some(name.clone()), value });
+            } else {
+                let value = self.parse_expr_data()?;
+                func_args.push(FuncArg { name: None, value });
+            }
+        }
+        Ok(Some(func_args))
+    }
+
+
+    pub fn parse_parameters(&mut self) -> Result<Option<Vec<Param>>, String> {
+        self.consume_left_paren()?;
+        if self.peek().token_type == Lexical(Lex::RightParen) {
+            self.consume_right_paren()?;
+            return Ok(None);
+        }
+
+        let mut optional = false;
+        let mut params = Vec::<Param>::new();
+
+        while self.peek().token_type != Lexical(Lex::RightParen) {
+            println!("Peek before modifers:{:?}", self.peek());
+            let modifiers = self.parse_modifiers()?;
+            println!("Previous:{:?}", self.previous());
+            let mut dynamic = false;
+            let mut mutable = false;
+            println!("Modifiers: {:?}", modifiers);
+            for modifier in modifiers.unwrap_or_default() {
+                match modifier {
+                    Mod::Mutable => mutable = true,
+                    Mod::Dynamic => dynamic = true,
+                    Mod::Optional => if !optional { optional = true },
+                    _ => {}
+                };
+            };
+
+            println!("Previous:{:?}", self.previous());
+            println!("is  optional: {}", optional);
+            println!("params: {:?}", params);
+
+            let name = match &self.consume(Literal(Lit::Identifier))?.data {
+                Some(TokenData::String(s)) => s.clone(),
+                _ => return Err("Expected a variable identifier".to_string())
+            };
+            println!("Assigned: {}", name);
+            println!("Next: {:?}", self.peek());
+            let default_value: Option<AstNode> = if optional {
+                if self.peek().token_type != Syntactic(Syn::Equal) {
+                    return Err(format!(
+                        "All parameters after &opt modifier need default assignments, line: {}",
+                        self.peek().line));
+                };
+                self.advance()?; // consume =
+                Some(self.parse_literal()?)
+            } else { None };
+
+            let typ = self.parse_type_if_exists()?;
+            println!("type exists?: {}", typ.is_some());
+            println!("Next at end:{:?}", self.peek());
+            params.push(Param { name, typ, optional, default_value, dynamic, mutable });
+        }
+        self.consume_right_paren()?;
+        Ok(Some(params))
+    }
 }
 
 pub fn process(tokens: Vec<Token>) -> Result<Vec<AstNode>, String> {
     let mut state = ParserState::new(tokens);
     state.process()
 }
+
 
 

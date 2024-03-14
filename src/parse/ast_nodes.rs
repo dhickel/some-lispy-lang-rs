@@ -4,7 +4,6 @@ use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::Mod;
 
 
-
 #[derive(Debug)]
 pub enum AstNode {
     DefinitionNode(Box<DefNode>),
@@ -16,17 +15,24 @@ pub enum AstNode {
 
 #[derive(Debug)]
 pub enum DefNode {
-    Variable { name: String, modifiers: Vec<Mod>, parameters: Vec<Param>, value: Box<LitNode>, rtn_type: String },
-    Lambda { modifiers: Vec<Mod>, parameters: Vec<Param>, body: AstNode, rtn_type: String },
+    Variable {
+        name: String,
+        modifiers: Option<Vec<Mod>>,
+        value: Box<AstNode>,
+        var_type: Option<String>,
+    },
+    Lambda { modifiers: Option<Vec<Mod>>, parameters: Option<Vec<Param>>, body: AstNode, rtn_type: Option<String> },
+    Function { name: String, lambda: AstNode },
 }
 
 #[derive(Debug)]
 pub struct Param {
-    name: String,
-    optional: bool,
-    default_value: Option<AstNode>,
-    dynamic: bool,
-    mutable: bool,
+    pub name: String,
+    pub typ: Option<String>,
+    pub optional: bool,
+    pub default_value: Option<AstNode>,
+    pub dynamic: bool,
+    pub mutable: bool,
 }
 
 #[derive(Debug)]
@@ -37,7 +43,7 @@ pub enum ExprNode {
     PrintExpr(AstNode),
     IfExpr { if_branch: CondBranch, else_branch: Option<AstNode> },
     CondExpr { cond_branches: Vec<CondBranch>, else_branch: Option<AstNode> },
-    WhileLoop { condition: CondBranch, body: AstNode, is_do: bool },
+    WhileLoop { condition: AstNode, body: AstNode, is_do: bool },
     ConsExpr { car: AstNode, cdr: AstNode },
     PairList(Vec<AstNode>),
     ListAccess { index_expr: Option<AstNode>, pattern: Option<String> },
@@ -62,7 +68,6 @@ pub struct FuncArg {
     pub value: AstNode,
     pub name: Option<String>,
 }
-
 
 
 #[derive(Debug)]
@@ -106,7 +111,8 @@ pub enum LitNode {
     String(String),
     Quote(AstNode),
     Boolean(bool),
-    Object(()), // TODO figure this out
+    Object(()),
+    // TODO figure this out
     Nil,
     Vector(Vec<LitNode>),
     Pair(Box<Pair>),
@@ -132,7 +138,7 @@ impl LitNode {
             LitNode::Quote(_) => 1,
             LitNode::Boolean(val) => if *val == true { 1 } else { 0 },
             LitNode::Object(_) => 1,
-            LitNode::Nil() => 0,
+            LitNode::Nil => 0,
             LitNode::Vector(vec) => if vec.is_empty() { 0 } else { 1 }
             LitNode::Pair(_) => 1,
             LitNode::Lambda { .. } => 1
@@ -147,7 +153,7 @@ impl LitNode {
             LitNode::Quote(_) => 1.0,
             LitNode::Boolean(val) => if *val == true { 1.0 } else { 0.0 },
             LitNode::Object(_) => 1.0,
-            LitNode::Nil() => 0.0,
+            LitNode::Nil => 0.0,
             LitNode::Vector(vec) => if vec.is_empty() { 0.0 } else { 1.0 }
             LitNode::Pair(_) => 1.0,
             LitNode::Lambda { .. } => 1.0

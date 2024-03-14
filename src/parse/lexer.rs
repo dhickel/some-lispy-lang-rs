@@ -93,6 +93,7 @@ fn lex_double_token(state: &mut LexicalState) -> bool {
     match token::match_double_token((state.curr_char, state.peek())) {
         None => false,
         Some(value) => {
+            state.advance(); // TODO untested change might breal
             if matches!(value, Syntactic(Syn::Type)) {
                 lex_type(state)
             } else { state.add_token(value) }
@@ -123,8 +124,7 @@ fn lex_word_token(state: &mut LexicalState) -> bool {
 
 
 fn lex_type(state: &mut LexicalState) -> bool {
-    state.advance(); // skip the ::
-    state.advance();
+    state.advance(); // skip the extra  :
     let type_string: String = read_data_to_string(state);
     state.add_token_data(Syntactic(Syn::Type), TokenData::String(type_string));
     true

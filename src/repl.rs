@@ -21,17 +21,22 @@ fn main() {
                 if input.trim() == "exit" {
                     break;
                 }
-                match parse::lexer::process(input) {
-                    Ok(tokens) => {
-                        println!("Tokens: {:?}\n", tokens);
-                        let ast = parse::parser::process(tokens);
-                        println!("\nSyntax Tree: {:?}\n", ast)
-                        
-                    }
-                    Err(s) => println!("Error Processing: {}", s)
-                }
+                println!("{}", eval::interpreter::repl_eval(input));
             }
+            // }
             Err(error) => println!("error: {}", error),
+
+                // match parse::lexer::process(input) {
+                //     Ok(tokens) => {
+                //         println!("Tokens: {:?}\n", tokens);
+                //         let ast = parse::parser::process(tokens);
+                //         println!("\nSyntax Tree: {:?}\n", ast)
+                //         
+                //     }
+                //     Err(s) => println!("Error Processing: {}", s)
+                // }
+            
+            
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 use std::str::Chars;
 use crate::parse::{Lex, Lit, match_single_token, Op, Syn, Token, token, TokenData, TokenType};
-use crate::parse::Lit::Identifier;
+
 use crate::parse::TokenType::{Lexical, Literal, Syntactic, Operation};
 
 struct LexicalState<'a> {
@@ -61,7 +61,6 @@ impl<'a> LexicalState<'a> {
     }
 }
 
-
 pub fn process(input: String) -> Result<Vec<Token>, String> {
     let mut state = LexicalState::new(&input);
 
@@ -86,14 +85,13 @@ pub fn process(input: String) -> Result<Vec<Token>, String> {
     Ok(state.tokens)
 }
 
-
 fn lex_double_token(state: &mut LexicalState) -> bool {
     if !state.have_next() { return false; }
 
     match token::match_double_token((state.curr_char, state.peek())) {
         None => false,
         Some(value) => {
-            state.advance(); // TODO untested change might breal
+            state.advance();
             if matches!(value, Syntactic(Syn::Type)) {
                 lex_type(state)
             } else { state.add_token(value) }
@@ -117,7 +115,7 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
 fn lex_word_token(state: &mut LexicalState) -> bool {
     let string_data = read_data_to_string(state);
     match token::match_word_token(&string_data) {
-        None => state.add_token_data(Literal(Identifier), TokenData::String(string_data)),
+        None => state.add_token_data(Literal(Lit::Identifier), TokenData::String(string_data)),
         Some(value) => state.add_token_data(value, TokenData::String(string_data))
     }
 }
@@ -152,6 +150,23 @@ fn lex_string_literal(state: &mut LexicalState) -> bool {
     state.add_token_data(Literal(Lit::String), TokenData::String(string_data));
     true
 }
+
+// fn lex_quote(state: &mut LexicalState) {
+//     let mut data = String::new();
+//     if state.peek() == '(' {
+//         let mut depth = 1;
+//         state.advance(); // skip known paren
+//         while depth != 0 && state.have_next() {
+//             if state.peek() == '(' { depth += 1; }
+//             if state.peek() == ')' { depth -= 1; }
+//             data.push(state.peek());
+//             state.advance();
+//         }
+//     } else {
+//         data = read_data_to_string(state);
+//     }
+//     state.add_token_data(Literal(Lit::Quote), TokenData::String(data));
+// }
 
 fn read_data_to_string(state: &mut LexicalState) -> String {
     let mut string_data = String::new();

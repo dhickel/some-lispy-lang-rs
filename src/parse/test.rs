@@ -74,5 +74,9 @@ pub fn test_type_lexing(){
     let result = lexer::process(input).expect("Lexing Failed");
     assert!(matches!(result.get(3).unwrap().token_type, Syntactic(Syn::Type)));
     assert!(matches!(result.get(3).unwrap().data, Some(TokenData::String(ref value)) if value == "int"));
+}
 
+pub fn test_quote_lexing() {
+    let input = "define x `(* 10 30 (+ 30 20))".to_string();
+    let result = lexer::process(input).expect("Lexing Failed");
 }

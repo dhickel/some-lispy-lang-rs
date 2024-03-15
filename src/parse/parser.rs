@@ -1,9 +1,9 @@
 use std::io::BufRead;
 
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{AstNode, CondBranch, DefNode, ExprNode, FuncArg, LitNode, OpNode, OpType, Param};
-use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, LiteralNode, OperationNode};
-use crate::parse::ast_nodes::ExprNode::{CondExpr, ConsExpr, IfExpr, ListAccess, MultiExpr, PairList, PrintExpr, SingleExpr, WhileLoop};
+use crate::parse::ast_nodes::{AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefVarData, ExprNode, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, OpType, Param, WhileData};
+use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
+use crate::parse::ast_nodes::ExprNode::{CondExpr, ConsExpr, IfExpr, ListAccess, MultiExpr, PairList, PrintExpr, WhileLoop};
 
 
 use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
@@ -28,6 +28,7 @@ impl ParserState {
         }
     }
 
+    
     pub fn process(&mut self) -> Result<Vec<AstNode>, String> {
         let mut root_expressions = Vec::<AstNode>::new();
         while self.have_next() {
@@ -36,9 +37,11 @@ impl ParserState {
         Ok(root_expressions)
     }
 
+
     pub fn push_warning(&mut self, warning: String) {
         self.warnings.push(warning);
     }
+
 
     pub fn have_next(&mut self) -> bool {
         self.current + 1 < self.end
@@ -48,23 +51,28 @@ impl ParserState {
         &self.tokens[self.current]
     }
 
+
     pub fn peek_n(&self, n: usize) -> &Token {
         &self.tokens[self.current + (n - 1)]
     }
+
 
     pub fn previous(&mut self) -> &Token {
         self.tokens.get(std::cmp::max(0, self.current - 1)).unwrap()
     }
 
+
     pub fn previous_n(&mut self, n: usize) -> &Token {
         self.tokens.get(std::cmp::max(0, self.current - n)).unwrap()
     }
+
 
     pub fn check(&mut self, token_type: &TokenType) -> bool {
         if !self.have_next() {
             false
         } else { &self.peek().token_type == token_type }
     }
+
 
     pub fn advance(&mut self) -> Result<&Token, String> {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
@@ -77,9 +85,11 @@ impl ParserState {
         Ok(&self.tokens[self.current - 1])
     }
 
+
     pub fn match_token(&mut self, tokens: &[TokenType]) -> Option<&Token> {
         self.tokens.iter().find(|token| tokens.contains(&token.token_type))
     }
+
 
     pub fn consume(&mut self, token_type: TokenType) -> Result<&Token, String> {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
@@ -95,6 +105,7 @@ impl ParserState {
         self.advance()
     }
 
+
     pub fn consume_left_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::LeftParen)) {
             panic!("Expected: LeftParen, Found: {:?}", self.peek());
@@ -104,6 +115,7 @@ impl ParserState {
         self.depth += 1;
         Ok(())
     }
+
 
     pub fn consume_right_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::RightParen)) {
@@ -115,17 +127,14 @@ impl ParserState {
         Ok(())
     }
 
+
     pub fn parse_expr_data(&mut self) -> Result<AstNode, String> {
-        if (self.current > 1) {
-            println!("prev: {:?}", self.previous());
-            println!("prev: {:?}", self.peek());
-        }
         match &self.peek().token_type {
             Lexical(Lex::LeftParen) => self.parse_s_expr(),
             Lexical(Lex::RightParen) => {
                 // Needed, this function is entered by parse_s_expr, but could be null list lit
                 if matches!(self.previous().token_type, Lexical(Lex::LeftParen)) {
-                    Ok(LiteralNode(Box::new(LitNode::Nil)))
+                    Ok(AstNode::new_nil_lit())
                 } else {
                     panic!();
                     Err(format!("Right paren with no matching open, line: {}", self.peek().line))
@@ -143,6 +152,7 @@ impl ParserState {
         }
     }
 
+
     pub fn parse_s_expr(&mut self) -> Result<AstNode, String> {
         self.consume_left_paren()?;
         let expression = self.parse_expr_data();
@@ -150,15 +160,10 @@ impl ParserState {
         //     parse object call
         // }
         let expr = &expression;
-        if let Ok((s)) = expr {
-            println!("expr: {:?}", s)
-        }
-        println!("Prev: {:?}", self.previous());
-
-
         self.consume_right_paren()?;
         expression
     }
+
 
     pub fn parse_operation(&mut self) -> Result<AstNode, String> {
         let operation = &self.peek().token_type.clone();
@@ -170,31 +175,32 @@ impl ParserState {
         }
 
         match operation {
-            Operation(Op::And) => Ok(OperationNode(OpNode::And { op_type: OpType::Boolean, operands })),
-            Operation(Op::Or) => Ok(OperationNode(OpNode::Or { op_type: OpType::Boolean, operands })),
-            Operation(Op::Nor) => Ok(OperationNode(OpNode::Nor { op_type: OpType::Boolean, operands })),
-            Operation(Op::Xor) => Ok(OperationNode(OpNode::Xor { op_type: OpType::Boolean, operands })),
-            Operation(Op::Xnor) => Ok(OperationNode(OpNode::Xnor { op_type: OpType::Boolean, operands })),
-            Operation(Op::Nand) => Ok(OperationNode(OpNode::Nand { op_type: OpType::Boolean, operands })),
-            Operation(Op::Negate) => Ok(OperationNode(OpNode::Negate { op_type: OpType::Boolean, operands })),
-            Operation(Op::Plus) => Ok(OperationNode(OpNode::Addition { op_type: OpType::Arithmetic, operands })),
-            Operation(Op::Minus) => Ok(OperationNode(OpNode::Subtraction { op_type: OpType::Arithmetic, operands })),
-            Operation(Op::Asterisk) => Ok(OperationNode(OpNode::Multiplication { op_type: OpType::Arithmetic, operands })),
-            Operation(Op::Slash) => Ok(OperationNode(OpNode::Division { op_type: OpType::Arithmetic, operands })),
-            Operation(Op::Caret) => Ok(OperationNode(OpNode::Exponentiate { op_type: OpType::Arithmetic, operands })),
-            Operation(Op::Percent) => Ok(OperationNode(OpNode::Modulo { op_type: OpType::Arithmetic, operands })),
-            Operation(Op::PlusPlus) => Ok(OperationNode(OpNode::Increment { op_type: OpType::Arithmetic, operands })),
-            Operation(Op::MinusMinus) => Ok(OperationNode(OpNode::Decrement { op_type: OpType::Arithmetic, operands })),
-            Operation(Op::Greater) => Ok(OperationNode(OpNode::GreaterThan { op_type: OpType::Comparison, operands })),
-            Operation(Op::Less) => Ok(OperationNode(OpNode::LessThan { op_type: OpType::Comparison, operands })),
-            Operation(Op::GreaterEqual) => Ok(OperationNode(OpNode::GreaterThanEqual { op_type: OpType::Comparison, operands })),
-            Operation(Op::LessEqual) => Ok(OperationNode(OpNode::LessThanEqual { op_type: OpType::Comparison, operands })),
-            Operation(Op::Equals) => Ok(OperationNode(OpNode::Equality { op_type: OpType::Equality, operands })),
-            Operation(Op::BangEquals) => Ok(OperationNode(OpNode::RefNonEquality { op_type: OpType::Equality, operands })),
-            Operation(Op::RefEqual) => Ok(OperationNode(OpNode::RefEquality { op_type: OpType::Equality, operands })),
+            Operation(Op::And) => Ok(OperationNode(OpNode::And(operands))),
+            Operation(Op::Or) => Ok(OperationNode(OpNode::Or(operands))),
+            Operation(Op::Nor) => Ok(OperationNode(OpNode::Nor(operands))),
+            Operation(Op::Xor) => Ok(OperationNode(OpNode::Xor(operands))),
+            Operation(Op::Xnor) => Ok(OperationNode(OpNode::Xnor(operands))),
+            Operation(Op::Nand) => Ok(OperationNode(OpNode::Nand(operands))),
+            Operation(Op::Negate) => Ok(OperationNode(OpNode::Negate(operands))),
+            Operation(Op::Plus) => Ok(OperationNode(OpNode::Addition(operands))),
+            Operation(Op::Minus) => Ok(OperationNode(OpNode::Subtraction(operands))),
+            Operation(Op::Asterisk) => Ok(OperationNode(OpNode::Multiplication(operands))),
+            Operation(Op::Slash) => Ok(OperationNode(OpNode::Division(operands))),
+            Operation(Op::Caret) => Ok(OperationNode(OpNode::Exponentiate(operands))),
+            Operation(Op::Percent) => Ok(OperationNode(OpNode::Modulo(operands))),
+            Operation(Op::PlusPlus) => Ok(OperationNode(OpNode::Increment(operands))),
+            Operation(Op::MinusMinus) => Ok(OperationNode(OpNode::Decrement(operands))),
+            Operation(Op::Greater) => Ok(OperationNode(OpNode::GreaterThan(operands))),
+            Operation(Op::Less) => Ok(OperationNode(OpNode::LessThan(operands))),
+            Operation(Op::GreaterEqual) => Ok(OperationNode(OpNode::GreaterThanEqual(operands))),
+            Operation(Op::LessEqual) => Ok(OperationNode(OpNode::LessThanEqual(operands))),
+            Operation(Op::Equals) => Ok(OperationNode(OpNode::Equality(operands))),
+            Operation(Op::BangEquals) => Ok(OperationNode(OpNode::RefNonEquality(operands))),
+            Operation(Op::RefEqual) => Ok(OperationNode(OpNode::RefEquality(operands))),
             _ => Err(format!("Fatal, Expected Operation received {:?}", operation))
         }
     }
+
 
     pub fn parse_literal(&mut self) -> Result<AstNode, String> {
         let token = self.advance()?;
@@ -202,34 +208,31 @@ impl ParserState {
         match &token.token_type {
             Literal(lit) => {
                 match lit {
-                    Lit::True => Ok(LiteralNode(Box::new(LitNode::Boolean(true)))),
-                    Lit::False => Ok(LiteralNode(Box::new(LitNode::Boolean(false)))),
+                    Lit::True => Ok(AstNode::new_bool_lit(true)),
+                    Lit::False => Ok(AstNode::new_bool_lit(false)),
                     Lit::String => {
                         if let Some(TokenData::String(value)) = &token.data {
-                            Ok(LiteralNode(Box::new(LitNode::String(value.to_string()))))
+                            Ok(AstNode::new_string_lit(value.clone()))
                         } else { Err(format!("Invalid data for string literal: {:?}", token.data)) }
                     }
                     Lit::Int => {
                         if let Some(TokenData::Integer(value)) = &token.data {
-                            Ok(LiteralNode(Box::new(LitNode::Integer(*value))))
+                            Ok(AstNode::new_int_lit(*value))
                         } else { Err(format!("Invalid data for integer literal: {:?}", token.data)) }
                     }
                     Lit::Float => {
                         if let Some(TokenData::Float(value)) = &token.data {
-                            Ok(LiteralNode(Box::new(LitNode::Float(*value))))
+                            Ok(AstNode::new_float_lit(*value))
                         } else { Err(format!("Invalid data for float literal: {:?}", token.data)) }
                     }
-                    Lit::Identifier => {
-                        if let Some(TokenData::String(value)) = &token.data {
-                            Ok(LiteralNode(Box::new(LitNode::String(value.to_string()))))
-                        } else { Err(format!("Invalid data for identifier: {:?}", token.data)) }
-                    }
-                    Lit::Nil => Ok(LiteralNode(Box::new(LitNode::Nil)))
+                    Lit::Identifier => { todo!() /*  TODO Implement function calls*/ }
+                    Lit::Nil => Ok(AstNode::new_nil_lit())
                 }
             }
             _ => Err(format!("Expected literal value found: {:?}", token))
         }
     }
+
 
     pub fn parse_exact_expr(&mut self) -> Result<AstNode, String> {
         let expression = self.advance()?;
@@ -243,20 +246,20 @@ impl ParserState {
             Expression(Expr::Lacc) => self.parse_list_access(),
             Expression(Expr::While) => self.parse_while(),
             Expression(Expr::Cons) => self.parse_cons(),
-            Expression(Expr::Car) => {
-                Ok(ExpressionNode(Box::new(ListAccess { index_expr: None, pattern: Some("f".to_string()) })))
-            }
-            Expression(Expr::Cdr) => {
-                Ok(ExpressionNode(Box::new(ListAccess { index_expr: None, pattern: Some("r".to_string()) })))
-            }
+            Expression(Expr::Car) =>
+                Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: None, pattern: Some("f".to_string()) })))),
+            Expression(Expr::Cdr) =>
+                Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: None, pattern: Some("r".to_string()) })))),
             _ => Err(format!("Expected expression found {:?}", expression))
         }
     }
+
 
     pub fn parse_assign(&mut self) -> Result<AstNode, String> {
         self.advance()?;
         self.parse_expr_data()
     }
+
 
     pub fn parse_if(&mut self) -> Result<AstNode, String> {
         let condition = self.parse_expr_data()?;
@@ -265,8 +268,9 @@ impl ParserState {
         let else_branch = if self.peek().token_type == Lexical(Lex::LeftParen) {
             Some(self.parse_expr_data()?)
         } else { None };
-        Ok(ExpressionNode(Box::new(IfExpr { if_branch, else_branch })))
+        Ok(ExpressionNode(Box::new(IfExpr(IfData { if_branch, else_branch }))))
     }
+
 
     pub fn parse_cond(&mut self) -> Result<AstNode, String> {
         let mut cond_branches = Vec::<CondBranch>::new();
@@ -285,8 +289,9 @@ impl ParserState {
 
         if cond_branches.is_empty() {
             Err(format!("Cond expression must have at least one branch, line: {}", self.peek().line))
-        } else { Ok(ExpressionNode(Box::new(CondExpr { cond_branches, else_branch }))) }
+        } else { Ok(ExpressionNode(Box::new(CondExpr(CondData { cond_branches, else_branch })))) }
     }
+
 
     pub fn parse_cond_branch(&mut self) -> Result<CondBranch, String> {
         self.consume_left_paren()?;
@@ -297,6 +302,7 @@ impl ParserState {
         Ok(CondBranch { cond_node, then_node })
     }
 
+
     pub fn parse_multi_expr(&mut self) -> Result<AstNode, String> {
         let mut expressions = Vec::<AstNode>::new();
         while self.peek().token_type != Lexical(Lex::RightParen) {
@@ -306,16 +312,16 @@ impl ParserState {
         if expressions.is_empty() {
             Err(format!("Expected one or more expressions, line: {}", self.peek().line))
         } else if expressions.len() == 1 {
-            Ok(ExpressionNode(Box::new(SingleExpr(expressions.pop().unwrap()))))
+            Ok(expressions.pop().unwrap())
         } else { Ok(ExpressionNode(Box::new(MultiExpr(expressions)))) }
     }
 
-    // Todo add some checks for define nodes and things that would get evaled
-    //  but shouldn't be in a print statement
+
     pub fn parse_print(&mut self) -> Result<AstNode, String> {
         let expr = self.parse_expr_data()?;
         Ok(ExpressionNode(Box::new(PrintExpr(expr))))
     }
+
 
     pub fn parse_list(&mut self) -> Result<AstNode, String> {
         let mut elements = Vec::<AstNode>::new();
@@ -324,9 +330,10 @@ impl ParserState {
         }
 
         if elements.is_empty() {
-            Ok(LiteralNode(Box::new(LitNode::Nil)))
+            Ok(AstNode::new_nil_lit())
         } else { Ok(ExpressionNode(Box::new(PairList(elements)))) }
     }
+
 
     pub fn parse_list_head(&mut self) -> Result<AstNode, String> {
         let head = self.parse_expr_data()?;
@@ -335,19 +342,21 @@ impl ParserState {
         } else { Ok(head) }
     }
 
+
     pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
         if self.peek().token_type == Syntactic(Syn::Grave) {
             self.advance()?;
             let token_data = &self.consume(Literal(Lit::Identifier))?.data;
 
             if let Some(TokenData::String(s)) = token_data {
-                Ok(ExpressionNode(Box::new(ListAccess { index_expr: None, pattern: Some(s.clone()) })))
+                Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: None, pattern: Some(s.clone()) }))))
             } else { Err("Expected fr... access pattern".to_string()) }
         } else {
             let index = self.parse_expr_data()?;
-            Ok(ExpressionNode(Box::new(ListAccess { index_expr: Some(index), pattern: None })))
+            Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: Some(index), pattern: None }))))
         }
     }
+
 
     pub fn parse_while(&mut self) -> Result<AstNode, String> {
         let is_do = if self.peek().token_type == Modifier(Mod::Do) {
@@ -357,8 +366,9 @@ impl ParserState {
 
         let condition = self.parse_expr_data()?;
         let body = self.parse_multi_expr()?;
-        Ok(ExpressionNode(Box::new(WhileLoop { condition, body, is_do })))
+        Ok(ExpressionNode(Box::new(WhileLoop(WhileData { condition, body, is_do }))))
     }
+
 
     pub fn parse_cons(&mut self) -> Result<AstNode, String> {
         let car = self.parse_expr_data()?;
@@ -366,8 +376,9 @@ impl ParserState {
 
         if self.peek().token_type == Lexical(Lex::RightParen) {
             Err("Cons expression may only have 2 arguments".to_string())
-        } else { Ok(ExpressionNode(Box::new(ConsExpr { car, cdr }))) }
+        } else { Ok(ExpressionNode(Box::new(ConsExpr(ConsData { car, cdr })))) }
     }
+
 
     pub fn parse_type_if_exists(&mut self) -> Result<Option<String>, String> {
         let typ = if let (
@@ -379,6 +390,7 @@ impl ParserState {
         if typ.is_some() { self.advance()?; }
         Ok(typ)
     }
+
 
     pub fn parse_define(&mut self) -> Result<AstNode, String> {
         self.consume(Definition(Def::Define))?;
@@ -402,15 +414,15 @@ impl ParserState {
                     self.consume_left_paren()?;
                     let lambda = self.parse_lambda(false)?;
                     self.consume_right_paren()?;
-                    DefinitionNode(Box::new(DefNode::Function { name, lambda }))
+                    DefinitionNode(Box::new(DefNode::Function(DefFuncData { name, lambda })))
                 } else {
                     let value = Box::new(self.parse_expr_data()?);
-                    DefinitionNode(Box::new(DefNode::Variable { name, modifiers, value, var_type }))
+                    DefinitionNode(Box::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
                 }
             }
             Literal(_) => {
                 let value = Box::new(self.parse_literal()?);
-                DefinitionNode(Box::new(DefNode::Variable { name, modifiers, value, var_type }))
+                DefinitionNode(Box::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
             }
             Syntactic(Syn::Grave) => self.parse_quote()?,
             _ => return Err(format!("Invalid syntax in define, line: {}", self.peek().line))
@@ -422,7 +434,7 @@ impl ParserState {
 
     pub fn parse_quote(&mut self) -> Result<AstNode, String> {
         self.consume(Syntactic(Syn::Grave))?;
-        Ok(LiteralNode(Box::new(LitNode::Quote(self.parse_expr_data()?))))
+        Ok(AstNode::new_quote_lit(self.parse_expr_data()?))
     }
 
 
@@ -434,9 +446,9 @@ impl ParserState {
             _ => return Err("Expected name for function".to_string())
         };
         let lambda = self.parse_lambda(true)?;
-        println!("exiting defunc with: {:?}", self.peek());
-        Ok(DefinitionNode(Box::new(DefNode::Function { name, lambda })))
+        Ok(DefinitionNode(Box::new(DefNode::Function(DefFuncData { name, lambda }))))
     }
+
 
     pub fn parse_lambda(&mut self, is_defunc: bool) -> Result<AstNode, String> {
         if !is_defunc { self.consume(Definition(Def::Lambda))?; }
@@ -451,8 +463,9 @@ impl ParserState {
 
 
         let rtn_type = self.parse_type_if_exists()?;
-        Ok(DefinitionNode(Box::new(DefNode::Lambda { modifiers, parameters, body, rtn_type })))
+        Ok(DefinitionNode(Box::new(DefNode::Lambda(DefLambdaData { modifiers, parameters, body, rtn_type }))))
     }
+
 
     pub fn parse_modifiers(&mut self) -> Result<Option<Vec<Mod>>, String> {
         if !matches!(self.peek().token_type, Modifier(_)) { return Ok(None); };
@@ -466,6 +479,7 @@ impl ParserState {
             Ok(None)
         } else { Ok(Some(modifiers)) }
     }
+
 
     pub fn parse_func_args(&mut self) -> Result<Option<Vec<FuncArg>>, String> {
         let mut func_args = Vec::<FuncArg>::new();
@@ -499,12 +513,9 @@ impl ParserState {
         let mut params = Vec::<Param>::new();
 
         while self.peek().token_type != Lexical(Lex::RightParen) {
-            println!("Peek before modifers:{:?}", self.peek());
-            let modifiers = self.parse_modifiers()?;
-            println!("Previous:{:?}", self.previous());
             let mut dynamic = false;
             let mut mutable = false;
-            println!("Modifiers: {:?}", modifiers);
+            let modifiers = self.parse_modifiers()?;
             for modifier in modifiers.unwrap_or_default() {
                 match modifier {
                     Mod::Mutable => mutable = true,
@@ -514,16 +525,10 @@ impl ParserState {
                 };
             };
 
-            println!("Previous:{:?}", self.previous());
-            println!("is  optional: {}", optional);
-            println!("params: {:?}", params);
-
             let name = match &self.consume(Literal(Lit::Identifier))?.data {
                 Some(TokenData::String(s)) => s.clone(),
                 _ => return Err("Expected a variable identifier".to_string())
             };
-            println!("Assigned: {}", name);
-            println!("Next: {:?}", self.peek());
             let default_value: Option<AstNode> = if optional {
                 if self.peek().token_type != Syntactic(Syn::Equal) {
                     return Err(format!(
@@ -535,8 +540,6 @@ impl ParserState {
             } else { None };
 
             let typ = self.parse_type_if_exists()?;
-            println!("type exists?: {}", typ.is_some());
-            println!("Next at end:{:?}", self.peek());
             params.push(Param { name, typ, optional, default_value, dynamic, mutable });
         }
         self.consume_right_paren()?;
@@ -544,10 +547,8 @@ impl ParserState {
     }
 }
 
+
 pub fn process(tokens: Vec<Token>) -> Result<Vec<AstNode>, String> {
     let mut state = ParserState::new(tokens);
     state.process()
 }
-
-
-

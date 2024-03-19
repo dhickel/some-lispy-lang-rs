@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::fmt::format;
 use std::rc::Rc;
 use std::vec;
@@ -55,7 +55,7 @@ impl AstNode {
         LiteralNode(LitNode::Pair(PairValue(Box::new(p))))
     }
 
-    pub fn new_lambda_lit(def: DefLambdaData, envs: Rc<Environment>) -> AstNode {
+    pub fn new_lambda_lit(def: DefLambdaData, envs: Rc<RefCell<Environment>>) -> AstNode {
         LiteralNode(LitNode::Lambda(LambdaValue { def: Box::new(def), env: envs }))
     }
 }
@@ -409,7 +409,7 @@ impl EvalResult for PairValue {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaValue {
     pub def: Box<DefLambdaData>,
-    pub env: Rc<Environment>,
+    pub env: Rc<RefCell<Environment>>,
 }
 
 impl EvalResult for LambdaValue {

@@ -7,40 +7,40 @@ use crate::parse::Mod;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
-    parent: Option<Rc<Environment>>,
+    parent: Option<Rc<RefCell<Environment>>>,
     bindings: AHashMap<String, Binding>,
 }
 
 impl Environment {
-    pub fn new() -> Rc<Environment> {
-        Rc::new(Environment {
+    pub fn new() -> Rc<RefCell<Environment>> {
+        Rc::new(RefCell::new(Environment {
             parent: None,
             bindings: AHashMap::with_capacity(50),
-        })
+        }))
     }
 
-    pub fn of(env: Rc<Environment>) -> Rc<Environment> {
-        Rc::new(Environment {
+    pub fn of(env: Rc<RefCell<Environment>>) -> Rc<RefCell<Environment>> {
+        Rc::new(RefCell::new(Environment {
             parent: Some(env),
             bindings: AHashMap::with_capacity(10),
-        })
+        }))
     }
 
+    // 
+    // pub fn get_binding(&self, name: &String) -> Option<Binding> {
+    //     let found = &self.bindings.get(name);
+    //     if found.is_some() {
+    //         found.clone()
+    //     } else if let Some(parent) = &self.parent {
+    //         parent.borrow_mut().get_binding(name)
+    //     } else { None }
+    // }
 
-    pub fn get_binding(&self, name: &String) -> Option<&Binding> {
-        let found = &self.bindings.get(name);
-        if found.is_some() {
-            *found
-        } else if let Some(parent) = &self.parent {
-            parent.get_binding(name)
-        } else { None }
-    }
-
-    pub fn get_literal(&self, name: &String) -> Option<&LitNode> {
+    pub fn get_literal(&self, name: &String) -> Option<LitNode> {
         if let Some(found) = &self.bindings.get(name) {
-            return Some(&found.value);
+            return Some(found.value.clone());
         } else if let Some(p_env) = &self.parent {
-            p_env.get_literal(name)
+            p_env.borrow_mut().get_literal(name)
         } else { None }
     }
 

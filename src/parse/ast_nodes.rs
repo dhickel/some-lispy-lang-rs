@@ -1,11 +1,17 @@
+use std::cell::RefCell;
+use std::fmt::format;
+use std::rc::Rc;
+use std::vec;
+use crate::eval::environment::Environment;
 use crate::lang::datatypes::{Pair};
-use crate::eval::environment::Env;
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::{Lit, Mod};
 
-const NIL_LIT: AstNode = LiteralNode(LitNode::Nil(NilValue()));
+const NIL_LIT: LitNode = LitNode::Nil(NilValue());
+const TRUE_LIT: LitNode = LitNode::Boolean(BoolValue(true));
+const FALSE_LIT: LitNode = LitNode::Boolean(BoolValue(false));
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
     DefinitionNode(Box<DefNode>),
     ExpressionNode(Box<ExprNode>),
@@ -24,7 +30,7 @@ impl AstNode {
     }
 
     pub fn new_bool_lit(b: bool) -> AstNode {
-        LiteralNode(LitNode::Boolean(BoolValue(b)))
+        if b { LiteralNode(TRUE_LIT) } else { LiteralNode(FALSE_LIT) }
     }
 
     pub fn new_string_lit(s: String) -> AstNode {
@@ -39,7 +45,7 @@ impl AstNode {
         todo!()
     }
 
-    pub fn new_nil_lit() -> AstNode { NIL_LIT }
+    pub fn new_nil_lit() -> AstNode { LiteralNode(NIL_LIT) }
 
     pub fn new_vector_lit(v: Vec<LitNode>) -> AstNode {
         LiteralNode(LitNode::Vector(VectorValue(v)))
@@ -49,20 +55,20 @@ impl AstNode {
         LiteralNode(LitNode::Pair(PairValue(Box::new(p))))
     }
 
-    pub fn new_lambda_lit(def: DefNode, envs: Env) -> AstNode {
-        LiteralNode(LitNode::Lambda(LambdaValue { def: Box::new(def), env: Box::new(envs) }))
+    pub fn new_lambda_lit(def: DefLambdaData, envs: Rc<Environment>) -> AstNode {
+        LiteralNode(LitNode::Lambda(LambdaValue { def: Box::new(def), env: envs }))
     }
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DefNode {
     Variable(DefVarData),
     Lambda(DefLambdaData),
     Function(DefFuncData),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DefVarData {
     pub name: String,
     pub modifiers: Option<Vec<Mod>>,
@@ -70,7 +76,7 @@ pub struct DefVarData {
     pub var_type: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DefLambdaData {
     pub modifiers: Option<Vec<Mod>>,
     pub parameters: Option<Vec<Param>>,
@@ -78,13 +84,13 @@ pub struct DefLambdaData {
     pub rtn_type: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DefFuncData {
     pub name: String,
-    pub lambda: AstNode,
+    pub lambda: DefLambdaData,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: String,
     pub typ: Option<String>,
@@ -94,7 +100,7 @@ pub struct Param {
     pub mutable: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExprNode {
     Assignment(AssignData),
     MultiExpr(Vec<AstNode>),
@@ -109,50 +115,50 @@ pub enum ExprNode {
     LiteralCall(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CondBranch {
     pub cond_node: AstNode,
     pub then_node: AstNode,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AssignData {
     pub name: String,
     pub value: AstNode,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IfData {
     pub if_branch: CondBranch,
     pub else_branch: Option<AstNode>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CondData {
     pub cond_branches: Vec<CondBranch>,
     pub else_branch: Option<AstNode>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WhileData {
     pub condition: AstNode,
     pub body: AstNode,
     pub is_do: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConsData {
     pub car: AstNode,
     pub cdr: AstNode,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ListAccData {
     pub index_expr: Option<AstNode>,
     pub pattern: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FuncCallData {
     pub name: String,
     pub accessors: Option<Vec<Accessor>>,
@@ -160,20 +166,20 @@ pub struct FuncCallData {
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Accessor {
     pub name: String,
     pub is_field: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FuncArg {
     pub value: AstNode,
     pub name: Option<String>,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum OpNode {
     Addition(Vec<AstNode>),
     Subtraction(Vec<AstNode>),
@@ -199,15 +205,7 @@ pub enum OpNode {
     RefNonEquality(Vec<AstNode>),
 }
 
-#[derive(Debug, PartialEq)]
-pub enum OpType {
-    Arithmetic,
-    Boolean,
-    Comparison,
-    Equality,
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LitNode {
     Integer(IntValue),
     Float(FloatValue),
@@ -223,7 +221,7 @@ pub enum LitNode {
 }
 
 impl LitNode {
-   pub fn value(&self) -> &dyn EvalResult {
+    pub fn value(&self) -> &dyn EvalResult {
         match self {
             LitNode::Integer(val) => val,
             LitNode::Float(val) => val,
@@ -243,33 +241,51 @@ pub trait EvalResult {
     fn as_int(&self) -> i64;
     fn as_float(&self) -> f64;
     fn as_bool(&self) -> bool;
+    fn as_vector(&self) -> Vec<LitNode>;
     fn as_string(&self) -> String;
+    fn equal_to(&self, other: &LitNode) -> bool;
     fn get_type(&self) -> String;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IntValue(pub i64);
 
 impl EvalResult for IntValue {
     fn as_int(&self) -> i64 { self.0 }
     fn as_float(&self) -> f64 { self.0 as f64 }
-    fn as_bool(&self) -> bool { if self.0 == 0 { true } else { false } }
+    fn as_bool(&self) -> bool { if self.0 == 0 { false } else { true } }
     fn as_string(&self) -> String { self.0.to_string() }
+    fn as_vector(&self) -> Vec<LitNode> { vec![LitNode::Integer(IntValue(self.0))] }
+    fn equal_to(&self, other: &LitNode) -> bool {
+        match other {
+            LitNode::Integer(val) => { val.0 == self.0 }
+            LitNode::Float(val) => { val.0 == self.0 as f64 }
+            _ => false
+        }
+    }
     fn get_type(&self) -> String { "int".to_string() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FloatValue(pub f64);
 
 impl EvalResult for FloatValue {
     fn as_int(&self) -> i64 { self.0 as i64 }
     fn as_float(&self) -> f64 { self.0 }
-    fn as_bool(&self) -> bool { if self.0 == 0.0 { true } else { false } }
+    fn as_bool(&self) -> bool { if self.0 == 0.0 { false } else { true } }
     fn as_string(&self) -> String { self.0.to_string() }
+    fn as_vector(&self) -> Vec<LitNode> { vec![LitNode::Float(FloatValue(self.0))] }
+    fn equal_to(&self, other: &LitNode) -> bool {
+        match other {
+            LitNode::Integer(val) => {val.0 as f64 == self.0 }
+            LitNode::Float(val) => { val.0 == self.0 }
+            _ => false
+        }
+    }
     fn get_type(&self) -> String { "float".to_string() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BoolValue(pub bool);
 
 impl EvalResult for BoolValue {
@@ -277,10 +293,12 @@ impl EvalResult for BoolValue {
     fn as_float(&self) -> f64 { if self.0 { 1.0 } else { 0.0 } }
     fn as_bool(&self) -> bool { self.0 }
     fn as_string(&self) -> String { if self.0 { "#t".to_string() } else { "#f".to_string() } }
+    fn as_vector(&self) -> Vec<LitNode> { vec![LitNode::Boolean(BoolValue(self.0))] }
+    fn equal_to(&self, other: &LitNode) -> bool { other.value().as_bool() == self.0 }
     fn get_type(&self) -> String { "Boolean".to_string() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StringValue(pub String);
 
 impl EvalResult for StringValue {
@@ -288,10 +306,12 @@ impl EvalResult for StringValue {
     fn as_float(&self) -> f64 { self.0.len() as f64 }
     fn as_bool(&self) -> bool { if self.0.is_empty() { false } else { true } }
     fn as_string(&self) -> String { self.0.to_string() }
+    fn as_vector(&self) -> Vec<LitNode> { vec![LitNode::String(StringValue(self.0.to_string()))] }
+    fn equal_to(&self, other: &LitNode) -> bool { other.value().as_string() == self.0 }
     fn get_type(&self) -> String { "String".to_string() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct QuoteValue(pub Box<AstNode>);
 
 impl EvalResult for QuoteValue {
@@ -299,10 +319,16 @@ impl EvalResult for QuoteValue {
     fn as_float(&self) -> f64 { 1.0 }
     fn as_bool(&self) -> bool { true }
     fn as_string(&self) -> String { "$Quote".to_string() }
+    fn as_vector(&self) -> Vec<LitNode> { vec![LitNode::Quote(QuoteValue(self.0.clone()))] }
+    fn equal_to(&self, other: &LitNode) -> bool {
+        if let LitNode::Quote(val) = other {
+            val.0 == self.0
+        } else { false }
+    }
     fn get_type(&self) -> String { "Quote".to_string() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ObjectValue(pub ());
 
 impl EvalResult for ObjectValue {
@@ -310,10 +336,16 @@ impl EvalResult for ObjectValue {
     fn as_float(&self) -> f64 { 1.0 }
     fn as_bool(&self) -> bool { true }
     fn as_string(&self) -> String { "$Object".to_string() }
+    fn as_vector(&self) -> Vec<LitNode> { vec![LitNode::Object(ObjectValue(()))] }
+    fn equal_to(&self, other: &LitNode) -> bool {
+        if let LitNode::Object(val) = other {
+            val.0 == self.0
+        } else { false }
+    }
     fn get_type(&self) -> String { "Object".to_string() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NilValue();
 
 impl EvalResult for NilValue {
@@ -321,17 +353,29 @@ impl EvalResult for NilValue {
     fn as_float(&self) -> f64 { 0.0 }
     fn as_bool(&self) -> bool { false }
     fn as_string(&self) -> String { "$Nil".to_string() }
+    fn as_vector(&self) -> Vec<LitNode> { vec![NIL_LIT] }
+    fn equal_to(&self, other: &LitNode) -> bool {
+        if let LitNode::Nil(val) = other {
+            true
+        } else { false }
+    }
     fn get_type(&self) -> String { "Nil".to_string() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VectorValue(pub Vec<LitNode>);
 
 impl EvalResult for VectorValue {
     fn as_int(&self) -> i64 { self.0.len() as i64 }
     fn as_float(&self) -> f64 { self.0.len() as f64 }
     fn as_bool(&self) -> bool { false }
-    fn as_string(&self) -> String { "{:?}".to_string() }
+    fn as_vector(&self) -> Vec<LitNode> { self.0.clone() }
+    fn as_string(&self) -> String { format!("{:?}", self).to_string() }
+    fn equal_to(&self, other: &LitNode) -> bool {
+        if let LitNode::Vector(val) = other {
+            val.0 == self.0
+        } else { false }
+    }
     fn get_type(&self) -> String { "Vector<Type>".to_string() }
 }
 
@@ -345,7 +389,7 @@ impl FromIterator<LitNode> for VectorValue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairValue(pub Box<Pair>);
 
 impl EvalResult for PairValue {
@@ -353,22 +397,31 @@ impl EvalResult for PairValue {
     fn as_float(&self) -> f64 { 1.0 }
     fn as_bool(&self) -> bool { true }
     fn as_string(&self) -> String { "Pair".to_string() }
+    fn as_vector(&self) -> Vec<LitNode> { vec![LitNode::Pair(PairValue(self.0.clone()))] }
+    fn equal_to(&self, other: &LitNode) -> bool {
+        if let LitNode::Pair(val) = other {
+            val.0 == self.0
+        } else { false }
+    }
     fn get_type(&self) -> String { "Pair".to_string() }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LambdaValue {
-    pub def: Box<DefNode>,
-    pub env: Box<Env>,
+    pub def: Box<DefLambdaData>,
+    pub env: Rc<Environment>,
 }
 
 impl EvalResult for LambdaValue {
     fn as_int(&self) -> i64 { 1 }
     fn as_float(&self) -> f64 { 1.0 }
     fn as_bool(&self) -> bool { true }
+    fn as_vector(&self) -> Vec<LitNode> { vec![LitNode::Lambda(self.clone())] }
     fn as_string(&self) -> String { "$Lambda".to_string() }
+    fn equal_to(&self, other: &LitNode) -> bool {
+        if let LitNode::Lambda(val) = other {
+            val.def == self.def && val.env == self.env
+        } else { false }
+    }
     fn get_type(&self) -> String { "Lambda".to_string() }
 }
-
-
-

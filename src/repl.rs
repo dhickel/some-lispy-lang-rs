@@ -1,6 +1,7 @@
 use std::io;
 use std::io::Write;
 use std::time::SystemTime;
+use crate::eval::environment::Environment;
 
 pub mod parse;
 pub mod lang;
@@ -8,6 +9,7 @@ pub mod eval;
 
 #[allow(dead_code)]
 fn main() {
+    let mut interp = eval::interpreter::Interp { env: Environment::new() };
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
@@ -21,22 +23,20 @@ fn main() {
                 if input.trim() == "exit" {
                     break;
                 }
-                println!("{}", eval::interpreter::repl_eval(input));
+                println!("{}", interp.repl_eval(input))
             }
             // }
             Err(error) => println!("error: {}", error),
 
-                // match parse::lexer::process(input) {
-                //     Ok(tokens) => {
-                //         println!("Tokens: {:?}\n", tokens);
-                //         let ast = parse::parser::process(tokens);
-                //         println!("\nSyntax Tree: {:?}\n", ast)
-                //         
-                //     }
-                //     Err(s) => println!("Error Processing: {}", s)
-                // }
-            
-            
+            // match parse::lexer::process(input) {
+            //     Ok(tokens) => {
+            //         println!("Tokens: {:?}\n", tokens);
+            //         let ast = parse::parser::process(tokens);
+            //         println!("\nSyntax Tree: {:?}\n", ast)
+            //         
+            //     }
+            //     Err(s) => println!("Error Processing: {}", s)
+            // }
         }
     }
 }

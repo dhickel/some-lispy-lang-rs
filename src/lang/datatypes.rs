@@ -1,7 +1,7 @@
 use std::fmt;
 use crate::parse::ast_nodes::LitNode;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Pair {
     pub car: LitNode,
     pub cdr: LitNode,

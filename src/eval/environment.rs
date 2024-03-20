@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::fmt::format;
 use std::rc::Rc;
 use ahash::AHashMap;
 use crate::parse::ast_nodes::{AstNode, LitNode};
@@ -26,16 +27,6 @@ impl Environment {
         }))
     }
 
-    // 
-    // pub fn get_binding(&self, name: &String) -> Option<Binding> {
-    //     let found = &self.bindings.get(name);
-    //     if found.is_some() {
-    //         found.clone()
-    //     } else if let Some(parent) = &self.parent {
-    //         parent.borrow_mut().get_binding(name)
-    //     } else { None }
-    // }
-
     pub fn get_literal(&self, name: &String) -> Option<LitNode> {
         if let Some(found) = &self.bindings.get(name) {
             return Some(found.value.clone());
@@ -44,19 +35,25 @@ impl Environment {
         } else { None }
     }
 
-    pub fn create_binding(&mut self, name: String, binding: Binding) -> Result<(), String> {
+    pub fn create_binding(&mut self, name: String, binding: Binding) -> Result<AstNode, String> {
         if let Some(existing) = self.bindings.get(&name) {
             Err(format!("Binding already exists for: {}", name))
         } else {
             self.bindings.insert(name, binding);
-            Ok(())
+            Ok(AstNode::new_bool_lit(true))
         }
     }
 
-    pub fn update_binding(&mut self, name: String, value: LitNode) -> Result<&LitNode, String> {
-        if let Some(binding) = self.bindings.get_mut(&name) {
-            binding.value = value;
-            Ok(&binding.value)
+    pub fn update_binding(&mut self, name: &String, value: LitNode) -> Result<AstNode, String> {
+        if let Some(binding) = self.bindings.get_mut(name) {
+            if binding.mutable {
+                binding.value = value;
+                Ok(AstNode::new_bool_lit(true))
+            } else {
+                Err(format!("Attempted to reassign immutable binding{}", name))
+            }
+        } else if let Some(p_env) = &mut self.parent {
+            p_env.borrow_mut().update_binding(name, value)
         } else {
             Err(format!("Failed to find binding to update for: {}", name))
         }

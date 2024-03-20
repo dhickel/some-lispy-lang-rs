@@ -9,7 +9,7 @@ pub mod eval;
 
 #[allow(dead_code)]
 fn main() {
-    let mut interp = eval::interpreter2::Interp { env: Environment::new() };
+    let mut env = Environment::new();
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
@@ -23,7 +23,7 @@ fn main() {
                 if input.trim() == "exit" {
                     break;
                 }
-                println!("{}", eval::interpreter2::repl_eval(&mut interp.env, input))
+                println!("{}", eval::interpreter::repl_eval(&mut env, input))
             }
             // }
             Err(error) => println!("error: {}", error),

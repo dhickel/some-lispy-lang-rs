@@ -1,5 +1,4 @@
 use std::cell::{Ref, RefCell};
-use std::fmt::format;
 use std::rc::Rc;
 use std::vec;
 use crate::eval::environment::Environment;

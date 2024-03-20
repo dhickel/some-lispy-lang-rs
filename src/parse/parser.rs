@@ -1,10 +1,11 @@
 use std::io::BufRead;
 
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{Accessor, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefVarData, ExprNode, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefVarData, ExprNode, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
-use crate::parse::ast_nodes::ExprNode::{CondExpr, ConsExpr, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, PairList, PrintExpr, WhileLoop};
+use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, PairList, PrintExpr, WhileLoop};
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::parse::Lit::Identifier;
 
 use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
 
@@ -159,15 +160,15 @@ impl ParserState {
 
 
     pub fn parse_s_expr(&mut self) -> Result<AstNode, String> {
-        let t = nano_time!();
+        //   let t = nano_time!();
         self.consume_left_paren()?;
         let expression = self.parse_expr_data();
         // if matches!(&self.peek().token_type, SyntacticToken(Syntactic::Colon)) {
         //     parse object call
         // }
         //let expr = &expression;
-        let time = nano_time!() - t;
-        println!("\nExp Parse Time: {}, Expression: {:?}\n", time, expression);
+        //  let time = nano_time!() - t;
+        //  println!("\nExp Parse Time: {}, Expression: {:?}\n", time, expression);
         self.consume_right_paren()?;
         expression
     }
@@ -270,18 +271,27 @@ impl ParserState {
 
 
     pub fn parse_assign(&mut self) -> Result<AstNode, String> {
-        self.advance()?;
-        self.parse_expr_data()
+        let name = match &self.consume(Literal(Lit::Identifier))?.data {
+            Some(TokenData::String(name)) => name.clone(),
+            _ => return Err("Expected a string identifier".to_string())
+        };
+        let value = self.parse_expr_data()?;
+        Ok(ExpressionNode(Box::new(Assignment(AssignData { name, value }))))
     }
 
 
     pub fn parse_if(&mut self) -> Result<AstNode, String> {
         let condition = self.parse_expr_data()?;
+        println!("before if");
         let then = self.parse_expr_data()?;
+        println!("after if");
         let if_branch = CondBranch { cond_node: condition, then_node: then };
-        let else_branch = if self.peek().token_type == Lexical(Lex::LeftParen) {
+        println!("Peel: {:?}", self.peek());
+        let else_branch = if self.peek().token_type != Lexical(Lex::RightParen) {
+            println!("parsinging else");
             Some(self.parse_expr_data()?)
         } else { None };
+        println!("end if");
         Ok(ExpressionNode(Box::new(IfExpr(IfData { if_branch, else_branch }))))
     }
 
@@ -412,8 +422,7 @@ impl ParserState {
         if identifier.contains(":") {
             todo!("No accessors yet")
         } else { name = identifier; }
-        println!("current token: {:?}", self.peek());
-        println!("prev token: {:?}", self.previous_n(2));
+
         if self.previous_n(2).token_type == Lexical(Lex::LeftParen) {
             let arguments = self.parse_func_args()?;
             Ok(ExpressionNode(Box::new(FuncCall(FuncCallData { name, accessors, arguments }))))
@@ -539,7 +548,7 @@ impl ParserState {
             }
             token = self.peek().token_type;
         }
-        Ok(Some(func_args))
+        Ok(if func_args.is_empty() { None } else { Some(func_args) })
     }
 
 

@@ -4,8 +4,7 @@ use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenTyp
 use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefVarData, ExprNode, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
 use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, PairList, PrintExpr, WhileLoop};
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::parse::Lit::Identifier;
+
 
 use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
 
@@ -85,7 +84,7 @@ impl ParserState {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
         if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
-            panic!("Parenthesis should only be advanced via consume paren function");
+            // panic!("Parenthesis should  be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         self.current += 1;
@@ -102,11 +101,11 @@ impl ParserState {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
         if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
-            panic!("Parenthesis should only be advanced via consume paren function");
+            // panic!("Parenthesis should only be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         if !self.check(&token_type) {
-            panic!("Expected: {:?}, Found: {:?}", token_type, self.peek());
+            // panic!("Expected: {:?}, Found: {:?}", token_type, self.peek());
             return Err(format!("Expected: {:?}, Found: {:?}", token_type, self.peek()));
         }
         self.advance()
@@ -115,7 +114,7 @@ impl ParserState {
 
     pub fn consume_left_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::LeftParen)) {
-            panic!("Expected: LeftParen, Found: {:?}", self.peek());
+            // panic!("Expected: LeftParen, Found: {:?}", self.peek());
             return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -126,7 +125,7 @@ impl ParserState {
 
     pub fn consume_right_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::RightParen)) {
-            panic!("Expected: RightParent, Found: {:?}", self.peek());
+            // panic!("Expected: RightParent, Found: {:?}", self.peek());
             return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -261,10 +260,22 @@ impl ParserState {
             Expression(Expr::Lacc) => self.parse_list_access(),
             Expression(Expr::While) => self.parse_while(),
             Expression(Expr::Cons) => self.parse_cons(),
-            Expression(Expr::Car) =>
-                Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: None, pattern: Some("f".to_string()) })))),
-            Expression(Expr::Cdr) =>
-                Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: None, pattern: Some("r".to_string()) })))),
+            Expression(Expr::Car) => {
+                Ok(ExpressionNode(Box::new(ListAccess(
+                    ListAccData {
+                        index_expr: None,
+                        pattern: Some("f".to_string()),
+                        list: self.parse_list_head()?,
+                    }))))
+            }
+            Expression(Expr::Cdr) => {
+                Ok(ExpressionNode(Box::new(ListAccess(
+                    ListAccData {
+                        index_expr: None,
+                        pattern: Some("f".to_string()),
+                        list: self.parse_list_head()?,
+                    }))))
+            }
             _ => Err(format!("Expected expression found {:?}", expression))
         }
     }
@@ -282,16 +293,11 @@ impl ParserState {
 
     pub fn parse_if(&mut self) -> Result<AstNode, String> {
         let condition = self.parse_expr_data()?;
-        println!("before if");
         let then = self.parse_expr_data()?;
-        println!("after if");
         let if_branch = CondBranch { cond_node: condition, then_node: then };
-        println!("Peel: {:?}", self.peek());
         let else_branch = if self.peek().token_type != Lexical(Lex::RightParen) {
-            println!("parsinging else");
             Some(self.parse_expr_data()?)
         } else { None };
-        println!("end if");
         Ok(ExpressionNode(Box::new(IfExpr(IfData { if_branch, else_branch }))))
     }
 
@@ -368,16 +374,17 @@ impl ParserState {
 
 
     pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
-        if self.peek().token_type == Syntactic(Syn::Grave) {
+        if  self.peek().token_type == Syntactic(Syn::Grave) {
             self.advance()?;
-            let token_data = &self.consume(Literal(Lit::Identifier))?.data;
-
+            let token_data = &self.consume(Literal(Lit::Identifier))?.data.clone();
+            let list = self.parse_list_head()?;
             if let Some(TokenData::String(s)) = token_data {
-                Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: None, pattern: Some(s.clone()) }))))
+                Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: None, pattern: Some(s.clone()), list }))))
             } else { Err("Expected fr... access pattern".to_string()) }
         } else {
             let index = self.parse_expr_data()?;
-            Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: Some(index), pattern: None }))))
+            let list = self.parse_list_head()?;
+            Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: Some(index), pattern: None, list }))))
         }
     }
 
@@ -397,8 +404,8 @@ impl ParserState {
     pub fn parse_cons(&mut self) -> Result<AstNode, String> {
         let car = self.parse_expr_data()?;
         let cdr = self.parse_expr_data()?;
-
-        if self.peek().token_type == Lexical(Lex::RightParen) {
+        println!("{:?}", self.peek());
+        if self.peek().token_type != Lexical(Lex::RightParen) {
             Err("Cons expression may only have 2 arguments".to_string())
         } else { Ok(ExpressionNode(Box::new(ConsExpr(ConsData { car, cdr })))) }
     }
@@ -478,6 +485,12 @@ impl ParserState {
 
     pub fn parse_quote(&mut self) -> Result<AstNode, String> {
         self.consume(Syntactic(Syn::Grave))?;
+        if self.peek().token_type == Lexical(Lex::LeftParen)
+            && self.peek_n(2).token_type == Lexical(Lex::RightParen) {
+            self.consume_left_paren();
+            self.consume_right_paren();
+            return Ok(AstNode::new_nil_lit());
+        }
         Ok(AstNode::new_quote_lit(self.parse_expr_data()?))
     }
 

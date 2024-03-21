@@ -6,8 +6,10 @@ use AstNode::LiteralNode;
 use crate::eval::environment::{Binding, Environment};
 use crate::eval::operation_eval;
 use crate::parse;
-use crate::parse::ast_nodes::{AssignData, AstNode, CondData, ConsData, DefLambdaData, DefNode, EvalResult, ExprNode, FuncArg, FuncCallData, IfData, LambdaValue, ListAccData, LitNode, OpNode, Param, WhileData};
+use crate::parse::ast_nodes::{AssignData, AstNode, CondData, ConsData, DefLambdaData, DefNode, EvalResult, ExprNode, FuncArg, FuncCallData, IfData, LambdaValue, ListAccData, LitNode, OpNode, PairValue, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode, ProgramNode};
+use crate::parse::Lit;
+
 
 
 macro_rules! nano_time {
@@ -140,7 +142,6 @@ fn eval_definition(env: &Rc<RefCell<Environment>>, node: DefNode) -> Result<AstN
     }
 }
 
-
 fn eval_expression(env: &Rc<RefCell<Environment>>, node: ExprNode) -> Result<AstNode, String> {
     match node {
         ExprNode::Assignment(data) => eval_assignment(env, data),
@@ -208,7 +209,7 @@ fn eval_while_expr(env: &Rc<RefCell<Environment>>, expr: WhileData) -> Result<As
         match eval_node(env, expr.condition.clone()) {
             Ok(LiteralNode(lit)) if lit.value().as_bool() => { eval_node(env, expr.body.clone())?; }
             Ok(_) => break,
-            Err(err) => { return Err(err); } 
+            Err(err) => { return Err(err); }
         }
     }
     Ok(AstNode::new_bool_lit(true))
@@ -216,15 +217,43 @@ fn eval_while_expr(env: &Rc<RefCell<Environment>>, expr: WhileData) -> Result<As
 
 
 fn eval_cons_expr(env: &Rc<RefCell<Environment>>, expr: ConsData) -> Result<AstNode, String> {
-    panic!("Not Implemented")
+    let car = eval_node(env, expr.car)?;
+    let cdr = eval_node(env, expr.cdr)?;
+    PairValue::from_ast(car, cdr)
 }
 
 fn eval_pair_list_expr(env: &Rc<RefCell<Environment>>, expr: Vec<AstNode>) -> Result<AstNode, String> {
-    panic!("Not Implemented")
+    let mut head = AstNode::new_nil_lit();
+    for element in expr.into_iter().rev() {
+        let evaled = eval_node(env, element)?;
+        head = PairValue::from_ast(evaled, head)?;
+    }
+    Ok(head)
 }
 
+
 fn eval_list_acc_expr(env: &Rc<RefCell<Environment>>, expr: ListAccData) -> Result<AstNode, String> {
-    panic!("Not Implemented")
+    let evaled_node = eval_node(env, expr.list)?;
+    let list = if let LiteralNode(LitNode::Pair(pair)) = evaled_node {
+        pair
+    } else { return Err("Attempted list access on non-list literal".to_string()); };
+
+    if expr.index_expr.is_some() {
+        let mut index = if let LiteralNode(lit) = eval_node(env, expr.index_expr.unwrap())? {
+            lit.value().as_int()
+        } else { return Err("Index did not evaluate to literal".to_string()); };
+        if index == 0 { return Ok(LiteralNode(*list.car)); }
+
+        let mut result = list;
+        for _ in 0..index {
+            result = if let LitNode::Pair(pair) = *result.cdr {
+                pair
+            } else { return Err("Index not contained in list".to_string()); }
+        }
+        return Ok(LiteralNode(*result.car));
+    }
+    
+    Err("Must include access index or pattern".to_string())
 }
 
 fn eval_func_call_expr(env: &Rc<RefCell<Environment>>, call: FuncCallData) -> Result<AstNode, String> {
@@ -242,7 +271,7 @@ fn eval_func_call_expr(env: &Rc<RefCell<Environment>>, call: FuncCallData) -> Re
         }
 
         eval_node(&mut new_env, lambda.def.body)
-    } else { Err("Binding is not a lambda".to_string()) }
+    } else { panic!(); Err("Binding is not a lambda".to_string()) }
 }
 
 fn map_param_to_env(env: &Rc<RefCell<Environment>>, mut params: &Vec<Param>, mut args: Vec<FuncArg>) -> Result<(), String> {

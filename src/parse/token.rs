@@ -25,7 +25,7 @@ pub fn match_single_token(input: char) -> Option<TokenType> {
         '`' => Some(Syntactic(Grave)),
         ':' => Some(Syntactic(Colon)),
         ';' => Some(Syntactic(SemiColon)),
-        '#' => Some(Syntactic(Pound)),
+      //  '#' => Some(Syntactic(Pound)),
         '$' => Some(Syntactic(Cache)),
         '@' => Some(Syntactic(At)),
         '|' => Some(Syntactic(Bar)),

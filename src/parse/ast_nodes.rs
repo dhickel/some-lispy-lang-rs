@@ -464,7 +464,7 @@ impl EvalResult for PairValue {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaValue {
     pub def: Box<DefLambdaData>,
-    pub env: Rc<RefCell<Environment>>,
+    pub env: Rc<RefCell<Environment>>
 }
 
 impl EvalResult for LambdaValue {

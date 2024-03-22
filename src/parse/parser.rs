@@ -1,4 +1,3 @@
-use std::io::BufRead;
 
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
 use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefVarData, ExprNode, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, Param, WhileData};
@@ -272,7 +271,7 @@ impl ParserState {
                 Ok(ExpressionNode(Box::new(ListAccess(
                     ListAccData {
                         index_expr: None,
-                        pattern: Some("f".to_string()),
+                        pattern: Some("r".to_string()),
                         list: self.parse_list_head()?,
                     }))))
             }

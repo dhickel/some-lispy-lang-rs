@@ -1,16 +1,20 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt;
 use std::fmt::format;
 use std::rc::Rc;
 use ahash::AHashMap;
+
 use crate::parse::ast_nodes::{AstNode, LitNode};
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::Mod;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
     parent: Option<Rc<RefCell<Environment>>>,
     bindings: AHashMap<String, Binding>,
 }
+
 
 impl Environment {
     pub fn new() -> Rc<RefCell<Environment>> {
@@ -27,16 +31,35 @@ impl Environment {
         }))
     }
 
+    pub fn print_bindings(&self) {
+        for i in self.bindings.iter() {
+            println!("{}:{:?}", i.0, i.1.obj_type)
+        }
+        if let Some(p_env) = &self.parent {
+            p_env.borrow().print_bindings();
+        }
+    }
+
+    pub fn depth(&self, mut i: usize) -> usize {
+        i += self.bindings.len();
+        if self.parent.is_some() {
+            self.parent.as_ref().unwrap().borrow().depth(i)
+        } else {
+            i
+        }
+    }
+
+
     pub fn get_literal(&self, name: &String) -> Option<LitNode> {
         if let Some(found) = &self.bindings.get(name) {
             return Some(found.value.clone());
         } else if let Some(p_env) = &self.parent {
-            p_env.borrow_mut().get_literal(name)
+            p_env.borrow().get_literal(name)
         } else { None }
     }
 
     pub fn create_binding(&mut self, name: String, binding: Binding) -> Result<AstNode, String> {
-        if let Some(existing) = self.bindings.get(&name) {
+        if let Some(_) = self.bindings.get(&name) {
             Err(format!("Binding already exists for: {}", name))
         } else {
             self.bindings.insert(name, binding);

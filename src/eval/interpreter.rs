@@ -1,14 +1,13 @@
 use std::cell::RefCell;
-use std::mem;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use AstNode::LiteralNode;
 use crate::eval::environment::{Binding, Environment};
 use crate::eval::operation_eval;
 use crate::parse;
-use crate::parse::ast_nodes::{AssignData, AstNode, CondData, ConsData, DefLambdaData, DefNode, EvalResult, ExprNode, FuncArg, FuncCallData, IfData, LambdaValue, ListAccData, LitNode, OpNode, PairValue, Param, WhileData};
+use crate::parse::ast_nodes::{AssignData, AstNode, CondData, ConsData, DefLambdaData, DefNode, ExprNode, FuncArg, FuncCallData, IfData, LambdaValue, ListAccData, LitNode, OpNode, PairValue, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode, ProgramNode};
-use crate::parse::Lit;
 
 
 
@@ -20,6 +19,7 @@ macro_rules! nano_time {
             .as_nanos() // Returns the number of nanoseconds since the Unix epoch
     };
 }
+
 
 pub fn repl_eval(env: &Rc<RefCell<Environment>>, input: String) -> String {
     let start = nano_time!();
@@ -252,42 +252,64 @@ fn eval_list_acc_expr(env: &Rc<RefCell<Environment>>, expr: ListAccData) -> Resu
         }
         return Ok(LiteralNode(*result.car));
     }
-    
-    Err("Must include access index or pattern".to_string())
+
+    if let Some(pattern) = &expr.pattern {
+        let mut curr: &PairValue = &list;
+        let mut chars = pattern.chars().peekable();
+
+        while let Some(acc) = chars.next() {
+            match (acc, &*curr.car, &*curr.cdr) {
+                ('f', LitNode::Pair(pair), _) if chars.peek().is_some() => curr = pair,
+                ('r', _, LitNode::Pair(pair)) if chars.peek().is_some() => curr = pair,
+                ('f', _, _) if chars.peek().is_none() => return Ok(LiteralNode(*curr.car.clone())),
+                ('r', _, _) if chars.peek().is_none() => return Ok(LiteralNode(*curr.cdr.clone())),
+                _ => return Err("Invalid access pattern or non-pair encountered before the end".to_string()),
+            }
+        }
+        Err("Pattern empty or did not lead to a valid access.".to_string())
+    } else {
+        Err("Access pattern required.".to_string())
+    }
 }
 
 fn eval_func_call_expr(env: &Rc<RefCell<Environment>>, call: FuncCallData) -> Result<AstNode, String> {
-    if let Some((LitNode::Lambda(lambda))) = env.borrow_mut().get_literal(&call.name) {
+    if let Some((LitNode::Lambda(lambda))) = env.borrow().get_literal(&call.name) {
         let mut new_env = Environment::of(Rc::clone(&lambda.env));
-
         if lambda.def.parameters.is_some() && call.arguments.is_some() {
             map_param_to_env(
-                &mut new_env,
+                env,
                 lambda.def.parameters.as_ref().unwrap(),
                 call.arguments.unwrap(),
+                &new_env,
             )?;
         } else if lambda.def.parameters.is_none() != call.arguments.is_none() {
             return Err("Parameter-argument mismatch".to_string());
         }
-
-        eval_node(&mut new_env, lambda.def.body)
-    } else { panic!(); Err("Binding is not a lambda".to_string()) }
+        eval_node(&new_env, lambda.def.body)
+    } else { Err("Binding is not a lambda".to_string()) }
 }
 
-fn map_param_to_env(env: &Rc<RefCell<Environment>>, mut params: &Vec<Param>, mut args: Vec<FuncArg>) -> Result<(), String> {
+fn map_param_to_env(
+    curr_env: &Rc<RefCell<Environment>>,
+    mut params: &Vec<Param>,
+    mut args: Vec<FuncArg>,
+    func_env: &Rc<RefCell<Environment>>,
+) -> Result<(), String> {
     if params.len() == args.len() {
         for i in 0..args.len() {
             let arg = args.remove(i);
-            let ast = eval_node(env, arg.value)?;
+            let ast = eval_node(curr_env, arg.value)?;
             let binding = Binding::new_binding(ast, None)?;
-            env.borrow_mut().create_binding(params[i].name.clone(), binding)?;
+            func_env.borrow_mut().create_binding(params[i].name.clone(), binding)?;
         }
         Ok(())
     } else { Err("Arg len mismatch".to_string()) }
 }
 
 fn eval_lit_call_expr(env: &Rc<RefCell<Environment>>, name: String) -> Result<AstNode, String> {
-    if let Some(lit) = env.borrow_mut().get_literal(&name) {
-        Ok(LiteralNode(lit.clone()))
-    } else { Err(format!("Failed to find binding for: {}", name)) }
+    if let Some(lit) = env.borrow().get_literal(&name) {
+        Ok(LiteralNode(lit))
+    } else {
+        Err(format!("Failed to find binding for: {}", name))
+    }
 }

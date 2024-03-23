@@ -4,7 +4,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 use ahash::AHashMap;
 
-use crate::parse::ast_nodes::{AstNode, LitNode};
+use crate::parse::ast_nodes::{AST_TRUE_LIT, AstNode, LitNode};
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::Mod;
 
@@ -51,12 +51,11 @@ impl Environment {
 
     pub fn get_literal(&self, name: &String) -> Option<Rc<RefCell<Binding>>> {
         if let Some(found) = self.bindings.get(name) {
-            return Some(Rc::clone(&found));
+            Some(Rc::clone(&found))
         } else if let Some(p_env) = &self.parent {
-            p_env.borrow().get_literal(name).to_owned()
+            p_env.borrow().get_literal(name).clone()
         } else { None }
     }
-
 
 
     pub fn create_binding(&mut self, name: String, binding: Binding) -> Result<AstNode, String> {
@@ -64,15 +63,15 @@ impl Environment {
             Err(format!("Binding already exists for: {}", name))
         } else {
             self.bindings.insert(name, Rc::new(RefCell::new(binding)));
-            Ok(AstNode::new_bool_lit(true))
+            Ok(AST_TRUE_LIT)
         }
     }
 
-    pub fn update_binding(&mut self, name: &String, value: &LitNode) -> Result<AstNode, String> {
+    pub fn update_binding(&mut self, name: &String, value: AstNode) -> Result<AstNode, String> {
         if let Some(binding) = self.bindings.get_mut(name) {
             if binding.borrow().mutable {
-                binding.borrow_mut().value = value.clone();
-                Ok(AstNode::new_bool_lit(true))
+                binding.borrow_mut().value = value;
+                Ok(AST_TRUE_LIT)
             } else {
                 Err(format!("Attempted to reassign immutable binding{}", name))
             }
@@ -88,7 +87,7 @@ impl Environment {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
     pub obj_type: String,
-    pub value: LitNode,
+    pub value: AstNode,
     pub dynamic: bool,
     pub mutable: bool,
 }
@@ -107,11 +106,11 @@ impl Binding {
 
         if let LiteralNode(lit) = value {
             if is_dynamic {
-                Ok(Binding { obj_type: lit.value().get_type(), value: lit.clone(), dynamic: true, mutable: true })
-            } else if (is_mutable) {
-                Ok(Binding { obj_type: lit.value().get_type(), value: lit.clone(), dynamic: false, mutable: true })
+                Ok(Binding { obj_type: lit.value().get_type(), value: value.clone(), dynamic: true, mutable: true })
+            } else if is_mutable {
+                Ok(Binding { obj_type: lit.value().get_type(), value: value.clone(), dynamic: false, mutable: true })
             } else {
-                Ok(Binding { obj_type: lit.value().get_type(), value: lit.clone(), dynamic: false, mutable: false })
+                Ok(Binding { obj_type: lit.value().get_type(), value: value.clone(), dynamic: false, mutable: false })
             }
         } else { Err("Binding did not eval to literal".to_string()) }
     }

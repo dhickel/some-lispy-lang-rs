@@ -4,11 +4,13 @@ use std::vec;
 use crate::eval::environment::Environment;
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::{Lit, Mod};
-use crate::parse::ast_nodes::LitNode::Nil;
 
 const NIL_LIT: LitNode = LitNode::Nil(NilValue());
 const TRUE_LIT: LitNode = LitNode::Boolean(BoolValue(true));
 const FALSE_LIT: LitNode = LitNode::Boolean(BoolValue(false));
+pub const AST_NIL_LIT: AstNode = LiteralNode(NIL_LIT);
+pub const AST_TRUE_LIT: AstNode = LiteralNode(TRUE_LIT);
+pub const AST_FALSE_LIT: AstNode = LiteralNode(FALSE_LIT);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {

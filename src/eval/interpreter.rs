@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -6,7 +7,7 @@ use AstNode::LiteralNode;
 use crate::eval::environment::{Binding, Environment};
 use crate::eval::operation_eval;
 use crate::parse;
-use crate::parse::ast_nodes::{AssignData, AstNode, CondData, ConsData, DefLambdaData, DefNode, ExprNode, FuncArg, FuncCallData, IfData, LambdaValue, ListAccData, LitNode, OpNode, PairValue, Param, WhileData};
+use crate::parse::ast_nodes::{AssignData, AST_FALSE_LIT, AST_NIL_LIT, AST_TRUE_LIT, AstNode, CondData, ConsData, DefLambdaData, DefNode, ExprNode, FuncArg, FuncCallData, IfData, LambdaValue, ListAccData, LitNode, OpNode, PairValue, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode, ProgramNode};
 
 
@@ -51,28 +52,28 @@ pub fn repl_eval(env: &Rc<RefCell<Environment>>, input: String) -> String {
 pub fn eval(env: &Rc<RefCell<Environment>>, input: Vec<AstNode>) -> Vec<String> {
     let mut evaled = Vec::<String>::new();
     for node in input {
-        match eval_node(env, node) {
-            Ok(rtn) => if let LiteralNode(any) = rtn {
-                evaled.push(any.value().as_string())
-            } else { evaled.push("Fatal: Invalid Eval Return".to_string()) }
+        match eval_node(env, &node) {
+            Ok(rtn) => match &*rtn {
+                AstNode::LiteralNode(any) => evaled.push(any.value().as_string()),
+                _ => evaled.push("Fatal: Invalid Eval Return".to_string())
+            },
             Err(msg) => evaled.push(msg.clone())
         }
     }
     evaled
 }
 
-
-fn eval_node(env: &Rc<RefCell<Environment>>, node: AstNode) -> Result<AstNode, String> {
+fn eval_node<'a>(env: &'a Rc<RefCell<Environment>>, node: &'a AstNode) -> Result<Cow<'a, AstNode>, String> {
     match node {
-        ExpressionNode(expr) => eval_expression(env, *expr),
-        LiteralNode(_) => Ok(node),
-        OperationNode(op) => eval_operation(env, op),
-        DefinitionNode(def) => eval_definition(env, *def),
+        ExpressionNode(expr) => eval_expression(env, expr),
+        LiteralNode(_) => Ok(Cow::Borrowed(node)),
+        OperationNode(op) => eval_operation(env, op.clone()),
+        DefinitionNode(def) => eval_definition(env, *def.to_owned()),
         ProgramNode(_) => Err("Fatal: Found Nested Program Node".to_string())
     }
 }
 
-fn eval_operation(env: &Rc<RefCell<Environment>>, node: OpNode) -> Result<AstNode, String> {
+fn eval_operation<'a>(env: &Rc<RefCell<Environment>>, node: OpNode) -> Result<Cow<'a, AstNode>, String> {
     match node {
         OpNode::Addition(op_nodes) => Ok(operation_eval::add(eval_operands(env, op_nodes)?)),
         OpNode::Subtraction(op_nodes) => Ok(operation_eval::subtract(eval_operands(env, op_nodes)?)),
@@ -93,61 +94,64 @@ fn eval_operation(env: &Rc<RefCell<Environment>>, node: OpNode) -> Result<AstNod
         OpNode::GreaterThanEqual(op_nodes) => Ok(operation_eval::greater_than_eq(eval_operands(env, op_nodes)?)),
         OpNode::LessThan(op_nodes) => Ok(operation_eval::less_than(eval_operands(env, op_nodes)?)),
         OpNode::LessThanEqual(op_nodes) => Ok(operation_eval::less_than_eq(eval_operands(env, op_nodes)?)),
-        OpNode::Equality(op_nodes) => Ok(operation_eval::ref_eqaulity(eval_operands(env, op_nodes)?)),
+        OpNode::Equality(op_nodes) => Ok(operation_eval::ref_equality(eval_operands(env, op_nodes)?)),
         OpNode::RefEquality(op_nodes) => Ok(operation_eval::value_equality(eval_operands(env, op_nodes)?)),
         OpNode::RefNonEquality(op_nodes) => Ok(operation_eval::value_non_equality(eval_operands(env, op_nodes)?))
     }
 }
 
-fn eval_operands(env: &Rc<RefCell<Environment>>, op_nodes: Vec<AstNode>) -> Result<(bool, Vec<LitNode>), String> {
+fn eval_operands<'a>(env: &Rc<RefCell<Environment>>, op_nodes: Vec<AstNode>) -> Result<(bool, Vec<LitNode>), String> {
     let mut operands = Vec::<LitNode>::with_capacity(op_nodes.len());
     let mut is_float = false;
     for node in op_nodes {
-        match eval_node(env, node)? {
-            LiteralNode(val) => {
-                if matches!(val, LitNode::Float(_)) {
-                    is_float = true;
-                }
+        match eval_node(env, &node)? {
+            Cow::Borrowed(LiteralNode(val)) => {
+                if matches!(val, LitNode::Float(_)) { is_float = true; }
+                operands.push(val.clone());
+            }
+            Cow::Owned(LiteralNode(val)) => {
+                if matches!(val, LitNode::Float(_)) { is_float = true; }
                 operands.push(val);
             }
-            _ => return Err("Operand did not evaluate to literal".to_string()),
+            _ => return Err("Error evaluating operands".to_string())
         }
     }
     Ok((is_float, operands))
 }
 
-fn eval_definition(env: &Rc<RefCell<Environment>>, node: DefNode) -> Result<AstNode, String> {
+
+fn eval_definition<'a>(env: &Rc<RefCell<Environment>>, node: DefNode) -> Result<Cow<'a, AstNode>, String> {
     match node {
         DefNode::Variable(var) => {
-            if let Ok(evaled_var) = eval_node(env, *var.value) {
-                let binding = Binding::new_binding(evaled_var, var.modifiers);
+            if let Ok(evaled_var) = eval_node(env, &var.value).as_deref() {
+                let binding = Binding::new_binding(evaled_var, &var.modifiers);
                 let bind = env.borrow_mut().create_binding(var.name, binding?);
                 if let Err(s) = bind {
                     Err(s.clone())
-                } else { Ok(AstNode::new_bool_lit(true)) }
+                } else { Ok(Cow::Owned(AstNode::new_bool_lit(true))) }
             } else { Err("Binding did not eval to literal".to_string()) }
         }
         DefNode::Lambda(lam) => {
-            Ok(AstNode::new_lambda_lit(lam, Rc::clone(&env)))
+            Ok(Cow::Owned(AstNode::new_lambda_lit(lam, Rc::clone(&env))))
         }
         DefNode::Function(fun) => {
             let mods = fun.lambda.modifiers.clone();
             let lambda_lit = AstNode::new_lambda_lit(fun.lambda, Rc::clone(&env));
-            let binding = Binding::new_binding(lambda_lit, mods);
+            let binding = Binding::new_binding(&lambda_lit, &mods);
             let bind = env.borrow_mut().create_binding(fun.name, binding?);
             if let Err(s) = bind {
                 Err(s.clone())
-            } else { Ok(AstNode::new_bool_lit(true)) }
+            } else { Ok(Cow::Owned(AstNode::new_bool_lit(true))) }
         }
     }
 }
 
-fn eval_expression(env: &Rc<RefCell<Environment>>, node: ExprNode) -> Result<AstNode, String> {
+fn eval_expression<'a>(env: &'a Rc<RefCell<Environment>>, node: &'a ExprNode) -> Result<Cow<'a, AstNode>, String> {
     match node {
         ExprNode::Assignment(data) => eval_assignment(env, data),
         ExprNode::MultiExpr(data) => eval_multi_expr(env, data),
         ExprNode::PrintExpr(data) => eval_print_expr(env, data),
-        ExprNode::IfExpr(data) => eval_if_expr(env, data),
+        ExprNode::IfExpr(data) => eval_if_expr(env, &data),
         ExprNode::CondExpr(data) => eval_cond_expr(env, data),
         ExprNode::WhileLoop(data) => eval_while_expr(env, data),
         ExprNode::ConsExpr(data) => eval_cons_expr(env, data),
@@ -158,99 +162,115 @@ fn eval_expression(env: &Rc<RefCell<Environment>>, node: ExprNode) -> Result<Ast
     }
 }
 
-fn eval_assignment(env: &Rc<RefCell<Environment>>, expr: AssignData) -> Result<AstNode, String> {
-    if let Ok(LiteralNode(lit)) = eval_node(env, expr.value) {
-        env.borrow_mut().update_binding(&expr.name, lit)
+fn eval_assignment<'a>(env: &'a Rc<RefCell<Environment>>, expr: &AssignData) -> Result<Cow<'a, AstNode>, String> {
+    if let Ok(LiteralNode(lit)) = eval_node(env, &expr.value).as_deref() {
+        let rtn = env.borrow_mut().update_binding(&expr.name, lit)?;
+        Ok(Cow::Owned(rtn))
     } else { Err("Assigned value did not evaluate to literal".to_string()) }
 }
 
-fn eval_multi_expr(env: &Rc<RefCell<Environment>>, expr: Vec<AstNode>) -> Result<AstNode, String> {
-    let mut result: AstNode = AstNode::new_nil_lit();
+fn eval_multi_expr<'a>(env: &'a Rc<RefCell<Environment>>, expr: &'a Vec<AstNode>) -> Result<Cow<'a, AstNode>, String> {
+    let mut result: Cow<'a, AstNode> = Cow::Owned(AST_NIL_LIT);
     for e in expr {
-        result = eval_node(env, e)?;
+        result = eval_node(env, &*e)?;
     }
     Ok(result)
 }
 
-fn eval_print_expr(env: &Rc<RefCell<Environment>>, expr: AstNode) -> Result<AstNode, String> {
-    if let (LiteralNode(literal)) = eval_node(env, expr)? {
-        println!("{}", literal.value().as_string());
-        Ok(AstNode::new_nil_lit())
-    } else { Err("Print value not literal".to_string()) }
+fn eval_print_expr<'a>(env: &Rc<RefCell<Environment>>, expr: &AstNode) -> Result<Cow<'a, AstNode>, String> {
+    match eval_node(env, &expr)? {
+        Cow::Borrowed(LiteralNode(lit)) => {
+            println!("{}", lit.value().as_string());
+            Ok(Cow::Borrowed(&AST_NIL_LIT))
+        }
+        Cow::Owned(LiteralNode(lit)) => {
+            println!("{}", lit.value().as_string());
+            Ok(Cow::Borrowed(&AST_NIL_LIT))
+        }
+        _ => Err("Print value not literal".to_string())
+    }
 }
 
-fn eval_if_expr(env: &Rc<RefCell<Environment>>, expr: IfData) -> Result<AstNode, String> {
-    if let Ok(LiteralNode(lit)) = eval_node(env, expr.if_branch.cond_node) {
+fn eval_if_expr<'a>(env: &'a Rc<RefCell<Environment>>, expr: &'a IfData) -> Result<Cow<'a, AstNode>, String> {
+    if let Ok(LiteralNode(lit)) = eval_node(env, &expr.if_branch.cond_node).as_deref() {
         if lit.value().as_bool() {
-            eval_node(env, expr.if_branch.then_node)
+            eval_node(env, &expr.if_branch.then_node)
         } else if expr.else_branch.is_some() {
-            eval_node(env, expr.else_branch.unwrap())
-        } else { Ok(AstNode::new_bool_lit(true)) }
+            match eval_node(env, &expr.to_owned().else_branch.unwrap())? {
+                Cow::Borrowed(b) => Ok(Cow::Owned(b.to_owned())),
+                Cow::Owned(o) => Ok(Cow::Owned(o))
+            }
+        } else { Ok(Cow::Borrowed(&AST_TRUE_LIT)) }
     } else { Err("If condition did not evaluate to boolean".to_string()) }
 }
 
-fn eval_cond_expr(env: &Rc<RefCell<Environment>>, expr: CondData) -> Result<AstNode, String> {
-    for e in expr.cond_branches {
-        if let Ok(LiteralNode(lit)) = eval_node(env, e.cond_node) {
+fn eval_cond_expr<'a>(env: &'a Rc<RefCell<Environment>>, expr: &'a CondData) -> Result<Cow<'a, AstNode>, String> {
+    for e in &expr.cond_branches {
+        if let Ok(LiteralNode(lit)) = eval_node(env, &e.cond_node).as_deref() {
             if lit.value().as_bool() {
-                return eval_node(env, e.then_node);
+                return eval_node(env, &e.then_node);
             } else { continue; }
         } else { return Err("Cond condition did  not evaluate to boolean".to_string()); }
     }
-    if let Some(else_branch) = expr.else_branch {
-        eval_node(env, else_branch)
-    } else { Ok(AstNode::new_bool_lit(false)) }
+    if let Some(else_branch) = &expr.else_branch {
+        eval_node(env, &else_branch)
+    } else { Ok(Cow::Borrowed(&AST_FALSE_LIT)) }
 }
 
 
-fn eval_while_expr(env: &Rc<RefCell<Environment>>, expr: WhileData) -> Result<AstNode, String> {
-    if expr.is_do { eval_node(env, expr.body.clone())?; }
+fn eval_while_expr<'a>(env: &Rc<RefCell<Environment>>, expr: &WhileData) -> Result<Cow<'a, AstNode>, String> {
+    if expr.is_do { eval_node(env, &expr.body)?; }
     loop {
-        match eval_node(env, expr.condition.clone()) {
-            Ok(LiteralNode(lit)) if lit.value().as_bool() => { eval_node(env, expr.body.clone())?; }
+        match eval_node(env, &expr.condition).as_deref() {
+            Ok(LiteralNode(lit)) if lit.value().as_bool() => { eval_node(env, &expr.body)?; }
             Ok(_) => break,
-            Err(err) => { return Err(err); }
+            Err(err) => { return Err(err.to_owned()); }
         }
     }
-    Ok(AstNode::new_bool_lit(true))
+    Ok(Cow::Borrowed(&AST_TRUE_LIT))
 }
 
 
-fn eval_cons_expr(env: &Rc<RefCell<Environment>>, expr: ConsData) -> Result<AstNode, String> {
-    let car = eval_node(env, expr.car)?;
-    let cdr = eval_node(env, expr.cdr)?;
-    PairValue::from_ast(car, cdr)
+fn eval_cons_expr<'a>(env: &Rc<RefCell<Environment>>, expr: &ConsData) -> Result<Cow<'a, AstNode>, String> {
+    let car = eval_node(env, &expr.car)?;
+    let cdr = eval_node(env, &expr.cdr)?;
+    Ok(Cow::Owned(PairValue::from_ast(car.as_ref().to_owned(), cdr.as_ref().to_owned())?))
 }
 
-fn eval_pair_list_expr(env: &Rc<RefCell<Environment>>, expr: Vec<AstNode>) -> Result<AstNode, String> {
-    let mut head = AstNode::new_nil_lit();
+fn eval_pair_list_expr<'a>(env: &Rc<RefCell<Environment>>, expr: &Vec<AstNode>) -> Result<Cow<'a, AstNode>, String> {
+    let mut head = AST_NIL_LIT; // Ensure this is the correct way to get an owned Cow of AST_NIL_LIT
     for element in expr.into_iter().rev() {
-        let evaled = eval_node(env, element)?;
-        head = PairValue::from_ast(evaled, head)?;
+        let evaled = match eval_node(env, &element)? {
+            Cow::Borrowed(borrowed) => head = PairValue::from_ast(borrowed.to_owned(), head)?,
+            Cow::Owned(owned) => head = PairValue::from_ast(owned, head)?
+        };
+
+        // Depending on PairValue::from_ast implementation, you might need to clone `evaled` if it expects owned value
+        // Adjust accordingly if PairValue::from_ast can take a reference
     }
-    Ok(head)
+    Ok(Cow::Owned(head))
 }
 
 
-fn eval_list_acc_expr(env: &Rc<RefCell<Environment>>, expr: ListAccData) -> Result<AstNode, String> {
-    let evaled_node = eval_node(env, expr.list)?;
-    let list = if let LiteralNode(LitNode::Pair(pair)) = evaled_node {
+fn eval_list_acc_expr<'a>(env: &Rc<RefCell<Environment>>, expr: &ListAccData) -> Result<Cow<'a, AstNode>, String> {
+    let evaled_node = eval_node(env, &expr.list);
+    let list = if let LiteralNode(LitNode::Pair(pair)) = evaled_node.as_deref()? {
         pair
     } else { return Err("Attempted list access on non-list literal".to_string()); };
 
     if expr.index_expr.is_some() {
-        let mut index = if let LiteralNode(lit) = eval_node(env, expr.index_expr.unwrap())? {
+        let mut index = if let LiteralNode(lit) = eval_node(env, &expr.to_owned().index_expr.unwrap()).as_deref()? {
             lit.value().as_int()
         } else { return Err("Index did not evaluate to literal".to_string()); };
-        if index == 0 { return Ok(LiteralNode(*list.car)); }
+        if index == 0 { return Ok(Cow::Owned(LiteralNode(*list.car.to_owned()))); }
 
         let mut result = list;
         for _ in 0..index {
-            result = if let LitNode::Pair(pair) = *result.cdr {
-                pair
-            } else { return Err("Index not contained in list".to_string()); }
+            // result = if let LitNode::Pair(pair) = *result.cdr.to_owned() {
+            //     &pair.clone().to_owned()
+            // } else { return Err("Index not contained in list".to_string()); }
         }
-        return Ok(LiteralNode(*result.car));
+        return Ok(Cow::Owned(LiteralNode(*result.car.to_owned())));
     }
 
     if let Some(pattern) = &expr.pattern {
@@ -261,8 +281,8 @@ fn eval_list_acc_expr(env: &Rc<RefCell<Environment>>, expr: ListAccData) -> Resu
             match (acc, &*curr.car, &*curr.cdr) {
                 ('f', LitNode::Pair(pair), _) if chars.peek().is_some() => curr = pair,
                 ('r', _, LitNode::Pair(pair)) if chars.peek().is_some() => curr = pair,
-                ('f', _, _) if chars.peek().is_none() => return Ok(LiteralNode(*curr.car.clone())),
-                ('r', _, _) if chars.peek().is_none() => return Ok(LiteralNode(*curr.cdr.clone())),
+                ('f', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(*curr.car.to_owned()))),
+                ('r', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(*curr.cdr.to_owned()))),
                 _ => return Err("Invalid access pattern or non-pair encountered before the end".to_string()),
             }
         }
@@ -272,43 +292,49 @@ fn eval_list_acc_expr(env: &Rc<RefCell<Environment>>, expr: ListAccData) -> Resu
     }
 }
 
-fn eval_func_call_expr(env: &Rc<RefCell<Environment>>, call: FuncCallData) -> Result<AstNode, String> {
-    if let Some((LitNode::Lambda(lambda))) = env.borrow().get_literal(&call.name) {
-        let mut new_env = Environment::of(Rc::clone(&lambda.env));
-        if lambda.def.parameters.is_some() && call.arguments.is_some() {
-            map_param_to_env(
-                env,
-                lambda.def.parameters.as_ref().unwrap(),
-                call.arguments.unwrap(),
-                &new_env,
-            )?;
-        } else if lambda.def.parameters.is_none() != call.arguments.is_none() {
-            return Err("Parameter-argument mismatch".to_string());
-        }
-        eval_node(&new_env, lambda.def.body)
+fn eval_func_call_expr<'a>(env: &'a Rc<RefCell<Environment>>, call: &'a FuncCallData) -> Result<Cow<'a, AstNode>, String> {
+    if let Some(binding) = env.borrow().get_literal(&call.name) {
+        if let LitNode::Lambda(lambda) = &binding.borrow().value {
+            let new_env = Environment::of(Rc::clone(&lambda.env));
+
+            if lambda.def.parameters.is_some() && call.arguments.is_some() {
+                map_param_to_env(
+                    env,
+                    lambda.def.parameters.as_ref().unwrap(),
+                    &mut call.to_owned().arguments.unwrap(),
+                    &new_env, // new_env is now directly passed as Rc<RefCell<Environment>>
+                )?;
+            } else if lambda.def.parameters.is_none() != call.arguments.is_none() {
+                return Err("Parameter-argument mismatch".to_string());
+            }
+            match eval_node(&new_env, &lambda.def.body)? {
+                Cow::Borrowed(b) => Ok(Cow::Owned(b.to_owned())),
+                Cow::Owned(o) => Ok(Cow::Owned(o))
+            }
+        } else { Err("Binding is not a lambda".to_string()) }
     } else { Err("Binding is not a lambda".to_string()) }
 }
 
 fn map_param_to_env(
     curr_env: &Rc<RefCell<Environment>>,
-    mut params: &Vec<Param>,
-    mut args: Vec<FuncArg>,
+    params: &Vec<Param>,
+    args: &mut Vec<FuncArg>,
     func_env: &Rc<RefCell<Environment>>,
 ) -> Result<(), String> {
     if params.len() == args.len() {
         for i in 0..args.len() {
             let arg = args.remove(i);
-            let ast = eval_node(curr_env, arg.value)?;
-            let binding = Binding::new_binding(ast, None)?;
+            let ast = eval_node(curr_env, &arg.value)?;
+            let binding = Binding::new_binding(&ast, &None)?;
             func_env.borrow_mut().create_binding(params[i].name.clone(), binding)?;
         }
         Ok(())
     } else { Err("Arg len mismatch".to_string()) }
 }
 
-fn eval_lit_call_expr(env: &Rc<RefCell<Environment>>, name: String) -> Result<AstNode, String> {
-    if let Some(lit) = env.borrow().get_literal(&name) {
-        Ok(LiteralNode(lit))
+fn eval_lit_call_expr<'a>(env: &Rc<RefCell<Environment>>, name: &String) -> Result<Cow<'a, AstNode>, String> {
+    if let Some(lit) = env.borrow().get_literal(name) {
+        Ok(Cow::Owned(LiteralNode(lit.borrow().value.clone())))
     } else {
         Err(format!("Failed to find binding for: {}", name))
     }

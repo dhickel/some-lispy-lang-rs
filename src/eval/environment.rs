@@ -56,7 +56,7 @@ impl Environment {
         if let Some(found) = self.bindings.get(name) {
             Some(Rc::clone(&found.value))
         } else if let Some(p_env) = &self.parent {
-            p_env.borrow().get_literal(name).clone()
+            p_env.borrow().get_literal(name)
         } else { None }
     }
 

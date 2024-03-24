@@ -1,7 +1,9 @@
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefVarData, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
 use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, PairList, PrintExpr, WhileLoop};
+use crate::parse::Def::DefineStruct;
+use crate::parse::Lex::{LeftParen, RightParen};
 
 
 use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
@@ -82,7 +84,7 @@ impl ParserState {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
         if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
-            // panic!("Parenthesis should  be advanced via consume paren function");
+             panic!("Parenthesis should  be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         self.current += 1;
@@ -99,7 +101,7 @@ impl ParserState {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
         if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
-            // panic!("Parenthesis should only be advanced via consume paren function");
+             panic!("Parenthesis should only be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         if !self.check(&token_type) {
@@ -147,9 +149,9 @@ impl ParserState {
             Expression(_) => self.parse_exact_expr(),
             Definition(Def::Define) => self.parse_define(),
             Definition(Def::DefineFunc) => self.parse_func(),
-            Definition(Def::Lambda) => {
-                Ok(DefinitionNode(Box::new(DefNode::Lambda(self.parse_lambda(false)?))))
-            }
+            Definition(Def::Lambda) =>
+                Ok(DefinitionNode(Box::new(DefNode::Lambda(self.parse_lambda(false)?)))),
+            Definition(Def::DefineStruct) => self.parse_struct(),
             Syntactic(_) => Err(format!("Unexpected token: {:?}", &self.peek())), // TODO implement quote
             _ => Err(format!("Unexpected token: {:?}", &self.peek()))
         }
@@ -167,7 +169,7 @@ impl ParserState {
             return Ok(ExpressionNode(Box::new(ExprFuncCal(ExprFuncCallData {
                 expr: expression,
                 accessors: None,
-                arguments: args
+                arguments: args,
             }))));
         }
         self.consume_right_paren()?;
@@ -497,6 +499,48 @@ impl ParserState {
     }
 
 
+    pub fn parse_struct(&mut self) -> Result<AstNode, String> {
+        self.consume(Definition(DefineStruct))?;
+
+        let name = match &self.consume(Literal(Lit::Identifier))?.data {
+            Some(TokenData::String(name)) => name.clone(),
+            _ => return Err("Expected name for struct".to_string())
+        };
+        let fields = self.parse_fields()?;
+        Ok(DefinitionNode(Box::new(DefNode::Struct(DefStructData { name, fields }))))
+    }
+
+
+    pub fn parse_fields(&mut self) -> Result<Option<Vec<Field>>, String> {
+        let mut fields = Vec::<Field>::new();
+        while self.peek().token_type != Lexical(RightParen) {
+            self.consume_left_paren()?;
+
+            let name = match &self.consume(Literal(Lit::Identifier))?.data {
+                Some(TokenData::String(name)) => name.clone(),
+                _ => return Err("Expected name for struct".to_string())
+            };
+
+            let modifiers = if matches!(self.peek().token_type, Modifier(_)) {
+                self.parse_modifiers()?
+            } else { None };
+
+            let p_type = self.parse_type_if_exists()?;
+
+            let default_value: Option<AstNode> = if self.peek().token_type == Syntactic(Syn::Bar) {
+                self.advance()?;
+                Some(self.parse_expr_data()?)
+            } else { None };
+
+            self.consume_right_paren()?;
+            fields.push(Field { name, modifiers, p_type, default_value, c_type: None })
+        }
+        if fields.is_empty() {
+            Ok(None)
+        } else { Ok(Some(fields)) }
+    }
+
+
     pub fn parse_func(&mut self) -> Result<AstNode, String> {
         self.consume(Definition(Def::DefineFunc))?;
 
@@ -507,7 +551,6 @@ impl ParserState {
         let lambda = self.parse_lambda(true)?;
         Ok(DefinitionNode(Box::new(DefNode::Function(DefFuncData { name, lambda }))))
     }
-
 
     pub fn parse_lambda(&mut self, is_defunc: bool) -> Result<DefLambdaData, String> {
         if !is_defunc { self.consume(Definition(Def::Lambda))?; }
@@ -522,7 +565,6 @@ impl ParserState {
         Ok(DefLambdaData { modifiers, parameters, body, p_type: rtn_type, c_type: None })
     }
 
-
     pub fn parse_modifiers(&mut self) -> Result<Option<Vec<Mod>>, String> {
         if !matches!(self.peek().token_type, Modifier(_)) { return Ok(None); };
 
@@ -535,7 +577,6 @@ impl ParserState {
             Ok(None)
         } else { Ok(Some(modifiers)) }
     }
-
 
     pub fn parse_func_args(&mut self) -> Result<Option<Vec<FuncArg>>, String> {
         let mut func_args = Vec::<FuncArg>::new();
@@ -565,7 +606,6 @@ impl ParserState {
         }
         Ok(if func_args.is_empty() { None } else { Some(func_args) })
     }
-
 
     pub fn parse_parameters(&mut self) -> Result<Option<Vec<Param>>, String> {
         self.consume_left_paren()?;

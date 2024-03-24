@@ -73,6 +73,7 @@ pub enum DefNode {
     Variable(DefVarData),
     Lambda(DefLambdaData),
     Function(DefFuncData),
+    Struct(DefStructData),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,6 +107,21 @@ pub struct Param {
     pub default_value: Option<AstNode>,
     pub dynamic: bool,
     pub mutable: bool,
+    pub c_type: Option<Type>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DefStructData {
+    pub name: String,
+    pub fields: Option<Vec<Field>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Field {
+    pub name: String,
+    pub modifiers: Option<Vec<Mod>>,
+    pub p_type: Option<String>,
+    pub default_value: Option<AstNode>,
     pub c_type: Option<Type>,
 }
 

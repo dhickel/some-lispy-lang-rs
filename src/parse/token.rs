@@ -52,11 +52,11 @@ pub fn match_double_token(input: (char, char)) -> Option<TokenType> {
         ('<', '=') => Some(Operation(LessEqual)),
         ('!', '=') => Some(Operation(BangEquals)),
         ('=', '=') => Some(Operation(RefEqual)),
-        ('=', '>') => Some(Syntactic(EqualGreater)),
         (':', '=') => Some(Expression(Assign)),
         ('#', 't') => Some(Literal(True)),
         ('#', 'f') => Some(Literal(False)),
         ('i', 'f') => Some(Expression(If)),
+        ('=', '>') => Some(Definition(Lambda)),
         _ => None,
     }
 }
@@ -87,7 +87,7 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
         "define" => Some(Definition(Define)),
         "defunc" => Some(Definition(DefineFunc)),
         "def-class" => Some(Definition(DefineClass)),
-        "def-record" => Some(Definition(DefineRecord)),
+        "def-struct" => Some(Definition(DefineStruct)),
         "lambda" => Some(Definition(Lambda)),
         _ => None
     }
@@ -210,7 +210,7 @@ pub enum Def {
     Define,
     DefineFunc,
     DefineClass,
-    DefineRecord,
+    DefineStruct,
     Lambda,
 }
 

@@ -4,10 +4,13 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use AstNode::LiteralNode;
-use crate::eval::environment::{Binding, Environment};
+use crate::eval::environment::{Environment};
 use crate::eval::operation_eval;
+use crate::lang::datatypes::Binding;
 use crate::parse;
-use crate::parse::ast_nodes::{AssignData, AST_FALSE_LIT, AST_NIL_LIT, AST_TRUE_LIT, AstNode, CondData, ConsData, DefNode, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, PairValue, Param, WhileData};
+use crate::parse::ast_nodes::{AssignData, AST_FALSE_LIT, AST_NIL_LIT, AST_TRUE_LIT, AstNode,
+    CondData, ConsData, DefNode, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData,
+    ListAccData, LitNode, OpNode, PairValue, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode, ProgramNode};
 
 
@@ -159,6 +162,7 @@ fn eval_definition<'a>(
                 Err(s.clone())
             } else { Ok(Cow::Owned(AstNode::new_bool_lit(true))) }
         }
+        _ => todo!()
     }
 }
 

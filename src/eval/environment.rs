@@ -4,6 +4,7 @@ use std::ops::Deref;
 
 use std::rc::Rc;
 use ahash::AHashMap;
+use crate::lang::datatypes::Binding;
 use crate::lang::types::Type;
 
 use crate::parse::ast_nodes::{AST_TRUE_LIT, AstNode, LitNode};
@@ -74,8 +75,9 @@ impl Environment {
             return Err(format!("Attempted to assign non literal value to{}", name));
         }
         if let Some(binding) = self.bindings.get_mut(name) {
-            if binding.borrow().mutable {
-                binding.borrow_mut().value = value.clone();
+            let mut data = binding.borrow_mut();
+            if data.mutable {
+                data.value = value.clone();
                 Ok(AST_TRUE_LIT)
             } else {
                 Err(format!("Attempted to reassign immutable binding{}", name))
@@ -89,37 +91,6 @@ impl Environment {
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Binding {
-    pub obj_type: Type,
-    pub value: AstNode,
-    pub dynamic: bool,
-    pub mutable: bool,
-}
-
-impl Binding {
-    pub fn new_binding(value: &AstNode, mods: &Option<Vec<Mod>>) -> Result<Binding, String> {
-        let mut is_mutable = false;
-        let mut is_dynamic = false;
-
-        if let Some(mods) = mods {
-            for m in mods {
-                if *m == Mod::Mutable { is_mutable = true; }
-                if *m == Mod::Dynamic { is_dynamic = true; }
-            }
-        }
-
-        if let LiteralNode(lit) = value {
-            if is_dynamic {
-                Ok(Binding { obj_type: lit.value().get_type(), value: value.clone(), dynamic: true, mutable: true })
-            } else if is_mutable {
-                Ok(Binding { obj_type: lit.value().get_type(), value: value.clone(), dynamic: false, mutable: true })
-            } else {
-                Ok(Binding { obj_type: lit.value().get_type(), value: value.clone(), dynamic: false, mutable: false })
-            }
-        } else { Err("Binding did not eval to literal".to_string()) }
-    }
-}
 
 
 

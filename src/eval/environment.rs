@@ -14,7 +14,7 @@ use crate::parse::Mod;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
     parent: Option<Rc<RefCell<Environment>>>,
-    bindings: AHashMap<String, Rc<RefCell<Binding>>>,
+    bindings: AHashMap<String, Binding>,
 }
 
 
@@ -52,9 +52,9 @@ impl Environment {
     }
 
 
-    pub fn get_literal(&self, name: &String) -> Option<Rc<RefCell<Binding>>> {
+    pub fn get_literal(&self, name: &String) -> Option<Rc<AstNode>> {
         if let Some(found) = self.bindings.get(name) {
-            Some(Rc::clone(&found))
+            Some(Rc::clone(&found.value))
         } else if let Some(p_env) = &self.parent {
             p_env.borrow().get_literal(name).clone()
         } else { None }
@@ -65,7 +65,7 @@ impl Environment {
         if let Some(_) = self.bindings.get(&name) {
             Err(format!("Binding already exists for: {}", name))
         } else {
-            self.bindings.insert(name, Rc::new(RefCell::new(binding)));
+            self.bindings.insert(name, binding);
             Ok(AST_TRUE_LIT)
         }
     }
@@ -75,9 +75,9 @@ impl Environment {
             return Err(format!("Attempted to assign non literal value to{}", name));
         }
         if let Some(binding) = self.bindings.get_mut(name) {
-            let mut data = binding.borrow_mut();
+            let mut data = binding;
             if data.mutable {
-                data.value = value.clone();
+                data.value = Rc::new(value.clone());
                 Ok(AST_TRUE_LIT)
             } else {
                 Err(format!("Attempted to reassign immutable binding{}", name))

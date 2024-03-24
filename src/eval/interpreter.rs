@@ -354,7 +354,7 @@ fn eval_func_call_expr<'a>(
     call: &'a FuncCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Some(binding) = env.borrow().get_literal(&call.name) {
-        if let LiteralNode(LitNode::Lambda(lambda)) = &binding.borrow().value {
+        if let LiteralNode(LitNode::Lambda(lambda)) = &binding.deref() {
             let new_env = Environment::of(Rc::clone(&lambda.env));
 
             if lambda.def.parameters.is_some() && call.arguments.is_some() {
@@ -425,7 +425,7 @@ fn eval_lit_call_expr<'a>(
     name: &String,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Some(lit) = env.borrow().get_literal(name) {
-        Ok(Cow::Owned(lit.borrow().value.clone()))
+        Ok(Cow::Owned(lit.deref().clone()))
     } else {
         Err(format!("Failed to find binding for: {}", name))
     }

@@ -16,7 +16,7 @@ fn is_literal(name: &String, value: &AstNode) -> Result<(), String> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
     pub obj_type: Type,
-    pub value: AstNode,
+    pub value: Rc<AstNode>,
     pub dynamic: bool,
     pub mutable: bool,
 }
@@ -35,11 +35,11 @@ impl Binding {
 
         if let LiteralNode(lit) = value {
             if is_dynamic {
-                Ok(Binding { obj_type: lit.value().get_type(), value: value.clone(), dynamic: true, mutable: true })
+                Ok(Binding { obj_type: lit.value().get_type(), value: Rc::new(value.clone()), dynamic: true, mutable: true })
             } else if is_mutable {
-                Ok(Binding { obj_type: lit.value().get_type(), value: value.clone(), dynamic: false, mutable: true })
+                Ok(Binding { obj_type: lit.value().get_type(), value: Rc::new(value.clone()), dynamic: false, mutable: true })
             } else {
-                Ok(Binding { obj_type: lit.value().get_type(), value: value.clone(), dynamic: false, mutable: false })
+                Ok(Binding { obj_type: lit.value().get_type(), value: Rc::new(value.clone()), dynamic: false, mutable: false })
             }
         } else { Err("Binding did not eval to literal".to_string()) }
     }
@@ -66,7 +66,7 @@ impl StructData {
             Some(data) => {
                 let mut data = data.borrow_mut();
                 if data.mutable {
-                    data.value = value.clone();
+                    data.value = value.clone().into();
                     Ok(AST_TRUE_LIT)
                 } else {
                     Err(format!("Attempted to reassign immutable field: {}", name))

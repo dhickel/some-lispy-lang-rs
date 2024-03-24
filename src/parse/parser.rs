@@ -1,8 +1,7 @@
-
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefVarData, ExprNode, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefVarData, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
-use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, PairList, PrintExpr, WhileLoop};
+use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, PairList, PrintExpr, WhileLoop};
 
 
 use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
@@ -113,7 +112,7 @@ impl ParserState {
 
     pub fn consume_left_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::LeftParen)) {
-            // panic!("Expected: LeftParen, Found: {:?}", self.peek());
+            panic!("Expected: LeftParen, Found: {:?}", self.peek());
             return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -124,8 +123,8 @@ impl ParserState {
 
     pub fn consume_right_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::RightParen)) {
-            // panic!("Expected: RightParent, Found: {:?}", self.peek());
-            return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
+            panic!("Expected: RightParent, Found: {:?}", self.peek());
+            return Err(format!("Expected: RightParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
         self.depth -= 1;
@@ -158,17 +157,21 @@ impl ParserState {
 
 
     pub fn parse_s_expr(&mut self) -> Result<AstNode, String> {
-        //   let t = nano_time!();
         self.consume_left_paren()?;
-        let expression = self.parse_expr_data();
-        // if matches!(&self.peek().token_type, SyntacticToken(Syntactic::Colon)) {
-        //     parse object call
-        // }
-        //let expr = &expression;
-        //  let time = nano_time!() - t;
-        //  println!("\nExp Parse Time: {}, Expression: {:?}\n", time, expression);
+        let expression = self.parse_expr_data()?;
+
+        // Handle edge case where first expr in an s-expr is something that evals to a lambda call
+        if self.peek().token_type != Lexical(Lex::RightParen) {
+            let args = self.parse_func_args()?;
+            self.consume_right_paren()?;
+            return Ok(ExpressionNode(Box::new(ExprFuncCal(ExprFuncCallData {
+                expr: expression,
+                accessors: None,
+                arguments: args
+            }))));
+        }
         self.consume_right_paren()?;
-        expression
+        Ok(expression)
     }
 
 
@@ -373,7 +376,7 @@ impl ParserState {
 
 
     pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
-        if  self.peek().token_type == Syntactic(Syn::Grave) {
+        if self.peek().token_type == Syntactic(Syn::Grave) {
             self.advance()?;
             let token_data = &self.consume(Literal(Lit::Identifier))?.data.clone();
             let list = self.parse_list_head()?;
@@ -516,7 +519,7 @@ impl ParserState {
         let parameters = self.parse_parameters()?;
         let body = self.parse_multi_expr()?;
         let rtn_type = self.parse_type_if_exists()?;
-        Ok(DefLambdaData { modifiers, parameters, body, rtn_type })
+        Ok(DefLambdaData { modifiers, parameters, body, p_type: rtn_type, c_type: None })
     }
 
 
@@ -603,8 +606,16 @@ impl ParserState {
                 Some(self.parse_literal()?)
             } else { None };
 
-            let typ = self.parse_type_if_exists()?;
-            params.push(Param { name, typ, optional, default_value, dynamic, mutable });
+            let p_type = self.parse_type_if_exists()?;
+            params.push(Param {
+                name,
+                p_type,
+                optional,
+                default_value,
+                dynamic,
+                mutable,
+                c_type: None,
+            });
         }
         self.consume_right_paren()?;
         Ok(Some(params))

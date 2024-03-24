@@ -1,8 +1,10 @@
 use std::cell::RefCell;
+use std::fmt::format;
 use std::ops::Deref;
 
 use std::rc::Rc;
 use ahash::AHashMap;
+use crate::lang::types::Type;
 
 use crate::parse::ast_nodes::{AST_TRUE_LIT, AstNode, LitNode};
 use crate::parse::ast_nodes::AstNode::LiteralNode;
@@ -67,10 +69,13 @@ impl Environment {
         }
     }
 
-    pub fn update_binding(&mut self, name: &String, value: AstNode) -> Result<AstNode, String> {
+    pub fn update_binding<'a>(&mut self, name: &String, value: &'a AstNode) -> Result<AstNode, String> {
+        if !matches!(value, LiteralNode(_)) {
+            return Err(format!("Attempted to assign non literal value to{}", name));
+        }
         if let Some(binding) = self.bindings.get_mut(name) {
             if binding.borrow().mutable {
-                binding.borrow_mut().value = value;
+                binding.borrow_mut().value = value.clone();
                 Ok(AST_TRUE_LIT)
             } else {
                 Err(format!("Attempted to reassign immutable binding{}", name))
@@ -86,7 +91,7 @@ impl Environment {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
-    pub obj_type: String,
+    pub obj_type: Type,
     pub value: AstNode,
     pub dynamic: bool,
     pub mutable: bool,

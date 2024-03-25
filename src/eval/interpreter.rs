@@ -9,9 +9,7 @@ use crate::eval::environment::{Environment};
 use crate::eval::operation_eval;
 use crate::lang::datatypes::{Binding, StructMetaData};
 use crate::parse;
-use crate::parse::ast_nodes::{AssignData, AST_FALSE_LIT, AST_NIL_LIT, AST_TRUE_LIT, AstNode,
-    CondData, ConsData, DefNode, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData,
-    ListAccData, LitNode, OpNode, PairValue, Param, WhileData};
+use crate::parse::ast_nodes::{AssignData, AST_FALSE_LIT, AST_NIL_LIT, AST_TRUE_LIT, AstNode, CondData, ConsData, DefNode, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, OpNode, PairValue, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode, ProgramNode};
 
 
@@ -32,13 +30,14 @@ pub fn repl_eval(env: &Rc<RefCell<Environment>>, loader: &mut ClassLoader, input
     let eval_time;
     let total_time;
     let tokens = parse::lexer::process(input);
-
+    //  println!("\n{:?}\n", tokens);
     let ast = match tokens {
         Ok(tokens) => parse::parser::process(tokens),
         Err(msg) => return msg
     };
 
-    println!("\n{:?}\n", ast);
+
+    //  println!("\n{:?}\n", ast);
     proc_time = nano_time!() - start;
     let eval_start = nano_time!();
     let result = match ast {
@@ -167,12 +166,34 @@ fn eval_definition<'a>(
                 Err(s.clone())
             } else { Ok(Cow::Owned(AstNode::new_bool_lit(true))) }
         }
-        DefNode::StructDef(structure) => {
-            let struct_def = StructMetaData::new_declaration(structure.fields)?;
-            loader.new_class_def(structure.name, ClassDef::Struct(struct_def))?;
+        DefNode::StructDef(def) => {
+            let struct_def = StructMetaData::new_declaration(def.fields)?;
+            loader.new_class_def(def.name, ClassDef::Struct(struct_def))?;
             Ok(Cow::Owned(AstNode::new_bool_lit(true)))
         }
-        _ => todo!()
+        DefNode::InstanceDef(inst) => {
+            let evaled_args = if let Some(args) = inst.args {
+                let mut vec = Vec::<InstArgs>::with_capacity(args.len());
+                for arg in args {
+                    let evaled_arg = match eval_node(env, loader, &arg.value)? {
+                        Cow::Borrowed(b) => b.clone(),
+                        Cow::Owned(o) => o
+                    };
+                    vec.push(InstArgs { name: arg.name, value: evaled_arg });
+                }
+                Some(vec)
+            } else { None };
+
+            let def = loader.get_class_def(&inst.name)?;
+            match def {
+                ClassDef::Struct(s) => {
+                    let inst = s.new_instance(inst.name, evaled_args)?;
+                    return Ok(Cow::Owned(inst));
+                }
+                ClassDef::Class => { todo!() }
+            }
+            Err("Failed".to_string())
+        }
     }
 }
 

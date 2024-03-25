@@ -1,5 +1,5 @@
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, ListAccData, LitNode, OpNode, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
 use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, PairList, PrintExpr, WhileLoop};
 use crate::parse::Def::DefineStruct;
@@ -151,7 +151,7 @@ impl ParserState {
             Definition(Def::DefineFunc) => self.parse_func(),
             Definition(Def::Lambda) =>
                 Ok(DefinitionNode(Box::new(DefNode::Lambda(self.parse_lambda(false)?)))),
-            Definition(Def::DefineStruct) => self.parse_struct(),
+            Definition(Def::DefineStruct) => self.parse_struct_def(),
             Syntactic(_) => Err(format!("Unexpected token: {:?}", &self.peek())), // TODO implement quote
             _ => Err(format!("Unexpected token: {:?}", &self.peek()))
         }
@@ -244,7 +244,12 @@ impl ParserState {
                             self.parse_identifier(value.clone())
                         } else { Err(format!("Invalid data for identifier: {:?}", &self.peek().data)) }
                     }
-                    Lit::Nil => Ok(AstNode::new_nil_lit())
+                    Lit::Instance => {
+                        if let Some(TokenData::String(value)) = data {
+                            self.parse_instance(value.clone())
+                        } else { Err(format!("Invalid data for identifier: {:?}", &self.peek().data)) }
+                    }
+                    Lit::Nil => Ok(AstNode::new_nil_lit()),
                 }
             }
             _ => Err(format!("Expected literal value found: {:?}", token.clone()))
@@ -284,7 +289,6 @@ impl ParserState {
         }
     }
 
-
     pub fn parse_assign(&mut self) -> Result<AstNode, String> {
         let name = match &self.consume(Literal(Lit::Identifier))?.data {
             Some(TokenData::String(name)) => name.clone(),
@@ -293,7 +297,6 @@ impl ParserState {
         let value = self.parse_expr_data()?;
         Ok(ExpressionNode(Box::new(Assignment(AssignData { name, value }))))
     }
-
 
     pub fn parse_if(&mut self) -> Result<AstNode, String> {
         let condition = self.parse_expr_data()?;
@@ -304,7 +307,6 @@ impl ParserState {
         } else { None };
         Ok(ExpressionNode(Box::new(IfExpr(IfData { if_branch, else_branch }))))
     }
-
 
     pub fn parse_cond(&mut self) -> Result<AstNode, String> {
         let mut cond_branches = Vec::<CondBranch>::new();
@@ -326,7 +328,6 @@ impl ParserState {
         } else { Ok(ExpressionNode(Box::new(CondExpr(CondData { cond_branches, else_branch })))) }
     }
 
-
     pub fn parse_cond_branch(&mut self) -> Result<CondBranch, String> {
         self.consume_left_paren()?;
 
@@ -335,7 +336,6 @@ impl ParserState {
         self.consume_right_paren()?;
         Ok(CondBranch { cond_node, then_node })
     }
-
 
     pub fn parse_multi_expr(&mut self) -> Result<AstNode, String> {
         let mut expressions = Vec::<AstNode>::new();
@@ -350,12 +350,10 @@ impl ParserState {
         } else { Ok(ExpressionNode(Box::new(MultiExpr(expressions)))) }
     }
 
-
     pub fn parse_print(&mut self) -> Result<AstNode, String> {
         let expr = self.parse_expr_data()?;
         Ok(ExpressionNode(Box::new(PrintExpr(expr))))
     }
-
 
     pub fn parse_list(&mut self) -> Result<AstNode, String> {
         let mut elements = Vec::<AstNode>::new();
@@ -368,14 +366,12 @@ impl ParserState {
         } else { Ok(ExpressionNode(Box::new(PairList(elements)))) }
     }
 
-
     pub fn parse_list_head(&mut self) -> Result<AstNode, String> {
         let head = self.parse_expr_data()?;
         if self.peek().token_type != Lexical(Lex::RightParen) {
             Err(format!("Invalid argument count, line: {}", self.peek().line))
         } else { Ok(head) }
     }
-
 
     pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
         if self.peek().token_type == Syntactic(Syn::Grave) {
@@ -392,7 +388,6 @@ impl ParserState {
         }
     }
 
-
     pub fn parse_while(&mut self) -> Result<AstNode, String> {
         let is_do = if self.peek().token_type == Modifier(Mod::Do) {
             self.advance()?;
@@ -404,7 +399,6 @@ impl ParserState {
         Ok(ExpressionNode(Box::new(WhileLoop(WhileData { condition, body, is_do }))))
     }
 
-
     pub fn parse_cons(&mut self) -> Result<AstNode, String> {
         let car = self.parse_expr_data()?;
         let cdr = self.parse_expr_data()?;
@@ -413,7 +407,6 @@ impl ParserState {
             Err("Cons expression may only have 2 arguments".to_string())
         } else { Ok(ExpressionNode(Box::new(ConsExpr(ConsData { car, cdr })))) }
     }
-
 
     pub fn parse_type_if_exists(&mut self) -> Result<Option<String>, String> {
         let typ = if let (
@@ -444,7 +437,6 @@ impl ParserState {
         }
     }
 
-
     fn parse_accessors(input: &str) -> (String, Vec<Accessor>) {
         let mut parts = input.split(&[':', '.'][..]).peekable();
         let object_name = parts.next().unwrap_or("").to_string();
@@ -471,7 +463,6 @@ impl ParserState {
 
         (object_name, accessors)
     }
-
 
     pub fn parse_define(&mut self) -> Result<AstNode, String> {
         self.consume(Definition(Def::Define))?;
@@ -511,6 +502,30 @@ impl ParserState {
         return Ok(definition);
     }
 
+    pub fn parse_instance(&mut self, name: String) -> Result<AstNode, String> {
+        let args = self.parse_named_args()?;
+        Ok(DefinitionNode(Box::new(DefNode::InstanceDef(DefStructInst { name, args }))))
+    }
+
+    pub fn parse_named_args(&mut self) -> Result<Option<Vec<InstArgs>>, String> {
+        self.consume(Lexical(Lex::LeftBracket))?;
+
+        let mut args = Vec::<InstArgs>::new();
+        while self.peek().token_type != Lexical(Lex::RightBracket) {
+            self.consume(Syntactic(Syn::Colon))?;
+
+            let name = if let Some(TokenData::String(name))
+                = &self.consume(Literal(Lit::Identifier))?.data {
+                name.clone()
+            } else { return Err("Expected name for instance call".to_string()); };
+
+            let value = self.parse_expr_data()?;
+            args.push(InstArgs { name, value })
+        }
+        
+        self.consume(Lexical(Lex::RightBracket))?;
+        Ok(Some(args))
+    }
 
     pub fn parse_quote(&mut self) -> Result<AstNode, String> {
         self.consume(Syntactic(Syn::Grave))?;
@@ -523,8 +538,7 @@ impl ParserState {
         Ok(AstNode::new_quote_lit(self.parse_expr_data()?))
     }
 
-
-    pub fn parse_struct(&mut self) -> Result<AstNode, String> {
+    pub fn parse_struct_def(&mut self) -> Result<AstNode, String> {
         self.consume(Definition(DefineStruct))?;
 
         let name = match &self.consume(Literal(Lit::Identifier))?.data {
@@ -534,7 +548,6 @@ impl ParserState {
         let fields = self.parse_fields()?;
         Ok(DefinitionNode(Box::new(DefNode::StructDef(DefStructData { name, fields }))))
     }
-
 
     pub fn parse_fields(&mut self) -> Result<Option<Vec<Field>>, String> {
         let mut fields = Vec::<Field>::new();
@@ -564,7 +577,6 @@ impl ParserState {
             Ok(None)
         } else { Ok(Some(fields)) }
     }
-
 
     pub fn parse_func(&mut self) -> Result<AstNode, String> {
         self.consume(Definition(Def::DefineFunc))?;

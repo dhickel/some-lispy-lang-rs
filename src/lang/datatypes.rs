@@ -1,9 +1,11 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::rc::Rc;
 use ahash::AHashMap;
 use crate::lang::types::Type;
-use crate::parse::ast_nodes::{AST_NIL_LIT, AST_TRUE_LIT, AstNode, EvalResult, Field, FuncArg, InstArgs, LitNode};
+use crate::parse::ast_nodes::{AST_NIL_LIT, AST_TRUE_LIT, AstNode, EvalResult, Field, FuncArg, InstArgs, LitNode, ObjectValue};
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::Mod;
 
@@ -97,30 +99,36 @@ impl StructMetaData {
         } else { Ok(StructMetaData { immutable: true, data: None, arity: 0 }) }
     }
 
-    pub fn new_instance(self, name: String, args: Option<Vec<InstArgs>>) -> Result<StructData, String> {
+    pub fn new_instance(
+        &self,
+        name: String,
+        args: Option<Vec<InstArgs>>,
+    ) -> Result<AstNode, String> {
         if self.arity == 0 && args.is_none() {
-            return Ok(StructData { immutable: true, data: AHashMap::with_capacity(0) });
+            let data = StructData { immutable: true, data: AHashMap::with_capacity(0) };
+            return Ok(LiteralNode(LitNode::Object(ObjectValue::Struct(data))));
         }
-        
+
         if let Some(args) = args {
             if args.len() as u8 != self.arity {
                 return Err(format!(
                     "Expected {} instance arguments but found {} for:{}",
                     self.arity, args.len(), &name));
             }
-            
-            let mut inst_data = self.data.unwrap().clone();
+
+            let mut inst_data = self.data.clone().unwrap();
             for arg in args {
                 let field = inst_data.get(&arg.name);
                 if let Some(field) = field {
                     // TODO type matching
-                    let binding = Binding::replace_binding(&arg.value, field.dynamic, field.mutable)?;
+                    let binding = Binding::replace_binding(&field.value, field.dynamic, field.mutable)?;
                     inst_data.insert(arg.name, binding);
                 } else {
                     return Err(format!("Instance argument not found: {} for struct: {}", &arg.name, &name));
                 }
             }
-            Ok(StructData { immutable: self.immutable, data: inst_data })
+            let data = StructData { immutable: self.immutable, data: inst_data };
+            Ok(LiteralNode(LitNode::Object(ObjectValue::Struct(data))))
         } else {
             Err(format!("Expected instance arguments but found none for:{}", name))
         }

@@ -116,6 +116,7 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
             match value {
                 Lexical(Lex::DoubleQuote) => lex_string_literal(state),
                 Syntactic(Syn::Ampersand) => lex_modifier(state),
+                Syntactic(Syn::At) => lex_instance(state),
                 Operation(Op::Minus) => {
                     if state.peek().is_numeric() {
                         lex_number_token(state)
@@ -163,6 +164,14 @@ fn lex_string_literal(state: &mut LexicalState) -> bool {
     state.advance(); // Consume closing "
     state.add_token_data(Literal(Lit::String), TokenData::String(string_data));
     true
+}
+
+fn lex_instance(state: &mut LexicalState) -> bool {
+    state.advance(); // skip @ symbol
+    let instance_id: String = read_data_to_string(state);
+    state.add_token_data(Literal(Lit::Instance), TokenData::String(instance_id));
+    true
+    
 }
 
 // fn lex_quote(state: &mut LexicalState) {
@@ -234,7 +243,7 @@ fn lex_number_token(state: &mut LexicalState) -> bool {
 }
 
 fn is_def_end(c: char) -> bool {
-    matches!(c, ' ' | ')' | '(' | '\r' | '\n' | '\t')
+    matches!(c, ' ' | ')' | '(' | '[' | ']' | '\r' | '\n' | '\t')
 }
 
 fn is_numeric(c: char) -> bool {

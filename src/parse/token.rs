@@ -185,6 +185,7 @@ pub enum Lit {
     Int,
     Float,
     Identifier,
+    Instance,
     Nil,
 }
 

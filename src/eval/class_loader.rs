@@ -27,8 +27,10 @@ impl ClassLoader {
         self.class_defs.insert(name, class_def);
         Ok(())
     }
-    
-    pub fn get_class_def(&self, name : &str) -> Option<&ClassDef> {
-        self.class_defs.get(name)
+
+    pub fn get_class_def(&self, name: &str) -> Result<&ClassDef, String> {
+        if let Some(found) = self.class_defs.get(name) {
+            return Ok(found);
+        } else { Err(format!("Definition not loaded for: {}", name)) }
     }
 }

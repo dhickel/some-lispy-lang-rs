@@ -2,7 +2,7 @@ use std::cell::{Ref, RefCell};
 use std::rc::Rc;
 use std::vec;
 use crate::eval::environment::Environment;
-use crate::lang::datatypes::{ StructData};
+use crate::lang::datatypes::{StructData};
 use crate::lang::types::Type;
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::{Lit, Mod};
@@ -79,6 +79,7 @@ pub enum DefNode {
     Lambda(DefLambdaData),
     Function(DefFuncData),
     StructDef(DefStructData),
+    InstanceDef(DefStructInst),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -122,6 +123,12 @@ pub struct DefStructData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct DefStructInst {
+    pub name: String,
+    pub args: Option<Vec<InstArgs>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Field {
     pub name: String,
     pub modifiers: Option<Vec<Mod>>,
@@ -129,7 +136,6 @@ pub struct Field {
     pub default_value: Option<AstNode>,
     pub c_type: Option<Type>,
 }
-
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -219,9 +225,10 @@ pub struct FuncArg {
     pub name: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct InstArgs {
-    pub name : String,
-    pub value: AstNode
+    pub name: String,
+    pub value: AstNode,
 }
 
 
@@ -376,7 +383,10 @@ impl EvalResult for QuoteValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ObjectValue(());
+pub enum ObjectValue{
+    Struct(StructData),
+    Class()
+}
 
 
 impl EvalResult for ObjectValue {
@@ -387,7 +397,7 @@ impl EvalResult for ObjectValue {
     //   fn as_vector(&self) -> Vec<LitNode> { vec![LitNode::Object(ObjectValue(()))] }
     fn equal_to(&self, other: &LitNode) -> bool {
         if let LitNode::Object(val) = other {
-            val.0 == self.0
+            true // FIXME
         } else { false }
     }
     // TODO type data should come from the actual held value

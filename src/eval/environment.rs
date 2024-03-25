@@ -1,15 +1,19 @@
 use std::cell::RefCell;
-use std::fmt::format;
-use std::ops::Deref;
 
 use std::rc::Rc;
 use ahash::AHashMap;
+use crate::eval::class_loader::{ClassDef, ClassLoader};
 use crate::lang::datatypes::Binding;
-use crate::lang::types::Type;
 
 use crate::parse::ast_nodes::{AST_TRUE_LIT, AstNode, LitNode};
 use crate::parse::ast_nodes::AstNode::LiteralNode;
-use crate::parse::Mod;
+
+
+#[derive(Clone, Debug)]
+pub struct Context<'a> {
+    pub env: &'a Rc<RefCell<Environment>>,
+    pub class_loader: &'a ClassLoader,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Environment {

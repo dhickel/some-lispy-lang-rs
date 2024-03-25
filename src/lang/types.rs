@@ -12,6 +12,7 @@ pub enum Type {
     Object,
     Lambda,
     Custom,
+    Struct,
 }
 
 #[derive(Debug, Clone, PartialEq)]

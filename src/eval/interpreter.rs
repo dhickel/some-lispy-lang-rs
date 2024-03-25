@@ -4,9 +4,10 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use AstNode::LiteralNode;
+use crate::eval::class_loader::{ClassDef, ClassLoader};
 use crate::eval::environment::{Environment};
 use crate::eval::operation_eval;
-use crate::lang::datatypes::Binding;
+use crate::lang::datatypes::{Binding, StructMetaData};
 use crate::parse;
 use crate::parse::ast_nodes::{AssignData, AST_FALSE_LIT, AST_NIL_LIT, AST_TRUE_LIT, AstNode,
     CondData, ConsData, DefNode, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData,
@@ -25,7 +26,7 @@ macro_rules! nano_time {
 }
 
 
-pub fn repl_eval(env: &Rc<RefCell<Environment>>, input: String) -> String {
+pub fn repl_eval(env: &Rc<RefCell<Environment>>, loader: &mut ClassLoader, input: String) -> String {
     let start = nano_time!();
     let proc_time;
     let eval_time;
@@ -41,7 +42,7 @@ pub fn repl_eval(env: &Rc<RefCell<Environment>>, input: String) -> String {
     proc_time = nano_time!() - start;
     let eval_start = nano_time!();
     let result = match ast {
-        Ok(ast) => eval(env, ast).join("\n"),
+        Ok(ast) => eval(env, loader, ast).join("\n"),
         Err(error) => return error
     };
     eval_time = nano_time!() - eval_start;
@@ -53,10 +54,10 @@ pub fn repl_eval(env: &Rc<RefCell<Environment>>, input: String) -> String {
 }
 
 
-pub fn eval(env: &Rc<RefCell<Environment>>, input: Vec<AstNode>) -> Vec<String> {
+pub fn eval(env: &Rc<RefCell<Environment>>, loader: &mut ClassLoader, input: Vec<AstNode>) -> Vec<String> {
     let mut evaled = Vec::<String>::new();
     for node in input {
-        match eval_node(env, &node) {
+        match eval_node(env, loader, &node) {
             Ok(rtn) => match &*rtn {
                 LiteralNode(any) => evaled.push(any.value().as_string()),
                 invalid => evaled.push(format!("Fatal: Invalid Eval Return :{:?}", invalid))
@@ -70,13 +71,14 @@ pub fn eval(env: &Rc<RefCell<Environment>>, input: Vec<AstNode>) -> Vec<String> 
 
 fn eval_node<'a>(
     env: &'a Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     node: &'a AstNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
-        ExpressionNode(expr) => eval_expression(env, expr),
+        ExpressionNode(expr) => eval_expression(env, loader, expr),
         LiteralNode(_) => Ok(Cow::Borrowed(node)),
-        OperationNode(op) => eval_operation(env, op),
-        DefinitionNode(def) => eval_definition(env, *def.clone()),
+        OperationNode(op) => eval_operation(env, loader, op),
+        DefinitionNode(def) => eval_definition(env, loader, *def.clone()),
         ProgramNode(_) => Err("Fatal: Found Nested Program Node".to_string())
     }
 }
@@ -84,43 +86,45 @@ fn eval_node<'a>(
 
 fn eval_operation<'a>(
     env: &Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     node: &OpNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
-        OpNode::Addition(op_nodes) => Ok(operation_eval::add(eval_operands(env, op_nodes)?)),
-        OpNode::Subtraction(op_nodes) => Ok(operation_eval::subtract(eval_operands(env, op_nodes)?)),
-        OpNode::Multiplication(op_nodes) => Ok(operation_eval::multiply(eval_operands(env, op_nodes)?)),
-        OpNode::Division(op_nodes) => Ok(operation_eval::divide(eval_operands(env, op_nodes)?)),
-        OpNode::Modulo(op_nodes) => Ok(operation_eval::modulo(eval_operands(env, op_nodes)?)),
-        OpNode::Exponentiate(op_nodes) => Ok(operation_eval::exponentiate(eval_operands(env, op_nodes)?)),
-        OpNode::Increment(op_nodes) => Ok(operation_eval::increment(eval_operands(env, op_nodes)?)),
-        OpNode::Decrement(op_nodes) => Ok(operation_eval::decrement(eval_operands(env, op_nodes)?)),
-        OpNode::Or(op_nodes) => Ok(operation_eval::or(eval_operands(env, op_nodes)?)),
-        OpNode::And(op_nodes) => Ok(operation_eval::and(eval_operands(env, op_nodes)?)),
-        OpNode::Xor(op_nodes) => Ok(operation_eval::xor(eval_operands(env, op_nodes)?)),
-        OpNode::Nor(op_nodes) => Ok(operation_eval::nor(eval_operands(env, op_nodes)?)),
-        OpNode::Xnor(op_nodes) => Ok(operation_eval::xnor(eval_operands(env, op_nodes)?)),
-        OpNode::Nand(op_nodes) => Ok(operation_eval::nand(eval_operands(env, op_nodes)?)),
-        OpNode::Negate(op_nodes) => Ok(operation_eval::negate(eval_operands(env, op_nodes)?)),
-        OpNode::GreaterThan(op_nodes) => Ok(operation_eval::greater_than(eval_operands(env, op_nodes)?)),
-        OpNode::GreaterThanEqual(op_nodes) => Ok(operation_eval::greater_than_eq(eval_operands(env, op_nodes)?)),
-        OpNode::LessThan(op_nodes) => Ok(operation_eval::less_than(eval_operands(env, op_nodes)?)),
-        OpNode::LessThanEqual(op_nodes) => Ok(operation_eval::less_than_eq(eval_operands(env, op_nodes)?)),
-        OpNode::Equality(op_nodes) => Ok(operation_eval::ref_equality(eval_operands(env, op_nodes)?)),
-        OpNode::RefEquality(op_nodes) => Ok(operation_eval::value_equality(eval_operands(env, op_nodes)?)),
-        OpNode::RefNonEquality(op_nodes) => Ok(operation_eval::value_non_equality(eval_operands(env, op_nodes)?))
+        OpNode::Addition(op_nodes) => Ok(operation_eval::add(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Subtraction(op_nodes) => Ok(operation_eval::subtract(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Multiplication(op_nodes) => Ok(operation_eval::multiply(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Division(op_nodes) => Ok(operation_eval::divide(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Modulo(op_nodes) => Ok(operation_eval::modulo(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Exponentiate(op_nodes) => Ok(operation_eval::exponentiate(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Increment(op_nodes) => Ok(operation_eval::increment(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Decrement(op_nodes) => Ok(operation_eval::decrement(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Or(op_nodes) => Ok(operation_eval::or(eval_operands(env, loader, op_nodes)?)),
+        OpNode::And(op_nodes) => Ok(operation_eval::and(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Xor(op_nodes) => Ok(operation_eval::xor(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Nor(op_nodes) => Ok(operation_eval::nor(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Xnor(op_nodes) => Ok(operation_eval::xnor(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Nand(op_nodes) => Ok(operation_eval::nand(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Negate(op_nodes) => Ok(operation_eval::negate(eval_operands(env, loader, op_nodes)?)),
+        OpNode::GreaterThan(op_nodes) => Ok(operation_eval::greater_than(eval_operands(env, loader, op_nodes)?)),
+        OpNode::GreaterThanEqual(op_nodes) => Ok(operation_eval::greater_than_eq(eval_operands(env, loader, op_nodes)?)),
+        OpNode::LessThan(op_nodes) => Ok(operation_eval::less_than(eval_operands(env, loader, op_nodes)?)),
+        OpNode::LessThanEqual(op_nodes) => Ok(operation_eval::less_than_eq(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Equality(op_nodes) => Ok(operation_eval::ref_equality(eval_operands(env, loader, op_nodes)?)),
+        OpNode::RefEquality(op_nodes) => Ok(operation_eval::value_equality(eval_operands(env, loader, op_nodes)?)),
+        OpNode::RefNonEquality(op_nodes) => Ok(operation_eval::value_non_equality(eval_operands(env, loader, op_nodes)?))
     }
 }
 
 
 fn eval_operands(
     env: &Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     op_nodes: &Vec<AstNode>,
 ) -> Result<(bool, Vec<LitNode>), String> {
     let mut operands = Vec::<LitNode>::with_capacity(op_nodes.len());
     let mut is_float = false;
     for node in op_nodes {
-        match eval_node(env, &node)? {
+        match eval_node(env, loader, &node)? {
             Cow::Borrowed(LiteralNode(val)) => {
                 if matches!(val, LitNode::Float(_)) { is_float = true; }
                 operands.push(val.clone());
@@ -138,11 +142,12 @@ fn eval_operands(
 
 fn eval_definition<'a>(
     env: &Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     node: DefNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
         DefNode::Variable(var) => {
-            if let Ok(evaled_var) = eval_node(env, &var.value).as_deref() {
+            if let Ok(evaled_var) = eval_node(env, loader, &var.value).as_deref() {
                 let binding = Binding::new_binding(evaled_var, &var.modifiers);
                 let bind = env.borrow_mut().create_binding(var.name.clone(), binding?);
                 if let Err(s) = bind {
@@ -162,6 +167,11 @@ fn eval_definition<'a>(
                 Err(s.clone())
             } else { Ok(Cow::Owned(AstNode::new_bool_lit(true))) }
         }
+        DefNode::StructDef(structure) => {
+            let struct_def = StructMetaData::new_declaration(structure.fields)?;
+            loader.new_class_def(structure.name, ClassDef::Struct(struct_def))?;
+            Ok(Cow::Owned(AstNode::new_bool_lit(true)))
+        }
         _ => todo!()
     }
 }
@@ -169,30 +179,32 @@ fn eval_definition<'a>(
 
 fn eval_expression<'a>(
     env: &'a Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     node: &'a ExprNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
-        ExprNode::Assignment(data) => eval_assignment(env, data),
-        ExprNode::MultiExpr(data) => eval_multi_expr(env, data),
-        ExprNode::PrintExpr(data) => eval_print_expr(env, data),
-        ExprNode::IfExpr(data) => eval_if_expr(env, &data),
-        ExprNode::CondExpr(data) => eval_cond_expr(env, data),
-        ExprNode::WhileLoop(data) => eval_while_expr(env, data),
-        ExprNode::ConsExpr(data) => eval_cons_expr(env, data),
-        ExprNode::PairList(data) => eval_pair_list_expr(env, data),
-        ExprNode::ListAccess(data) => eval_list_acc_expr(env, data),
-        ExprNode::FuncCall(data) => eval_func_call_expr(env, data),
-        ExprNode::LiteralCall(data) => eval_lit_call_expr(env, data),
-        ExprNode::ExprFuncCal(data) => eval_expr_func_call(env, data)
+        ExprNode::Assignment(data) => eval_assignment(env, loader, data),
+        ExprNode::MultiExpr(data) => eval_multi_expr(env, loader, data),
+        ExprNode::PrintExpr(data) => eval_print_expr(env, loader, data),
+        ExprNode::IfExpr(data) => eval_if_expr(env, loader, &data),
+        ExprNode::CondExpr(data) => eval_cond_expr(env, loader, data),
+        ExprNode::WhileLoop(data) => eval_while_expr(env, loader, data),
+        ExprNode::ConsExpr(data) => eval_cons_expr(env, loader, data),
+        ExprNode::PairList(data) => eval_pair_list_expr(env, loader, data),
+        ExprNode::ListAccess(data) => eval_list_acc_expr(env, loader, data),
+        ExprNode::FuncCall(data) => eval_func_call_expr(env, loader, data),
+        ExprNode::LiteralCall(data) => eval_lit_call_expr(env, loader, data),
+        ExprNode::ExprFuncCal(data) => eval_expr_func_call(env, loader, data)
     }
 }
 
 
 fn eval_assignment<'a>(
     env: &'a Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     expr: &'a AssignData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    let evaled = eval_node(env, &expr.value)?;
+    let evaled = eval_node(env, loader, &expr.value)?;
     let rtn = env.borrow_mut().update_binding(&expr.name, evaled.deref())?;
     Ok(Cow::Owned(rtn))
 }
@@ -200,11 +212,12 @@ fn eval_assignment<'a>(
 
 fn eval_multi_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     expr: &'a Vec<AstNode>,
 ) -> Result<Cow<'a, AstNode>, String> {
     let mut result: Cow<'a, AstNode> = Cow::Owned(AST_NIL_LIT);
     for e in expr {
-        result = eval_node(env, e)?;
+        result = eval_node(env, loader, e)?;
     }
     Ok(result)
 }
@@ -212,9 +225,10 @@ fn eval_multi_expr<'a>(
 
 fn eval_print_expr<'a>(
     env: &Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     expr: &AstNode,
 ) -> Result<Cow<'a, AstNode>, String> {
-    match eval_node(env, &expr)? {
+    match eval_node(env, loader, &expr)? {
         Cow::Borrowed(LiteralNode(lit)) => {
             println!("{}", lit.value().as_string());
             Ok(Cow::Borrowed(&AST_NIL_LIT))
@@ -230,13 +244,14 @@ fn eval_print_expr<'a>(
 
 fn eval_if_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     expr: &'a IfData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    if let Ok(LiteralNode(lit)) = eval_node(env, &expr.if_branch.cond_node).as_deref() {
+    if let Ok(LiteralNode(lit)) = eval_node(env, loader, &expr.if_branch.cond_node).as_deref() {
         if lit.value().as_bool() {
-            eval_node(env, &expr.if_branch.then_node)
+            eval_node(env, loader, &expr.if_branch.then_node)
         } else if expr.else_branch.is_some() {
-            match eval_node(env, expr.else_branch.as_ref().unwrap())? {
+            match eval_node(env, loader, expr.else_branch.as_ref().unwrap())? {
                 Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
                 Cow::Owned(o) => Ok(Cow::Owned(o))
             }
@@ -247,30 +262,32 @@ fn eval_if_expr<'a>(
 
 fn eval_cond_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     expr: &'a CondData,
 ) -> Result<Cow<'a, AstNode>, String> {
     for e in &expr.cond_branches {
-        if let Ok(LiteralNode(lit)) = eval_node(env, &e.cond_node).as_deref() {
+        if let Ok(LiteralNode(lit)) = eval_node(env, loader, &e.cond_node).as_deref() {
             if lit.value().as_bool() {
-                return eval_node(env, &e.then_node);
+                return eval_node(env, loader, &e.then_node);
             } else { continue; }
         } else { return Err("Cond condition did  not evaluate to boolean".to_string()); }
     }
 
     if let Some(else_branch) = &expr.else_branch {
-        eval_node(env, &else_branch)
+        eval_node(env, loader, &else_branch)
     } else { Ok(Cow::Borrowed(&AST_FALSE_LIT)) }
 }
 
 
 fn eval_while_expr<'a>(
     env: &Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     expr: &WhileData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    if expr.is_do { eval_node(env, &expr.body)?; }
+    if expr.is_do { eval_node(env, loader, &expr.body)?; }
     loop {
-        match eval_node(env, &expr.condition).as_deref() {
-            Ok(LiteralNode(lit)) if lit.value().as_bool() => { eval_node(env, &expr.body)?; }
+        match eval_node(env, loader, &expr.condition).as_deref() {
+            Ok(LiteralNode(lit)) if lit.value().as_bool() => { eval_node(env, loader, &expr.body)?; }
             Ok(_) => break,
             Err(err) => { return Err(err.clone()); }
         }
@@ -281,20 +298,22 @@ fn eval_while_expr<'a>(
 
 fn eval_cons_expr<'a>(
     env: &Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     expr: &ConsData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    let car = eval_node(env, &expr.car)?;
-    let cdr = eval_node(env, &expr.cdr)?;
+    let car = eval_node(env, loader, &expr.car)?;
+    let cdr = eval_node(env, loader, &expr.cdr)?;
     Ok(Cow::Owned(PairValue::from_ast(car.as_ref().clone(), cdr.as_ref().clone())?))
 }
 
 fn eval_pair_list_expr<'a>(
     env: &Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     expr: &Vec<AstNode>,
 ) -> Result<Cow<'a, AstNode>, String> {
     let mut head = AST_NIL_LIT;
     for element in expr.into_iter().rev() {
-        match eval_node(env, &element)? {
+        match eval_node(env, loader, &element)? {
             Cow::Borrowed(borrowed) => head = PairValue::from_ast(borrowed.clone(), head)?,
             Cow::Owned(owned) => head = PairValue::from_ast(owned, head)?
         };
@@ -305,16 +324,17 @@ fn eval_pair_list_expr<'a>(
 
 fn eval_list_acc_expr<'a>(
     env: &Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     expr: &ListAccData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    let evaled_node = eval_node(env, &expr.list);
+    let evaled_node = eval_node(env, loader, &expr.list);
     let list = if let LiteralNode(LitNode::Pair(pair)) = evaled_node.as_deref()? {
         pair
     } else { return Err("Attempted list access on non-list literal".to_string()); };
 
     if expr.index_expr.is_some() {
         let index = if let LiteralNode(lit)
-            = eval_node(env, &expr.index_expr.as_ref().unwrap()).as_deref()?
+            = eval_node(env, loader, &expr.index_expr.as_ref().unwrap()).as_deref()?
         {
             lit.value().as_int()
         } else { return Err("Index did not evaluate to literal".to_string()); };
@@ -351,6 +371,7 @@ fn eval_list_acc_expr<'a>(
 
 fn eval_func_call_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     call: &'a FuncCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Some(binding) = env.borrow().get_literal(&call.name) {
@@ -360,6 +381,7 @@ fn eval_func_call_expr<'a>(
             if lambda.def.parameters.is_some() && call.arguments.is_some() {
                 map_param_to_env(
                     env,
+                    loader,
                     lambda.def.parameters.as_ref().unwrap(),
                     &call.arguments.as_ref().unwrap(),
                     &new_env,
@@ -368,7 +390,7 @@ fn eval_func_call_expr<'a>(
                 return Err("Parameter-argument mismatch".to_string());
             }
 
-            match eval_node(&new_env, &lambda.def.body)? {
+            match eval_node(&new_env, loader, &lambda.def.body)? {
                 Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
                 Cow::Owned(o) => Ok(Cow::Owned(o))
             }
@@ -378,14 +400,16 @@ fn eval_func_call_expr<'a>(
 
 fn eval_expr_func_call<'a>(
     env: &'a Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     call: &'a ExprFuncCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    if let LiteralNode(LitNode::Lambda(lambda)) = eval_node(env, &call.expr).as_deref()? {
+    if let LiteralNode(LitNode::Lambda(lambda)) = eval_node(env, loader, &call.expr).as_deref()? {
         let new_env = Environment::of(Rc::clone(&lambda.env));
 
         if lambda.def.parameters.is_some() && call.arguments.is_some() {
             map_param_to_env(
                 env,
+                loader,
                 lambda.def.parameters.as_ref().unwrap(),
                 &call.arguments.as_ref().unwrap(),
                 &new_env, // new_env is now directly passed as Rc<RefCell<Environment>>
@@ -394,7 +418,7 @@ fn eval_expr_func_call<'a>(
             return Err("Parameter-argument mismatch".to_string());
         }
 
-        match eval_node(&new_env, &lambda.def.body)? {
+        match eval_node(&new_env, loader, &lambda.def.body)? {
             Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
             Cow::Owned(o) => Ok(Cow::Owned(o))
         }
@@ -404,6 +428,7 @@ fn eval_expr_func_call<'a>(
 
 fn map_param_to_env(
     curr_env: &Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     params: &Vec<Param>,
     args: &Vec<FuncArg>,
     func_env: &Rc<RefCell<Environment>>,
@@ -411,7 +436,7 @@ fn map_param_to_env(
     if params.len() == args.len() {
         for i in 0..args.len() {
             let arg = &args[i].value;
-            let ast = eval_node(curr_env, arg)?;
+            let ast = eval_node(curr_env, loader, arg)?;
             let binding = Binding::new_binding(&ast, &None)?;
             func_env.borrow_mut().create_binding(params[i].name.clone(), binding)?;
         }
@@ -422,6 +447,7 @@ fn map_param_to_env(
 
 fn eval_lit_call_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
+    loader: &mut ClassLoader,
     name: &String,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Some(lit) = env.borrow().get_literal(name) {

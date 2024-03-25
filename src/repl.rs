@@ -1,7 +1,8 @@
 use std::io;
 use std::io::Write;
 use std::time::SystemTime;
-use crate::eval::environment::Environment;
+use crate::eval::class_loader::ClassLoader;
+use crate::eval::environment::{Context, Environment};
 
 pub mod parse;
 pub mod lang;
@@ -10,20 +11,19 @@ pub mod eval;
 #[allow(dead_code)]
 fn main() {
     let mut env = Environment::new();
+    let mut loader = ClassLoader::default();
+
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
-
-        let duration_since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
-        let t = duration_since_epoch.as_nanos();
         match io::stdin().read_line(&mut input) {
             Ok(n) => {
                 if input.trim() == "exit" {
                     break;
                 }
-                println!("{}", eval::interpreter::repl_eval(&mut env, input))
+                println!("{}", eval::interpreter::repl_eval(&env, &mut loader, input))
             }
             // }
             Err(error) => println!("error: {}", error),

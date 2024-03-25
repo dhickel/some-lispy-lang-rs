@@ -84,7 +84,7 @@ impl ParserState {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
         if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
-             panic!("Parenthesis should  be advanced via consume paren function");
+            panic!("Parenthesis should  be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         self.current += 1;
@@ -101,7 +101,7 @@ impl ParserState {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
         if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
-             panic!("Parenthesis should only be advanced via consume paren function");
+            panic!("Parenthesis should only be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         if !self.check(&token_type) {
@@ -428,10 +428,12 @@ impl ParserState {
 
     pub fn parse_identifier(&mut self, identifier: String) -> Result<AstNode, String> {
         let name;
-        let accessors = None;
+        let mut accessors = None;
 
         if identifier.contains(":") {
-            todo!("No accessors yet")
+            let access_pattern = Self::parse_accessors(&identifier);
+            name = access_pattern.0;
+            accessors = Some(access_pattern.1)
         } else { name = identifier; }
 
         if self.previous_n(2).token_type == Lexical(Lex::LeftParen) {
@@ -443,8 +445,31 @@ impl ParserState {
     }
 
 
-    pub fn parse_accessors(&mut self, identifier: String) -> Result<AstNode, String> {
-        todo!("not implemented");
+    fn parse_accessors(input: &str) -> (String, Vec<Accessor>) {
+        let mut parts = input.split(&[':', '.'][..]).peekable();
+        let object_name = parts.next().unwrap_or("").to_string();
+
+        let mut accessors: Vec<Accessor> = Vec::new();
+        while let Some(part) = parts.next() {
+            // Since we split by both ':' and '.', we need to check what the next part is
+            // to determine if it's a method call or field access. We use peek() for that.
+            let is_field = match parts.peek() {
+                Some(next_part) => next_part.starts_with('.'),
+                None => true, // Assume field if there's nothing to peek at
+            };
+
+            // Skip the next part if it's just the separator indicator (either ":" or ".")
+            if part == "" || part == ":" {
+                continue;
+            }
+
+            accessors.push(Accessor {
+                name: part.to_string(),
+                is_field,
+            });
+        }
+
+        (object_name, accessors)
     }
 
 
@@ -507,7 +532,7 @@ impl ParserState {
             _ => return Err("Expected name for struct".to_string())
         };
         let fields = self.parse_fields()?;
-        Ok(DefinitionNode(Box::new(DefNode::Struct(DefStructData { name, fields }))))
+        Ok(DefinitionNode(Box::new(DefNode::StructDef(DefStructData { name, fields }))))
     }
 
 

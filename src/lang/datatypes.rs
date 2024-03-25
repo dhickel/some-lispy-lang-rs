@@ -16,6 +16,7 @@ fn is_literal(name: &str, value: &AstNode) -> Result<(), String> {
     } else { Ok(()) }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
     pub obj_type: Type,
@@ -23,6 +24,7 @@ pub struct Binding {
     pub dynamic: bool,
     pub mutable: bool,
 }
+
 
 impl Binding {
     pub fn new_binding(value: &AstNode, mods: &Option<Vec<Mod>>) -> Result<Binding, String> {
@@ -63,8 +65,10 @@ impl Binding {
     }
 }
 
-pub trait FieldAccess {
-    fn get_field(&self, name: &str) -> Option<Rc<AstNode>>;
+
+pub trait ObjectAccess {
+    fn get_field(&self, name: &str) -> Result<Rc<AstNode>, String>;
+    fn get_method(&self, name: &str) -> Result<Rc<AstNode>, String>;
     fn set_field(&mut self, name: &str, value: &AstNode) -> Result<AstNode, String>;
 }
 
@@ -75,12 +79,15 @@ pub struct StructData {
     data: AHashMap<String, Binding>,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructMetaData {
     immutable: bool,
     data: Option<AHashMap<String, Binding>>,
     arity: u8,
 }
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassData{}
 
 
 impl StructMetaData {
@@ -136,11 +143,18 @@ impl StructMetaData {
 }
 
 
-impl FieldAccess for StructData {
-    fn get_field(&self, name: &str) -> Option<Rc<AstNode>> {
-        let found = self.data.get(name)?;
-        Some(Rc::clone(&found.value))
+impl ObjectAccess for StructData {
+    fn get_field(&self, name: &str) -> Result<Rc<AstNode>, String> {
+        let found = self.data.get(name);
+        if found.is_some() {
+            Ok(Rc::clone(&found.unwrap().value))
+        } else { Err(format!("Could not locate field: {}", name)) }
     }
+
+    fn get_method(&self, name: &str) -> Result<Rc<AstNode>, String> {
+        todo!()
+    }
+
 
     fn set_field(&mut self, name: &str, value: &AstNode) -> Result<AstNode, String> {
         is_literal(name, value)?;
@@ -157,6 +171,25 @@ impl FieldAccess for StructData {
         }
     }
 }
+
+impl ObjectAccess for ClassData {
+    fn get_field(&self, name: &str) -> Result<Rc<AstNode>, String> {
+       todo!()
+    }
+
+    fn get_method(&self, name: &str) -> Result<Rc<AstNode>, String> {
+        todo!()
+    }
+
+
+    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<AstNode, String> {
+        todo!()
+    }
+}
+
+
+
+
 
 impl EvalResult for StructData {
     fn as_int(&self) -> i64 { 1 }

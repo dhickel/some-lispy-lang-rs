@@ -72,7 +72,7 @@ pub fn test_keyword_identity_lexing(){
 pub fn test_type_lexing(){
     let input = "(define x ::int 10)".to_string();
     let result = lexer::process(input).expect("Lexing Failed");
-    assert!(matches!(result.get(3).unwrap().token_type, Syntactic(Syn::Type)));
+    assert!(matches!(result.get(3).unwrap().token_type, Syntactic(Syn::DoubleColon)));
     assert!(matches!(result.get(3).unwrap().data, Some(TokenData::String(ref value)) if value == "int"));
 }
 

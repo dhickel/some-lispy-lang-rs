@@ -1,7 +1,8 @@
+use std::collections::LinkedList;
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, OpNode, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectCallData, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
-use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, PairList, PrintExpr, WhileLoop};
+use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, ObjectCall, PairList, PrintExpr, WhileLoop};
 use crate::parse::Def::DefineStruct;
 use crate::parse::Lex::{LeftParen, RightParen};
 
@@ -26,6 +27,7 @@ struct ParserState {
     pub depth: i32,
     pub warnings: Vec<String>,
 }
+
 
 impl ParserState {
     pub fn new(tokens: Vec<Token>) -> ParserState {
@@ -409,59 +411,88 @@ impl ParserState {
     }
 
     pub fn parse_type_if_exists(&mut self) -> Result<Option<String>, String> {
-        let typ = if let (
-            Syntactic(Syn::Type), Some(TokenData::String(s))
-        ) = (&self.peek().token_type, &self.peek().data) {
-            Some(s.clone())
+        let typ = if let Syntactic(Syn::DoubleColon) = &self.peek().token_type {
+            self.advance()?;
+            let next = self.advance()?;
+            if let (
+                Literal(Lit::Identifier), Some(TokenData::String(s))
+            ) = (&next.token_type, &next.data) {
+                Some(s.clone())
+            } else {
+                return Err(format!("Expected type identifier, found: {:?}", next));
+            }
         } else { None };
 
-        if typ.is_some() { self.advance()?; }
+        //  if typ.is_some() { self.advance()?; }
         Ok(typ)
     }
 
     pub fn parse_identifier(&mut self, identifier: String) -> Result<AstNode, String> {
-        let name;
+        let name = identifier;
         let mut accessors = None;
 
-        if identifier.contains(":") {
-            let access_pattern = Self::parse_accessors(&identifier);
-            name = access_pattern.0;
-            accessors = Some(access_pattern.1)
-        } else { name = identifier; }
+        let is_func_call = self.previous_n(2).token_type == Lexical(Lex::LeftParen);
 
-        if self.previous_n(2).token_type == Lexical(Lex::LeftParen) {
+        if matches!(self.peek().token_type, Syntactic(Syn::DoubleColon) | Syntactic(Syn::ColonDot)) {
+            accessors = Some(self.parse_accessors()?);
+        }
+
+        if is_func_call {
             let arguments = self.parse_func_args()?;
-            Ok(ExpressionNode(Box::new(FuncCall(FuncCallData { name, accessors, arguments }))))
+            if accessors.is_some() && arguments.is_some() {
+                return Err("Can't call arguments on result of object access pattern, \
+                object access should be it's own expression: \
+                Ex: ((<Object>::<Method/Field>) <args>)".to_string());
+            }
+            if let Some(accessors) = accessors {
+                Ok(ExpressionNode(Box::new(ObjectCall(ObjectCallData { name, accessors }))))
+            } else {
+                Ok(ExpressionNode(Box::new(FuncCall(FuncCallData { name, arguments }))))
+            }
         } else {
+            if accessors.is_some() {
+                return Err("All object access must be contained inside an expression,\
+                Ex: (<Object>:.field) not <Object>:.field".to_string());
+            }
             Ok(ExpressionNode(Box::new(LiteralCall(name))))
         }
     }
 
-    fn parse_accessors(input: &str) -> (String, Vec<Accessor>) {
-        let mut parts = input.split(&[':', '.'][..]).peekable();
-        let object_name = parts.next().unwrap_or("").to_string();
-
-        let mut accessors: Vec<Accessor> = Vec::new();
-        while let Some(part) = parts.next() {
-            // Since we split by both ':' and '.', we need to check what the next part is
-            // to determine if it's a method call or field access. We use peek() for that.
-            let is_field = match parts.peek() {
-                Some(next_part) => next_part.starts_with('.'),
-                None => true, // Assume field if there's nothing to peek at
+    fn parse_accessors(&mut self) -> Result<LinkedList<Accessor>, String> {
+        let mut accessors = LinkedList::<Accessor>::new();
+        while matches!(
+            self.peek().token_type, Syntactic(Syn::DoubleColon) | Syntactic(Syn::ColonDot)
+        ) {
+            let is_field = match self.advance()?.token_type {
+                Syntactic(Syn::DoubleColon) => false,
+                Syntactic(Syn::ColonDot) => true,
+                _ => { return Err(format!("Expected accessor pattern(:: | :.) found: {:?}", self.peek())); }
             };
 
-            // Skip the next part if it's just the separator indicator (either ":" or ".")
-            if part == "" || part == ":" {
-                continue;
-            }
+            let name = if let Some(TokenData::String(id)) = &self.advance()?.data {
+                id.clone()
+            } else { return Err(format!("Expected identifier for accessors, found {:?}", self.peek())); };
 
-            accessors.push(Accessor {
-                name: part.to_string(),
-                is_field,
-            });
+            let args = if let Lexical(Lex::LeftBracket) = self.peek().token_type {
+                self.advance()?;
+                let mut args = Vec::<FuncArg>::with_capacity(4);
+
+                while self.peek().token_type != Lexical(Lex::RightBracket) {
+                    let name = if let Literal(Lit::Identifier) = self.peek().token_type {
+                        if let Some(TokenData::String(name)) = &self.advance()?.data {
+                            Some(name.clone())
+                        } else { return Err("Expected value for identifier".to_string()); }
+                    } else { None };
+
+                    let value = self.parse_expr_data()?;
+                    args.push(FuncArg { value, name })
+                }
+                self.consume(Lexical(Lex::RightBracket))?;
+                Some(args)
+            } else { None };
+            accessors.push_back(Accessor { name, is_field, args })
         }
-
-        (object_name, accessors)
+        Ok(accessors)
     }
 
     pub fn parse_define(&mut self) -> Result<AstNode, String> {
@@ -497,7 +528,7 @@ impl ParserState {
                 DefinitionNode(Box::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
             }
             Syntactic(Syn::Grave) => self.parse_quote()?,
-            _ => return Err(format!("Invalid syntax in define, line: {}", self.peek().line))
+            _ => panic!() //return Err(format!("Invalid syntax in define, line: {}", self.peek().line))
         };
         return Ok(definition);
     }
@@ -522,10 +553,11 @@ impl ParserState {
             let value = self.parse_expr_data()?;
             args.push(InstArgs { name, value })
         }
-        
+
         self.consume(Lexical(Lex::RightBracket))?;
         Ok(Some(args))
     }
+
 
     pub fn parse_quote(&mut self) -> Result<AstNode, String> {
         self.consume(Syntactic(Syn::Grave))?;

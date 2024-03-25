@@ -31,7 +31,7 @@ impl<'a> LexicalState<'a> {
     pub fn have_next(&mut self) -> bool {
         return !self.char_iter.peek().is_none();
     }
-    
+
     pub fn inc_line_num(&mut self) {
         self.line_num += 1;
         self.line_char = 0;
@@ -52,8 +52,8 @@ impl<'a> LexicalState<'a> {
         let token = Token {
             token_type,
             data: None,
-            line: self.line_num,                              
-            char: self.line_char
+            line: self.line_num,
+            char: self.line_char,
         };
         self.tokens.push(token);
         true
@@ -64,7 +64,7 @@ impl<'a> LexicalState<'a> {
             token_type,
             data: Some(data),
             line: self.line_num,
-            char: self.line_char
+            char: self.line_char,
         };
         self.tokens.push(token);
         true
@@ -102,9 +102,10 @@ fn lex_double_token(state: &mut LexicalState) -> bool {
         None => false,
         Some(value) => {
             state.advance();
-            if matches!(value, Syntactic(Syn::Type)) {
-                lex_type(state)
-            } else { state.add_token(value) }
+            state.add_token(value)
+            // if matches!(value, Syntactic(Syn::DoubleColon)) {
+            //     lex_type(state)
+            // } else { state.add_token(value) }
         }
     }
 }
@@ -139,7 +140,7 @@ fn lex_word_token(state: &mut LexicalState) -> bool {
 fn lex_type(state: &mut LexicalState) -> bool {
     state.advance(); // skip the extra  :
     let type_string: String = read_data_to_string(state);
-    state.add_token_data(Syntactic(Syn::Type), TokenData::String(type_string));
+    state.add_token_data(Syntactic(Syn::DoubleColon), TokenData::String(type_string));
     true
 }
 
@@ -171,7 +172,6 @@ fn lex_instance(state: &mut LexicalState) -> bool {
     let instance_id: String = read_data_to_string(state);
     state.add_token_data(Literal(Lit::Instance), TokenData::String(instance_id));
     true
-    
 }
 
 // fn lex_quote(state: &mut LexicalState) {
@@ -251,7 +251,7 @@ fn is_numeric(c: char) -> bool {
 }
 
 fn is_alpha(c: char) -> bool {
-    matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '-' | ':' |'.')
+    matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '-' )
 }
 
 fn is_alpha_numeric(c: char) -> bool {

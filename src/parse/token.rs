@@ -25,7 +25,7 @@ pub fn match_single_token(input: char) -> Option<TokenType> {
         '`' => Some(Syntactic(Grave)),
         ':' => Some(Syntactic(Colon)),
         ';' => Some(Syntactic(SemiColon)),
-      //  '#' => Some(Syntactic(Pound)),
+        //  '#' => Some(Syntactic(Pound)),
         '$' => Some(Syntactic(Cache)),
         '@' => Some(Syntactic(At)),
         '|' => Some(Syntactic(Bar)),
@@ -45,7 +45,8 @@ pub fn match_single_token(input: char) -> Option<TokenType> {
 
 pub fn match_double_token(input: (char, char)) -> Option<TokenType> {
     match input {
-        (':', ':') => Some(Syntactic(Type)),
+        (':', ':') => Some(Syntactic(DoubleColon)),
+        (':', '.') => Some(Syntactic(ColonDot)),
         ('+', '+') => Some(Operation(PlusPlus)),
         ('-', '-') => Some(Operation(MinusMinus)),
         ('>', '=') => Some(Operation(GreaterEqual)),
@@ -140,7 +141,8 @@ pub enum Syn {
     Grave,
     Colon,
     SemiColon,
-    Type,
+    DoubleColon,
+    ColonDot,
     Pound,
     Cache,
     At,

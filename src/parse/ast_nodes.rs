@@ -1,11 +1,13 @@
 use std::cell::{Ref, RefCell};
+use std::collections::LinkedList;
 use std::rc::Rc;
 use std::vec;
 use crate::eval::environment::Environment;
-use crate::lang::datatypes::{StructData};
+use crate::lang::datatypes::{ClassData, ObjectAccess, StructData};
 use crate::lang::types::Type;
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::{Lit, Mod};
+
 
 const NIL_LIT: LitNode = LitNode::Nil(NilValue());
 const TRUE_LIT: LitNode = LitNode::Boolean(BoolValue(true));
@@ -13,6 +15,7 @@ const FALSE_LIT: LitNode = LitNode::Boolean(BoolValue(false));
 pub const AST_NIL_LIT: AstNode = LiteralNode(NIL_LIT);
 pub const AST_TRUE_LIT: AstNode = LiteralNode(TRUE_LIT);
 pub const AST_FALSE_LIT: AstNode = LiteralNode(FALSE_LIT);
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
@@ -22,6 +25,7 @@ pub enum AstNode {
     OperationNode(OpNode),
     ProgramNode(Vec<AstNode>),
 }
+
 
 impl AstNode {
     pub fn new_int_lit(i: i64) -> AstNode {
@@ -82,6 +86,7 @@ pub enum DefNode {
     InstanceDef(DefStructInst),
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefVarData {
     pub name: String,
@@ -89,6 +94,7 @@ pub struct DefVarData {
     pub value: Box<AstNode>,
     pub var_type: Option<String>,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefLambdaData {
@@ -99,11 +105,13 @@ pub struct DefLambdaData {
     pub c_type: Option<Type>,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefFuncData {
     pub name: String,
     pub lambda: DefLambdaData,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
@@ -116,17 +124,20 @@ pub struct Param {
     pub c_type: Option<Type>,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefStructData {
     pub name: String,
     pub fields: Option<Vec<Field>>,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefStructInst {
     pub name: String,
     pub args: Option<Vec<InstArgs>>,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
@@ -151,8 +162,10 @@ pub enum ExprNode {
     ListAccess(ListAccData),
     FuncCall(FuncCallData),
     ExprFuncCal(ExprFuncCallData),
+    ObjectCall(ObjectCallData),
     LiteralCall(String),
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBranch {
@@ -160,11 +173,13 @@ pub struct CondBranch {
     pub then_node: AstNode,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignData {
     pub name: String,
     pub value: AstNode,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfData {
@@ -172,11 +187,13 @@ pub struct IfData {
     pub else_branch: Option<AstNode>,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondData {
     pub cond_branches: Vec<CondBranch>,
     pub else_branch: Option<AstNode>,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileData {
@@ -185,11 +202,13 @@ pub struct WhileData {
     pub is_do: bool,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConsData {
     pub car: AstNode,
     pub cdr: AstNode,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListAccData {
@@ -198,12 +217,20 @@ pub struct ListAccData {
     pub list: AstNode,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncCallData {
     pub name: String,
-    pub accessors: Option<Vec<Accessor>>,
     pub arguments: Option<Vec<FuncArg>>,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectCallData{
+    pub name: String,
+    pub accessors:  LinkedList<Accessor>
+}
+
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExprFuncCallData {
@@ -217,13 +244,16 @@ pub struct ExprFuncCallData {
 pub struct Accessor {
     pub name: String,
     pub is_field: bool,
+    pub args: Option<Vec<FuncArg>>,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncArg {
     pub value: AstNode,
     pub name: Option<String>,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InstArgs {
@@ -258,6 +288,7 @@ pub enum OpNode {
     RefNonEquality(Vec<AstNode>),
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LitNode {
     Integer(IntValue),
@@ -272,6 +303,7 @@ pub enum LitNode {
     Pair(PairValue),
     Lambda(LambdaValue),
 }
+
 
 impl LitNode {
     pub fn value(&self) -> &dyn EvalResult {
@@ -291,6 +323,7 @@ impl LitNode {
     }
 }
 
+
 pub trait EvalResult {
     fn as_int(&self) -> i64;
     fn as_float(&self) -> f64;
@@ -301,8 +334,10 @@ pub trait EvalResult {
     fn get_type(&self) -> Type;
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntValue(pub i64);
+
 
 impl EvalResult for IntValue {
     fn as_int(&self) -> i64 { self.0 }
@@ -320,8 +355,10 @@ impl EvalResult for IntValue {
     fn get_type(&self) -> Type { Type::Integer }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FloatValue(pub f64);
+
 
 impl EvalResult for FloatValue {
     fn as_int(&self) -> i64 { self.0 as i64 }
@@ -339,8 +376,10 @@ impl EvalResult for FloatValue {
     fn get_type(&self) -> Type { Type::Float }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BoolValue(pub bool);
+
 
 impl EvalResult for BoolValue {
     fn as_int(&self) -> i64 { if self.0 { 1 } else { 0 } }
@@ -352,8 +391,10 @@ impl EvalResult for BoolValue {
     fn get_type(&self) -> Type { Type::Boolean }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StringValue(pub String);
+
 
 impl EvalResult for StringValue {
     fn as_int(&self) -> i64 { self.0.len() as i64 }
@@ -365,8 +406,10 @@ impl EvalResult for StringValue {
     fn get_type(&self) -> Type { Type::String }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct QuoteValue(pub Box<AstNode>);
+
 
 impl EvalResult for QuoteValue {
     fn as_int(&self) -> i64 { 1 }
@@ -382,10 +425,21 @@ impl EvalResult for QuoteValue {
     fn get_type(&self) -> Type { Type::Quote }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
-pub enum ObjectValue{
+pub enum ObjectValue {
     Struct(StructData),
-    Class()
+    Class(ClassData),
+}
+
+
+impl ObjectValue {
+    pub fn value(&self) -> &dyn ObjectAccess {
+        match self {
+            ObjectValue::Struct(s) => s,
+            ObjectValue::Class(c) => c,
+        }
+    }
 }
 
 
@@ -404,8 +458,10 @@ impl EvalResult for ObjectValue {
     fn get_type(&self) -> Type { Type::Object }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct NilValue();
+
 
 impl EvalResult for NilValue {
     fn as_int(&self) -> i64 { 0 }
@@ -417,8 +473,10 @@ impl EvalResult for NilValue {
     fn get_type(&self) -> Type { Type::Nil }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct VectorValue(pub Vec<LitNode>);
+
 
 impl EvalResult for VectorValue {
     fn as_int(&self) -> i64 { self.0.len() as i64 }
@@ -434,6 +492,7 @@ impl EvalResult for VectorValue {
     fn get_type(&self) -> Type { Type::Vector }
 }
 
+
 impl FromIterator<LitNode> for VectorValue {
     fn from_iter<I: IntoIterator<Item=LitNode>>(iter: I) -> Self {
         let mut vector = Vec::new();
@@ -444,11 +503,13 @@ impl FromIterator<LitNode> for VectorValue {
     }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PairValue {
     pub car: Box<LitNode>,
     pub cdr: Box<LitNode>,
 }
+
 
 impl PairValue {
     pub fn as_string(&self) -> String {
@@ -508,11 +569,13 @@ impl EvalResult for PairValue {
     fn get_type(&self) -> Type { Type::Pair }
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaValue {
     pub def: Box<DefLambdaData>,
     pub env: Rc<RefCell<Environment>>,
 }
+
 
 impl EvalResult for LambdaValue {
     fn as_int(&self) -> i64 { 1 }

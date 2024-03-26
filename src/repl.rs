@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io;
 use std::io::Write;
 use std::time::SystemTime;
@@ -11,7 +12,7 @@ pub mod eval;
 #[allow(dead_code)]
 fn main() {
     let mut env = Environment::new();
-    let mut loader = ClassLoader::default();
+    let mut loader = RefCell::new(ClassLoader::default());
 
     loop {
         print!("> ");
@@ -23,7 +24,7 @@ fn main() {
                 if input.trim() == "exit" {
                     break;
                 }
-                println!("{}", eval::interpreter::repl_eval(&env, &mut loader, input))
+                println!("{}", eval::interpreter::repl_eval(&env, &loader, input))
             }
             // }
             Err(error) => println!("error: {}", error),

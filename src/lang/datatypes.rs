@@ -1,7 +1,5 @@
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::fmt::Debug;
-use std::ops::Deref;
 use std::rc::Rc;
 use ahash::AHashMap;
 use crate::lang::types::Type;
@@ -39,7 +37,7 @@ impl Binding {
         }
 
         let obj_type: Type;
-        if let LiteralNode(lit) = value {
+        if let LiteralNode(lit) = &value {
             obj_type = lit.value().get_type();
         } else {
             return Err(format!("Attempted to bind non literal object: {:?}", value));
@@ -86,8 +84,10 @@ pub struct StructMetaData {
     data: Option<AHashMap<String, Binding>>,
     arity: u8,
 }
+
+
 #[derive(Debug, Clone, PartialEq)]
-pub struct ClassData{}
+pub struct ClassData {}
 
 
 impl StructMetaData {
@@ -128,7 +128,7 @@ impl StructMetaData {
                 let field = inst_data.get(&arg.name);
                 if let Some(field) = field {
                     // TODO type matching
-                    let binding = Binding::replace_binding(&field.value, field.dynamic, field.mutable)?;
+                    let binding = Binding::replace_binding(&arg.value, field.dynamic, field.mutable)?;
                     inst_data.insert(arg.name, binding);
                 } else {
                     return Err(format!("Instance argument not found: {} for struct: {}", &arg.name, &name));
@@ -164,7 +164,9 @@ impl ObjectAccess for StructData {
             None => Err(format!("Struct field not found: {}", name)),
             Some(data) => {
                 if data.mutable {
+                    println!("Assigning value:{:?}", value);
                     data.value = Rc::new(value.clone());
+                    println!("new value: {:?}", self.data.get(name));
                     Ok(AST_TRUE_LIT)
                 } else { Err(format!("Attempted to reassign immutable field: {}", name)) }
             }
@@ -172,9 +174,10 @@ impl ObjectAccess for StructData {
     }
 }
 
+
 impl ObjectAccess for ClassData {
     fn get_field(&self, name: &str) -> Result<Rc<AstNode>, String> {
-       todo!()
+        todo!()
     }
 
     fn get_method(&self, name: &str) -> Result<Rc<AstNode>, String> {
@@ -186,9 +189,6 @@ impl ObjectAccess for ClassData {
         todo!()
     }
 }
-
-
-
 
 
 impl EvalResult for StructData {

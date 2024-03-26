@@ -1,8 +1,8 @@
 use std::collections::LinkedList;
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectCallData, OpNode, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
-use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, ObjectCall, PairList, PrintExpr, WhileLoop};
+use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, ObjectAssignment, ObjectCall, PairList, PrintExpr, WhileLoop};
 use crate::parse::Def::DefineStruct;
 use crate::parse::Lex::{LeftParen, RightParen};
 
@@ -292,12 +292,39 @@ impl ParserState {
     }
 
     pub fn parse_assign(&mut self) -> Result<AstNode, String> {
-        let name = match &self.consume(Literal(Lit::Identifier))?.data {
-            Some(TokenData::String(name)) => name.clone(),
-            _ => return Err("Expected a string identifier".to_string())
-        };
-        let value = self.parse_expr_data()?;
-        Ok(ExpressionNode(Box::new(Assignment(AssignData { name, value }))))
+        match self.peek().token_type {
+            Literal(Lit::Identifier) => {
+                let name = match &self.consume(Literal(Lit::Identifier))?.data {
+                    Some(TokenData::String(name)) => name.clone(),
+                    _ => return Err("Expected a string identifier".to_string())
+                };
+                let value = self.parse_expr_data()?;
+                Ok(ExpressionNode(Box::new(Assignment(AssignData { name, value }))))
+            }
+            Lexical(Lex::LeftParen) => {
+                self.consume_left_paren()?;
+                let token = self.advance()?;
+
+                let name = if let (
+                    Literal(Lit::Identifier), Some(TokenData::String(s))
+                ) = (&token.token_type, &token.data) {
+                    s.clone()
+                } else { return Err(format!("Expected object name to assign to, found: {:?}", token)); };
+
+                let accessors = self.parse_accessors()?;
+                self.consume_right_paren()?;
+
+                let value = self.parse_expr_data()?;
+
+                let access = ObjectCallData { name, accessors };
+                let assign_data = ObjectAssignData { access, value };
+                Ok(ExpressionNode(Box::new(ObjectAssignment(assign_data))))
+            }
+            _ => Err(format!(
+                "Expected identifier or object access to assign to, found: {:?}"
+                , self.peek().token_type)
+            )
+        }
     }
 
     pub fn parse_if(&mut self) -> Result<AstNode, String> {

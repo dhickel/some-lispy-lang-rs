@@ -164,6 +164,7 @@ pub enum ExprNode {
     ExprFuncCal(ExprFuncCallData),
     ObjectCall(ObjectCallData),
     LiteralCall(String),
+    ObjectAssignment(ObjectAssignData),
 }
 
 
@@ -224,12 +225,18 @@ pub struct FuncCallData {
     pub arguments: Option<Vec<FuncArg>>,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
-pub struct ObjectCallData{
+pub struct ObjectCallData {
     pub name: String,
-    pub accessors:  LinkedList<Accessor>
+    pub accessors: LinkedList<Accessor>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectAssignData {
+    pub access: ObjectCallData,
+    pub value: AstNode,
+}
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -433,11 +440,25 @@ pub enum ObjectValue {
 }
 
 
-impl ObjectValue {
-    pub fn value(&self) -> &dyn ObjectAccess {
+impl ObjectAccess for ObjectValue {
+    fn get_field(&self, name: &str) -> Result<Rc<AstNode>, String> {
         match self {
-            ObjectValue::Struct(s) => s,
-            ObjectValue::Class(c) => c,
+            ObjectValue::Struct(s) => s.get_field(name),
+            ObjectValue::Class(c) => c.get_field(name),
+        }
+    }
+
+    fn get_method(&self, name: &str) -> Result<Rc<AstNode>, String> {
+        match self {
+            ObjectValue::Struct(s) => s.get_method(name),
+            ObjectValue::Class(c) => c.get_method(name),
+        }
+    }
+
+    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<AstNode, String> {
+        match self {
+            ObjectValue::Struct(s) => s.set_field(name, value),
+            ObjectValue::Class(c) => c.set_field(name, value),
         }
     }
 }

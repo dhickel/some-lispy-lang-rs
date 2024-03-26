@@ -56,12 +56,12 @@ impl Environment {
     }
 
 
-    pub fn get_literal(&self, name: &String) -> Option<Rc<AstNode>> {
+    pub fn get_literal(&self, name: &String) -> Result<Rc<AstNode>, String> {
         if let Some(found) = self.bindings.get(name) {
-            Some(Rc::clone(&found.value))
+            Ok(Rc::clone(&found.value))
         } else if let Some(p_env) = &self.parent {
             p_env.borrow().get_literal(name)
-        } else { None }
+        } else { Err("Couldnt find binding".to_string()) }
     }
 
 

@@ -9,11 +9,9 @@ use crate::eval::class_loader::{ClassDef, ClassLoader};
 use crate::eval::environment::{Environment};
 use crate::eval::operation_eval;
 use crate::lang::datatypes::{Binding, ObjectAccess, StructMetaData};
-use crate::lang::types::Type::Pair;
 use crate::parse;
 use crate::parse::ast_nodes::{Accessor, AssignData, AST_FALSE_LIT, AST_NIL_LIT, AST_TRUE_LIT, AstNode, CondData, ConsData, DefNode, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData, InstArgs, LambdaValue, ListAccData, LitNode, ObjectCallData, ObjectValue, OpNode, PairValue, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode, ProgramNode};
-use crate::parse::ast_nodes::ExprNode::FuncCall;
 
 
 
@@ -27,7 +25,7 @@ macro_rules! nano_time {
 }
 
 
-pub fn repl_eval(env: &Rc<RefCell<Environment>>, loader: &mut ClassLoader, input: String) -> String {
+pub fn repl_eval(env: &Rc<RefCell<Environment>>, loader: &RefCell<ClassLoader>, input: String) -> String {
     let start = nano_time!();
     let proc_time;
     let eval_time;
@@ -56,7 +54,7 @@ pub fn repl_eval(env: &Rc<RefCell<Environment>>, loader: &mut ClassLoader, input
 }
 
 
-pub fn eval(env: &Rc<RefCell<Environment>>, loader: &mut ClassLoader, input: Vec<AstNode>) -> Vec<String> {
+pub fn eval(env: &Rc<RefCell<Environment>>, loader: &RefCell<ClassLoader>, input: Vec<AstNode>) -> Vec<String> {
     let mut evaled = Vec::<String>::new();
     for node in input {
         match eval_node(env, loader, &node) {
@@ -73,7 +71,7 @@ pub fn eval(env: &Rc<RefCell<Environment>>, loader: &mut ClassLoader, input: Vec
 
 fn eval_node<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &'a mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     node: &'a AstNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
@@ -88,7 +86,7 @@ fn eval_node<'a>(
 
 fn eval_operation<'a>(
     env: &Rc<RefCell<Environment>>,
-    loader: &'a mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     node: &OpNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
@@ -120,7 +118,7 @@ fn eval_operation<'a>(
 
 fn eval_operands(
     env: &Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     op_nodes: &Vec<AstNode>,
 ) -> Result<(bool, Vec<LitNode>), String> {
     let mut operands = Vec::<LitNode>::with_capacity(op_nodes.len());
@@ -144,7 +142,7 @@ fn eval_operands(
 
 fn eval_definition<'a>(
     env: &Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     node: DefNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
@@ -171,7 +169,7 @@ fn eval_definition<'a>(
         }
         DefNode::StructDef(def) => {
             let struct_def = StructMetaData::new_declaration(def.fields)?;
-            loader.new_class_def(def.name, ClassDef::Struct(struct_def))?;
+            loader.borrow_mut().new_class_def(def.name, ClassDef::Struct(struct_def))?;
             Ok(Cow::Owned(AstNode::new_bool_lit(true)))
         }
         DefNode::InstanceDef(inst) => {
@@ -187,7 +185,8 @@ fn eval_definition<'a>(
                 Some(vec)
             } else { None };
 
-            let def = loader.get_class_def(&inst.name)?;
+            let loader_ref = loader.borrow();
+            let def = loader_ref.get_class_def(&inst.name)?;
             match def {
                 ClassDef::Struct(s) => {
                     let inst = s.new_instance(inst.name, evaled_args)?;
@@ -202,7 +201,7 @@ fn eval_definition<'a>(
 
 fn eval_expression<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &'a mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     node: &'a ExprNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
@@ -218,14 +217,14 @@ fn eval_expression<'a>(
         ExprNode::FuncCall(data) => eval_func_call_expr(env, loader, data),
         ExprNode::LiteralCall(data) => eval_lit_call_expr(env, loader, data),
         ExprNode::ExprFuncCal(data) => eval_expr_func_call(env, loader, data),
-        ExprNode::ObjectCall(data) => eval_object_call(env, loader, data)
+        ExprNode::ObjectCall(data) => eval_object_call(env, loader, &data)
     }
 }
 
 
 fn eval_assignment<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     expr: &'a AssignData,
 ) -> Result<Cow<'a, AstNode>, String> {
     let evaled = eval_node(env, loader, &expr.value)?;
@@ -236,12 +235,12 @@ fn eval_assignment<'a>(
 
 fn eval_multi_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &'a mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     expr: &'a Vec<AstNode>,
 ) -> Result<Cow<'a, AstNode>, String> {
     if expr.is_empty() { return Ok(Cow::Owned(AST_NIL_LIT)); }
     let mut iter = expr.iter().peekable();
-    
+
     let result = loop {
         let next = iter.next().unwrap();
         if iter.peek() == None {
@@ -254,7 +253,7 @@ fn eval_multi_expr<'a>(
 
 fn eval_print_expr<'a>(
     env: &Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     expr: &AstNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match eval_node(env, loader, &expr)? {
@@ -273,7 +272,7 @@ fn eval_print_expr<'a>(
 
 fn eval_if_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &'a mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     expr: &'a IfData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Ok(LiteralNode(lit)) = eval_node(env, loader, &expr.if_branch.cond_node).as_deref() {
@@ -291,7 +290,7 @@ fn eval_if_expr<'a>(
 
 fn eval_cond_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &'a mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     expr: &'a CondData,
 ) -> Result<Cow<'a, AstNode>, String> {
     for e in &expr.cond_branches {
@@ -310,7 +309,7 @@ fn eval_cond_expr<'a>(
 
 fn eval_while_expr<'a>(
     env: &Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     expr: &WhileData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if expr.is_do { eval_node(env, loader, &expr.body)?; }
@@ -327,7 +326,7 @@ fn eval_while_expr<'a>(
 
 fn eval_cons_expr<'a>(
     env: &Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     expr: &ConsData,
 ) -> Result<Cow<'a, AstNode>, String> {
     let car = eval_node(env, loader, &expr.car)?;
@@ -338,7 +337,7 @@ fn eval_cons_expr<'a>(
 
 fn eval_pair_list_expr<'a>(
     env: &Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     expr: &Vec<AstNode>,
 ) -> Result<Cow<'a, AstNode>, String> {
     let mut head = AST_NIL_LIT;
@@ -354,7 +353,7 @@ fn eval_pair_list_expr<'a>(
 
 fn eval_list_acc_expr<'a>(
     env: &Rc<RefCell<Environment>>,
-    loader: &'a mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     expr: &ListAccData,
 ) -> Result<Cow<'a, AstNode>, String> {
     let evaled_node = eval_node(env, loader, &expr.list);
@@ -401,7 +400,7 @@ fn eval_list_acc_expr<'a>(
 
 fn eval_func_call_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     call: &'a FuncCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Some(binding) = env.borrow().get_literal(&call.name) {
@@ -431,12 +430,12 @@ fn eval_func_call_expr<'a>(
 
 fn eval_object_call<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &'a mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     call: &ObjectCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Some(binding) = env.borrow().get_literal(&call.name) {
         if let LiteralNode(LitNode::Object(obj)) = &binding.deref() {
-            recur_object_call(env, loader, obj, &call.accessors)
+            recur_object_call(env, loader, obj, &mut call.accessors.clone())
         } else { Err(format!("Accessors applied to non-object literal: {}", &call.name)) }
     } else { Err(format!("Failed to locate binding for: {}", call.name)) }
 }
@@ -444,7 +443,7 @@ fn eval_object_call<'a>(
 
 fn eval_expr_func_call<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     call: &'a ExprFuncCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let LiteralNode(LitNode::Lambda(lambda)) = eval_node(env, loader, &call.expr).as_deref()? {
@@ -472,9 +471,9 @@ fn eval_expr_func_call<'a>(
 
 fn eval_lambda_call<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     lambda: &'a LambdaValue,
-    args: &'a Option<Vec<FuncArg>>,
+    args: Option<Vec<FuncArg>>,
 ) -> Result<Cow<'a, AstNode>, String> {
     let new_env = Environment::of(Rc::clone(&lambda.env));
     if lambda.def.parameters.is_some() && args.is_some() {
@@ -498,31 +497,34 @@ fn eval_lambda_call<'a>(
 
 fn recur_object_call<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     call: &ObjectValue,
-    mut accessors: &LinkedList<Accessor>,
+    accessors: &mut LinkedList<Accessor>,
 ) -> Result<Cow<'a, AstNode>, String> {
     let acc = if let Some(acc) = accessors.pop_front() {
         acc
     } else { return Err("LookupFailed".to_string()); };
 
     if acc.is_field {
-        let field = call.value().get_field(&acc.name).as_deref()?;
+        let field = call.value().get_field(&acc.name)?;
         return if accessors.is_empty() {
-            Ok(Cow::Owned(field.clone()))
-        } else if let LiteralNode(LitNode::Object(obj)) = field {
+            Ok(Cow::Owned(field.deref().clone()))
+        } else if let LiteralNode(LitNode::Object(obj)) = field.deref() {
             recur_object_call(env, loader, obj, accessors)
         } else { Err(format!("Accessors cannot be applied to non-object: {}", &acc.name)) };
     } else if let LiteralNode(LitNode::Lambda(lambda)
     ) = call.value().get_method(&acc.name)?.deref() {
-        Ok(Cow::Borrowed(eval_lambda_call(env, loader, &lambda, &acc.args)?.deref()))
+        match eval_lambda_call(env, loader, &lambda, acc.args)? {
+            Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
+            Cow::Owned(o) => Ok(Cow::Owned(o))
+        }
     } else { Err("Fatal: Expected lambda from method lookup".to_string()) }
 }
 
 
 fn map_param_to_env(
     curr_env: &Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     params: &Vec<Param>,
     args: &Vec<FuncArg>,
     func_env: &Rc<RefCell<Environment>>,
@@ -541,7 +543,7 @@ fn map_param_to_env(
 
 fn eval_lit_call_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
-    loader: &mut ClassLoader,
+    loader: &RefCell<ClassLoader>,
     name: &String,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Some(lit) = env.borrow().get_literal(name) {

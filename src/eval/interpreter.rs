@@ -1,8 +1,8 @@
+use std::any::type_name;
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::collections::LinkedList;
 use std::ops::Deref;
-use std::rc;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use AstNode::LiteralNode;
@@ -11,7 +11,9 @@ use crate::eval::environment::{Environment};
 use crate::eval::operation_eval;
 use crate::lang::datatypes::{Binding, ObjectAccess, StructMetaData};
 use crate::parse;
-use crate::parse::ast_nodes::{Accessor, AssignData, AST_FALSE_LIT, AST_NIL_LIT, AST_TRUE_LIT, AstNode, CondData, ConsData, DefNode, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData, InstArgs, LambdaValue, ListAccData, LitNode, ObjectAssignData, ObjectCallData, ObjectValue, OpNode, PairValue, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondData, ConsData,
+    DefNode, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData, InstArgs, LambdaValue,
+    ListAccData, LitNode, ObjectAssignData, ObjectCallData, ObjectValue, OpNode, PairValue, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode, ProgramNode};
 
 
@@ -121,17 +123,17 @@ fn eval_operands(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
     op_nodes: &Vec<AstNode>,
-) -> Result<(bool, Vec<LitNode>), String> {
-    let mut operands = Vec::<LitNode>::with_capacity(op_nodes.len());
+) -> Result<(bool, Vec<Rc<LitNode>>), String> {
+    let mut operands = Vec::<Rc<LitNode>>::with_capacity(op_nodes.len());
     let mut is_float = false;
     for node in op_nodes {
         match eval_node(env, loader, &node)? {
             Cow::Borrowed(LiteralNode(val)) => {
-                if matches!(val, LitNode::Float(_)) { is_float = true; }
-                operands.push(val.clone());
+                if matches!(val.as_ref(), LitNode::Float(_)) { is_float = true; }
+                operands.push(Rc::clone(val));
             }
             Cow::Owned(LiteralNode(val)) => {
-                if matches!(val, LitNode::Float(_)) { is_float = true; }
+                if matches!(val.as_ref(), LitNode::Float(_)) { is_float = true; }
                 operands.push(val);
             }
             _ => return Err("Error evaluating operands".to_string())
@@ -151,10 +153,8 @@ fn eval_definition<'a>(
             let evaled = eval_node(env, loader, &var.value);
             if let Ok(evaled_var) = evaled {
                 let binding = Binding::new_binding(evaled_var.deref(), &var.modifiers);
-                let bind = env.borrow_mut().create_binding(var.name.clone(), binding?);
-                if let Err(s) = bind {
-                    Err(s.clone())
-                } else { Ok(Cow::Owned(AstNode::new_bool_lit(true))) }
+                let bind = env.borrow_mut().create_binding(var.name.clone(), binding?)?;
+                Ok(Cow::Owned(bind))
             } else { Err(format!("Binding did not eval to literal{:?}", evaled)) }
         }
         DefNode::Lambda(lam) => {
@@ -164,10 +164,8 @@ fn eval_definition<'a>(
             let mods = fun.lambda.modifiers.clone();
             let lambda_lit = AstNode::new_lambda_lit(fun.lambda, Rc::clone(&env));
             let binding = Binding::new_binding(&lambda_lit, &mods);
-            let bind = env.borrow_mut().create_binding(fun.name.clone(), binding?);
-            if let Err(s) = bind {
-                Err(s.clone())
-            } else { Ok(Cow::Owned(AstNode::new_bool_lit(true))) }
+            let bind = env.borrow_mut().create_binding(fun.name.clone(), binding?)?;
+            Ok(Cow::Owned(bind))
         }
         DefNode::StructDef(def) => {
             let struct_def = StructMetaData::new_declaration(def.fields)?;
@@ -220,7 +218,7 @@ fn eval_expression<'a>(
         ExprNode::LiteralCall(data) => eval_lit_call_expr(env, loader, data),
         ExprNode::ExprFuncCal(data) => eval_expr_func_call(env, loader, data),
         ExprNode::ObjectCall(data) => eval_object_call(env, loader, data),
-        ExprNode::ObjectAssignment( data) => { eval_object_assignment(env, loader, data) }
+        ExprNode::ObjectAssignment(data) => { eval_object_assignment(env, loader, data) }
     }
 }
 
@@ -239,62 +237,82 @@ fn eval_assignment<'a>(
 fn eval_object_assignment<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    expr: &'a  ObjectAssignData,
+    expr: &'a ObjectAssignData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    todo!()
-    // let value = match eval_node(env, loader, &expr.value)? {
-    //     Cow::Borrowed(b) => b.clone(),
-    //     Cow::Owned(o) => o
-    // };
-    // 
-    // let mut obj =
-    // match  env.borrow().get_literal(&expr.access.name)?.borrow().deref().clone() {
-    //     LiteralNode(LitNode::Object(mut obj)) => {
-    //         recur_object_assignment(env, loader, &mut obj, &mut expr.access.accessors.clone(), value)
-    //     }
-    //     _ => { return Err("dfsdfsdfsdf".to_string()); }
-    // };
-    // Ok(Cow::Owned(AST_TRUE_LIT))
+    let value = match eval_node(env, loader, &expr.value)? {
+        Cow::Borrowed(b) => b.clone(),
+        Cow::Owned(o) => o
+    };
+
+    let binding = env.borrow().get_literal(&expr.access.name)?;
+    if let LitNode::Object(obj) = binding.as_ref() {
+        if expr.access.accessors.len() == 1 {
+            let name = if let Some(acc) = expr.access.accessors.front() {
+                &acc.name
+            } else {
+                return Err(format!("Expected at least one accessor to set for: {}", &expr.access.name));
+            };
+            set_field_unsafe(binding, name, value)
+        } else {
+            recur_object_assignment(env, loader, obj, &mut expr.access.accessors.clone(), value)
+        }
+    } else { Err(format!("Accessors applied to non-object literal: {}", &&expr.access.name)) }
 }
 
 
+// Unsafe: This need mutable only in the context when setting, it either that or refcell
+fn set_field_unsafe<'a>(
+    object: Rc<LitNode>,
+    name: &String,
+    value: AstNode,
+) -> Result<Cow<'a, crate::parse::ast_nodes::AstNode>, String> {
+    let field_mut_ptr = unsafe {
+        // Transmute the Rc to Rc<UnsafeCell<LitNode>> to get a mutable pointer
+        let field_uc: &Rc<UnsafeCell<LitNode>> = std::mem::transmute(&object);
+        // Get a mutable reference from UnsafeCell
+        &mut *field_uc.get()
+    };
+
+    if let LitNode::Object(obj) = field_mut_ptr {
+        let rtn = obj.set_field(&name, &value)?;
+        Ok(Cow::Owned(LiteralNode(rtn)))
+    } else { Err(format!("Access did not evaluate to object: {:?}", field_mut_ptr)) }
+}
 
 
 fn recur_object_assignment<'a>(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    call:  &mut ObjectValue,
+    call: &ObjectValue,
     accessors: &mut LinkedList<Accessor>,
     evaled_value: AstNode,
 ) -> Result<Cow<'a, crate::parse::ast_nodes::AstNode>, String> {
-    todo!()
-    // let acc = accessors.pop_front().ok_or_else(|| "LookupFailed".to_string())?;
-    // 
-    // if acc.is_field {
-    //     if accessors.is_empty() {
-    //         call.set_field(&acc.name, &evaled_value)?;
-    //         return Ok(Cow::Owned(evaled_value));
-    //     } else {
-    //         match Rc::clone(call.get_field(&acc.name)?.borrow()) {
-    //             LiteralNode(LitNode::Object(ref mut obj)) => {
-    //                 return recur_object_assignment(env, loader, &mut obj, accessors, evaled_value);
-    //             }
-    //             _ => Err("dfsdf".to_string())
-    //       
-    //         }
-    //     }
-    // } else {
-    //     let method = call.get_method(&acc.name)?;
-    //     if let LiteralNode(LitNode::Lambda(lambda)) = method.deref() {
-    //         let result = eval_lambda_call(env, loader, &lambda, acc.args)?;
-    //         match result {
-    //             Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
-    //             Cow::Owned(o) => Ok(Cow::Owned(o))
-    //         }
-    //     } else {
-    //         Err("Fatal: Expected lambda from method lookup".to_string())
-    //     }
-    // }
+    let acc = if let Some(acc) = accessors.pop_front() {
+        acc
+    } else { return Err("LookupFailed".to_string()); };
+
+
+    if accessors.len() == 1 || accessors.is_empty() {
+        if let Ok(field) = call.get_field(&acc.name) {
+            let set_name = accessors.pop_front().unwrap().name;
+            return set_field_unsafe(field, &set_name, evaled_value);
+        } else { return Err(format!("Failed to find field: {}", acc.name)); }
+    }
+
+    if acc.is_field {
+        if let Ok(field) = call.get_field(&acc.name) {
+            return if accessors.is_empty() {
+                Err("Fatal: we should reach this its bad code lol".to_string())
+            } else if let LitNode::Object(obj) = field.as_ref() {
+                recur_object_assignment(env, loader, obj, accessors, evaled_value)
+            } else { Err(format!("Accessors cannot be applied to non-object: {}", &acc.name)) };
+        } else { Err(format!("Field not found: {}", &acc.name)) }
+    } else if let LitNode::Lambda(lambda) = call.get_method(&acc.name)?.deref() {
+        match eval_lambda_call(env, loader, &lambda, acc.args)? {
+            Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
+            Cow::Owned(o) => Ok(Cow::Owned(o))
+        }
+    } else { Err("Fatal: Expected lambda from method lookup".to_string()) }
 }
 
 
@@ -303,7 +321,7 @@ fn eval_multi_expr<'a>(
     loader: &RefCell<ClassLoader>,
     expr: &'a Vec<AstNode>,
 ) -> Result<Cow<'a, AstNode>, String> {
-    if expr.is_empty() { return Ok(Cow::Owned(AST_NIL_LIT)); }
+    if expr.is_empty() { return Ok(Cow::Owned(AstNode::new_nil_lit())); }
     let mut iter = expr.iter().peekable();
 
     let result = loop {
@@ -324,11 +342,11 @@ fn eval_print_expr<'a>(
     match eval_node(env, loader, &expr)? {
         Cow::Borrowed(LiteralNode(lit)) => {
             println!("{}", lit.value().as_string());
-            Ok(Cow::Borrowed(&AST_NIL_LIT))
+            Ok(Cow::Owned(AstNode::new_nil_lit()))
         }
         Cow::Owned(LiteralNode(lit)) => {
             println!("{}", lit.value().as_string());
-            Ok(Cow::Borrowed(&AST_NIL_LIT))
+            Ok(Cow::Owned(AstNode::new_nil_lit()))
         }
         _ => Err("Print value not literal".to_string())
     }
@@ -348,7 +366,7 @@ fn eval_if_expr<'a>(
                 Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
                 Cow::Owned(o) => Ok(Cow::Owned(o))
             }
-        } else { Ok(Cow::Borrowed(&AST_TRUE_LIT)) }
+        } else { Ok(Cow::Owned(AstNode::new_bool_lit(false))) }
     } else { Err("If condition did not evaluate to boolean".to_string()) }
 }
 
@@ -368,7 +386,7 @@ fn eval_cond_expr<'a>(
 
     if let Some(else_branch) = &expr.else_branch {
         eval_node(env, loader, &else_branch)
-    } else { Ok(Cow::Borrowed(&AST_FALSE_LIT)) }
+    } else { Ok(Cow::Owned(AstNode::new_bool_lit(false))) }
 }
 
 
@@ -379,13 +397,12 @@ fn eval_while_expr<'a>(
 ) -> Result<Cow<'a, AstNode>, String> {
     if expr.is_do { eval_node(env, loader, &expr.body)?; }
     loop {
-        match eval_node(env, loader, &expr.condition).as_deref() {
-            Ok(LiteralNode(lit)) if lit.value().as_bool() => { eval_node(env, loader, &expr.body)?; }
-            Ok(_) => break,
-            Err(err) => { return Err(err.clone()); }
+        match eval_node(env, loader, &expr.condition).as_deref()? {
+            LiteralNode(lit) if lit.value().as_bool() => { eval_node(env, loader, &expr.body)?; }
+            _ => { return Err("Expression in while loop did not evaluate to literal".to_string()); }
         }
     }
-    Ok(Cow::Borrowed(&AST_TRUE_LIT))
+    Ok(Cow::Owned(AstNode::new_bool_lit(true)))
 }
 
 
@@ -405,7 +422,7 @@ fn eval_pair_list_expr<'a>(
     loader: &RefCell<ClassLoader>,
     expr: &Vec<AstNode>,
 ) -> Result<Cow<'a, AstNode>, String> {
-    let mut head = AST_NIL_LIT;
+    let mut head = AstNode::new_nil_lit();
     for element in expr.into_iter().rev() {
         match eval_node(env, loader, &element)? {
             Cow::Borrowed(borrowed) => head = PairValue::from_ast(borrowed.clone(), head)?,
@@ -421,10 +438,14 @@ fn eval_list_acc_expr<'a>(
     loader: &RefCell<ClassLoader>,
     expr: &ListAccData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    let evaled_node = eval_node(env, loader, &expr.list);
-    let list = if let LiteralNode(LitNode::Pair(pair)) = evaled_node.as_deref()? {
-        pair
+    let evaled_node = eval_node(env, loader, &expr.list)?;
+    let list = if let AstNode::LiteralNode(rc_lit_node) = evaled_node.as_ref() {
+        match rc_lit_node.as_ref() {
+            LitNode::Pair(pair) => pair,
+            _ => return Err("Attempted list access on non-list literal".to_string())
+        }
     } else { return Err("Attempted list access on non-list literal".to_string()); };
+
 
     if expr.index_expr.is_some() {
         let index = if let LiteralNode(lit)
@@ -432,7 +453,7 @@ fn eval_list_acc_expr<'a>(
         {
             lit.value().as_int()
         } else { return Err("Index did not evaluate to literal".to_string()); };
-        if index == 0 { return Ok(Cow::Owned(LiteralNode(*list.car.clone()))); }
+        if index == 0 { return Ok(Cow::Owned(LiteralNode(Rc::clone(&list.car)))); }
 
         let mut result = list;
         for _ in 0..index { // TODO fix this
@@ -440,7 +461,7 @@ fn eval_list_acc_expr<'a>(
                 &pair
             } else { return Err("Index not contained in list".to_string()); }
         }
-        return Ok(Cow::Owned(LiteralNode(*result.car.clone())));
+        return Ok(Cow::Owned(LiteralNode(Rc::clone(&result.car))));
     }
 
     if let Some(pattern) = &expr.pattern {
@@ -451,8 +472,8 @@ fn eval_list_acc_expr<'a>(
             match (acc, &*curr.car, &*curr.cdr) {
                 ('f', LitNode::Pair(pair), _) if chars.peek().is_some() => curr = pair,
                 ('r', _, LitNode::Pair(pair)) if chars.peek().is_some() => curr = pair,
-                ('f', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(*curr.car.clone()))),
-                ('r', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(*curr.cdr.clone()))),
+                ('f', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(Rc::clone(&curr.car)))),
+                ('r', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(Rc::clone(&curr.cdr)))),
                 _ => return Err("Invalid access pattern or non-pair encountered before the end".to_string()),
             }
         }
@@ -469,8 +490,9 @@ fn eval_func_call_expr<'a>(
     call: &'a FuncCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Ok(binding) = env.borrow().get_literal(&call.name) {
-        if let LiteralNode(LitNode::Lambda(lambda)) = &binding.deref() {
+        if let LitNode::Lambda(lambda) = binding.as_ref() {
             let new_env = Environment::of(Rc::clone(&lambda.env));
+
             if lambda.def.parameters.is_some() && call.arguments.is_some() {
                 map_param_to_env(
                     env,
@@ -498,7 +520,7 @@ fn eval_object_call<'a>(
     call: &ObjectCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Ok(binding) = env.borrow().get_literal(&call.name) {
-        if let LiteralNode(LitNode::Object(obj)) = &binding.deref() {
+        if let LitNode::Object(obj) = binding.as_ref() {
             recur_object_call(env, loader, obj, &mut call.accessors.clone())
         } else { Err(format!("Accessors applied to non-object literal: {}", &call.name)) }
     } else { Err(format!("Failed to locate binding for: {}", call.name)) }
@@ -510,9 +532,15 @@ fn eval_expr_func_call<'a>(
     loader: &RefCell<ClassLoader>,
     call: &'a ExprFuncCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    if let LiteralNode(LitNode::Lambda(lambda)) = eval_node(env, loader, &call.expr).as_deref()? {
+    if let Some(LitNode::Lambda(lambda)) = eval_node(env, loader, &call.expr)
+        .ok()
+        .as_deref()
+        .and_then(|node| match node {
+            LiteralNode(lit) => Some(lit.as_ref()),
+            _ => None,
+        })
+    {
         let new_env = Environment::of(Rc::clone(&lambda.env));
-
         if lambda.def.parameters.is_some() && call.arguments.is_some() {
             map_param_to_env(
                 env,
@@ -565,24 +593,24 @@ fn recur_object_call<'a>(
     call: &dyn ObjectAccess,
     accessors: &mut LinkedList<Accessor>,
 ) -> Result<Cow<'a, AstNode>, String> {
-    todo!()
-    // let acc = if let Some(acc) = accessors.pop_front() {
-    //     acc
-    // } else { return Err("LookupFailed".to_string()); };
-    // 
-    // if acc.is_field {
-    //     let field = call.get_field(&acc.name)?;
-    //     return if accessors.is_empty() {
-    //         Ok(Cow::Owned(field.clone()))
-    //     } else if let LiteralNode(LitNode::Object(obj)) = field.borrow().deref() {
-    //         recur_object_call(env, loader, obj, accessors)
-    //     } else { Err(format!("Accessors cannot be applied to non-object: {}", &acc.name)) };
-    // } else if let LiteralNode(LitNode::Lambda(lambda)) = call.get_method(&acc.name)?.deref() {
-    //     match eval_lambda_call(env, loader, &lambda, acc.args)? {
-    //         Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
-    //         Cow::Owned(o) => Ok(Cow::Owned(o))
-    //     }
-    // } else { Err("Fatal: Expected lambda from method lookup".to_string()) }
+    let acc = if let Some(acc) = accessors.pop_front() {
+        acc
+    } else { return Err("LookupFailed".to_string()); };
+
+    if acc.is_field {
+        if let Ok(field) = call.get_field(&acc.name) {
+            return if accessors.is_empty() {
+                Ok(Cow::Owned(LiteralNode(field)))
+            } else if let LitNode::Object(obj) = field.as_ref() {
+                recur_object_call(env, loader, obj, accessors)
+            } else { Err(format!("Accessors cannot be applied to non-object: {}", &acc.name)) };
+        } else { Err(format!("Field not found: {}", &acc.name)) }
+    } else if let LitNode::Lambda(lambda) = call.get_method(&acc.name)?.deref() {
+        match eval_lambda_call(env, loader, &lambda, acc.args)? {
+            Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
+            Cow::Owned(o) => Ok(Cow::Owned(o))
+        }
+    } else { Err("Fatal: Expected lambda from method lookup".to_string()) }
 }
 
 
@@ -611,7 +639,7 @@ fn eval_lit_call_expr<'a>(
     name: &String,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Ok(lit) = env.borrow().get_literal(name) {
-        Ok(Cow::Owned(lit.deref().clone()))
+        Ok(Cow::Owned(LiteralNode(lit)))
     } else {
         Err(format!("Failed to find binding for: {}", name))
     }

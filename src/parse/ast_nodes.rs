@@ -12,16 +12,14 @@ use crate::parse::{Lit, Mod};
 const NIL_LIT: LitNode = LitNode::Nil(NilValue());
 const TRUE_LIT: LitNode = LitNode::Boolean(BoolValue(true));
 const FALSE_LIT: LitNode = LitNode::Boolean(BoolValue(false));
-pub const AST_NIL_LIT: AstNode = LiteralNode(NIL_LIT);
-pub const AST_TRUE_LIT: AstNode = LiteralNode(TRUE_LIT);
-pub const AST_FALSE_LIT: AstNode = LiteralNode(FALSE_LIT);
+
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
     DefinitionNode(Box<DefNode>),
     ExpressionNode(Box<ExprNode>),
-    LiteralNode(LitNode),
+    LiteralNode(Rc<LitNode>),
     OperationNode(OpNode),
     ProgramNode(Vec<AstNode>),
 }
@@ -29,50 +27,50 @@ pub enum AstNode {
 
 impl AstNode {
     pub fn new_int_lit(i: i64) -> AstNode {
-        LiteralNode(LitNode::Integer(IntValue(i)))
+        LiteralNode(Rc::new(LitNode::Integer(IntValue(i))))
     }
 
     pub fn new_float_lit(f: f64) -> AstNode {
-        LiteralNode(LitNode::Float(FloatValue(f)))
+        LiteralNode(Rc::new(LitNode::Float(FloatValue(f))))
     }
 
     pub fn new_bool_lit(b: bool) -> AstNode {
-        if b { LiteralNode(TRUE_LIT) } else { LiteralNode(FALSE_LIT) }
+        if b { LiteralNode(Rc::new(TRUE_LIT)) } else {LiteralNode(Rc::new(FALSE_LIT)) }
     }
 
     pub fn new_string_lit(s: String) -> AstNode {
-        LiteralNode(LitNode::String(StringValue(s)))
+        LiteralNode(Rc::new(LitNode::String(StringValue(s))))
     }
 
     pub fn new_quote_lit(n: AstNode) -> AstNode {
-        LiteralNode(LitNode::Quote(QuoteValue(Box::new(n))))
+        LiteralNode(Rc::new(LitNode::Quote(QuoteValue(Box::new(n)))))
     }
 
     pub fn new_object_lit() -> AstNode {
         todo!()
     }
 
-    pub fn new_nil_lit() -> AstNode { LiteralNode(NIL_LIT) }
+    pub fn new_nil_lit() -> AstNode { LiteralNode(Rc::new(NIL_LIT)) }
 
 
     pub fn new_vector_lit(v: Vec<LitNode>) -> AstNode {
-        LiteralNode(LitNode::Vector(VectorValue(v)))
+        LiteralNode(Rc::new(LitNode::Vector(VectorValue(v))))
     }
 
-    pub fn new_pair_lit(car: LitNode, cdr: LitNode) -> AstNode {
-        LiteralNode(LitNode::Pair(PairValue { car: Box::new(car), cdr: Box::new(cdr) }))
-    }
+    // pub fn new_pair_lit(car: LitNode, cdr: LitNode) -> AstNode {
+    //     LiteralNode(Rc::new(LitNode::Pair(PairValue { car: Box::new(car), cdr: Box::new(cdr) })))
+    // }
 
-    pub fn new_raw_pair(car: LitNode, cdr: LitNode) -> LitNode {
-        LitNode::Pair(PairValue { car: Box::new(car), cdr: Box::new(cdr) })
-    }
+    // pub fn new_raw_pair(car: LitNode, cdr: LitNode) -> Rc<LitNode> {
+    //     Rc::new(LitNode::Pair(PairValue { car: Box::new(car), cdr: Box::new(cdr) }))
+    // }
 
     pub fn new_lambda_lit(def: DefLambdaData, envs: Rc<RefCell<Environment>>) -> AstNode {
-        LiteralNode(LitNode::Lambda(LambdaValue { def: Box::new(def), env: envs }))
+        LiteralNode(Rc::new(LitNode::Lambda(LambdaValue { def: Box::new(def), env: envs })))
     }
 
     pub fn new_struct_lit(data: StructData) -> AstNode {
-        LiteralNode(LitNode::Struct(data))
+        LiteralNode(Rc::new(LitNode::Struct(data)))
     }
 }
 
@@ -441,21 +439,21 @@ pub enum ObjectValue {
 
 
 impl ObjectAccess for ObjectValue {
-    fn get_field(&self, name: &str) -> Result<Rc<AstNode>, String> {
+    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String> {
         match self {
             ObjectValue::Struct(s) => s.get_field(name),
             ObjectValue::Class(c) => c.get_field(name),
         }
     }
 
-    fn get_method(&self, name: &str) -> Result<Rc<AstNode>, String> {
+    fn get_method(&self, name: &str) -> Result<Rc<LitNode>, String> {
         match self {
             ObjectValue::Struct(s) => s.get_method(name),
             ObjectValue::Class(c) => c.get_method(name),
         }
     }
 
-    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<AstNode, String> {
+    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String> {
         match self {
             ObjectValue::Struct(s) => s.set_field(name, value),
             ObjectValue::Class(c) => c.set_field(name, value),
@@ -527,8 +525,8 @@ impl FromIterator<LitNode> for VectorValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PairValue {
-    pub car: Box<LitNode>,
-    pub cdr: Box<LitNode>,
+    pub car: Rc<LitNode>,
+    pub cdr: Rc<LitNode>,
 }
 
 
@@ -548,30 +546,30 @@ impl PairValue {
 
     pub fn from_ast(car_val: AstNode, cdr_val: AstNode) -> Result<AstNode, String> {
         let car = if let LiteralNode(lit) = car_val {
-            Box::new(lit)
+            Rc::clone(&lit)
         } else { return Err("Invalid, car value not a literal".to_string()); };
         let cdr = if let LiteralNode(lit) = cdr_val {
-            Box::new(lit)
+            Rc::clone(&lit)
         } else { return Err("Invalid, car value not a literal".to_string()); };
-        Ok(LiteralNode(LitNode::Pair(PairValue { car, cdr })))
+        Ok(LiteralNode(Rc::new(LitNode::Pair(PairValue { car, cdr }))))
     }
 
     pub fn from_ast_as_lit(car_val: AstNode, cdr_val: AstNode) -> Result<LitNode, String> {
         let car = if let LiteralNode(lit) = car_val {
-            Box::new(lit)
+            Rc::clone(&lit)
         } else { return Err("Invalid, car value not a literal".to_string()); };
         let cdr = if let LiteralNode(lit) = cdr_val {
-            Box::new(lit)
+            Rc::clone(&lit)
         } else { return Err("Invalid, car value not a literal".to_string()); };
         Ok(LitNode::Pair(PairValue { car, cdr }))
     }
 
-    pub fn from_lit(car: LitNode, cdr: LitNode) -> AstNode {
-        LiteralNode(LitNode::Pair(PairValue { car: Box::new(car), cdr: Box::new(cdr) }))
+    pub fn from_lit(car: Rc<LitNode>, cdr: Rc<LitNode>) -> AstNode {
+        LiteralNode(Rc::new(LitNode::Pair(PairValue { car:  Rc::clone(&car), cdr:  Rc::clone(&cdr) })))
     }
 
-    pub fn from_lit_as_lit(car: LitNode, cdr: LitNode) -> LitNode {
-        LitNode::Pair(PairValue { car: Box::new(car), cdr: Box::new(cdr) })
+    pub fn from_lit_as_lit(car: Rc<LitNode>, cdr: Rc<LitNode>) -> LitNode {
+        LitNode::Pair(PairValue { car: Rc::clone(&car), cdr: Rc::clone(&cdr) })
     }
 }
 

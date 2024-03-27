@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::rc::Rc;
 use ahash::AHashMap;
 use crate::lang::types::Type;
-use crate::parse::ast_nodes::{AST_NIL_LIT, AST_TRUE_LIT, AstNode, EvalResult, Field, FuncArg, InstArgs, LitNode, ObjectValue};
+use crate::parse::ast_nodes::{ AstNode, EvalResult, Field, FuncArg, InstArgs, LitNode, ObjectValue};
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::Mod;
 
@@ -18,7 +18,7 @@ fn is_literal(name: &str, value: &AstNode) -> Result<(), String> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
     pub obj_type: Type,
-    pub value: Rc<AstNode>,
+    pub value: Rc<LitNode>,
     pub dynamic: bool,
     pub mutable: bool,
 }
@@ -39,15 +39,16 @@ impl Binding {
         let obj_type: Type;
         if let LiteralNode(lit) = &value {
             obj_type = lit.value().get_type();
+
+            if is_dynamic {
+                Ok(Binding { obj_type, value: Rc::clone(&lit), dynamic: true, mutable: true })
+            } else if is_mutable {
+                Ok(Binding { obj_type, value: Rc::clone(&lit), dynamic: false, mutable: true })
+            } else {
+                Ok(Binding { obj_type, value: Rc::clone(&lit), dynamic: false, mutable: false })
+            }
         } else {
             return Err(format!("Attempted to bind non literal object: {:?}", value));
-        }
-        if is_dynamic {
-            Ok(Binding { obj_type, value: Rc::new(value.clone()), dynamic: true, mutable: true })
-        } else if is_mutable {
-            Ok(Binding { obj_type, value: Rc::new(value.clone()), dynamic: false, mutable: true })
-        } else {
-            Ok(Binding { obj_type, value: Rc::new(value.clone()), dynamic: false, mutable: false })
         }
     }
 
@@ -55,19 +56,19 @@ impl Binding {
         let obj_type: Type;
         if let LiteralNode(lit) = value {
             obj_type = lit.value().get_type();
+
+            Ok(Binding { obj_type, value: Rc::clone(&lit), dynamic, mutable })
         } else {
             return Err(format!("Attempted to bind non literal object: {:?}", value));
         }
-
-        Ok(Binding { obj_type, value: Rc::new(value.clone()), dynamic, mutable })
     }
 }
 
 
 pub trait ObjectAccess {
-    fn get_field(&self, name: &str) -> Result<Rc<AstNode>, String>;
-    fn get_method(&self, name: &str) -> Result<Rc<AstNode>, String>;
-    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<AstNode, String>;
+    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String>;
+    fn get_method(&self, name: &str) -> Result<Rc<LitNode>, String>;
+    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String>;
 }
 
 
@@ -98,7 +99,7 @@ impl StructMetaData {
             let mut data = AHashMap::<String, Binding>::with_capacity(arity);
 
             for field in fields {
-                let binding: Binding = Binding::new_binding(&AST_NIL_LIT, &field.modifiers)?;
+                let binding: Binding = Binding::new_binding(&AstNode::new_nil_lit(), &field.modifiers)?;
                 immutable = false;
                 data.insert(field.name, binding);
             }
@@ -113,7 +114,7 @@ impl StructMetaData {
     ) -> Result<AstNode, String> {
         if self.arity == 0 && args.is_none() {
             let data = StructData { immutable: true, data: AHashMap::with_capacity(0) };
-            return Ok(LiteralNode(LitNode::Object(ObjectValue::Struct(data))));
+            return Ok(LiteralNode(Rc::new(LitNode::Object(ObjectValue::Struct(data)))));
         }
 
         if let Some(args) = args {
@@ -135,7 +136,7 @@ impl StructMetaData {
                 }
             }
             let data = StructData { immutable: self.immutable, data: inst_data };
-            Ok(LiteralNode(LitNode::Object(ObjectValue::Struct(data))))
+            Ok(LiteralNode(Rc::new(LitNode::Object(ObjectValue::Struct(data)))))
         } else {
             Err(format!("Expected instance arguments but found none for:{}", name))
         }
@@ -144,30 +145,27 @@ impl StructMetaData {
 
 
 impl ObjectAccess for StructData {
-    fn get_field(&self, name: &str) -> Result<Rc<AstNode>, String> {
-        let found = self.data.get(name);
-        if found.is_some() {
-            Ok(Rc::clone(&found.unwrap().value))
+    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String> {
+        if let Some(found) = self.data.get(name) {
+            Ok(Rc::clone(&found.value))
         } else { Err(format!("Could not locate field: {}", name)) }
     }
 
-    fn get_method(&self, name: &str) -> Result<Rc<AstNode>, String> {
+    fn get_method(&self, name: &str) -> Result<Rc<LitNode>, String> {
         todo!()
     }
 
 
-    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<AstNode, String> {
+    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String> {
         is_literal(name, value)?;
 
         let found = self.data.get_mut(name);
         match found {
             None => Err(format!("Struct field not found: {}", name)),
             Some(data) => {
-                if data.mutable {
-                    println!("Assigning value:{:?}", value);
-                    data.value = Rc::new(value.clone());
-                    println!("new value: {:?}", self.data.get(name));
-                    Ok(AST_TRUE_LIT)
+                if let LiteralNode(lit) = value {
+                    data.value = Rc::clone(lit);
+                    Ok(Rc::clone(lit))
                 } else { Err(format!("Attempted to reassign immutable field: {}", name)) }
             }
         }
@@ -176,16 +174,16 @@ impl ObjectAccess for StructData {
 
 
 impl ObjectAccess for ClassData {
-    fn get_field(&self, name: &str) -> Result<Rc<AstNode>, String> {
+    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String> {
         todo!()
     }
 
-    fn get_method(&self, name: &str) -> Result<Rc<AstNode>, String> {
+    fn get_method(&self, name: &str) -> Result<Rc<LitNode>, String> {
         todo!()
     }
 
 
-    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<AstNode, String> {
+    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String> {
         todo!()
     }
 }

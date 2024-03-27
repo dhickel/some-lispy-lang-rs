@@ -5,7 +5,7 @@ use ahash::AHashMap;
 use crate::eval::class_loader::{ClassDef, ClassLoader};
 use crate::lang::datatypes::Binding;
 
-use crate::parse::ast_nodes::{AST_TRUE_LIT, AstNode, LitNode};
+use crate::parse::ast_nodes::{AstNode, LitNode};
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 
 
@@ -56,7 +56,7 @@ impl Environment {
     }
 
 
-    pub fn get_literal(&self, name: &String) -> Result<Rc<AstNode>, String> {
+    pub fn get_literal(&self, name: &String) -> Result<Rc<LitNode>, String> {
         if let Some(found) = self.bindings.get(name) {
             Ok(Rc::clone(&found.value))
         } else if let Some(p_env) = &self.parent {
@@ -70,7 +70,7 @@ impl Environment {
             Err(format!("Binding already exists for: {}", name))
         } else {
             self.bindings.insert(name, binding);
-            Ok(AST_TRUE_LIT)
+            Ok(AstNode::new_bool_lit(true))
         }
     }
 
@@ -81,8 +81,10 @@ impl Environment {
         if let Some(binding) = self.bindings.get_mut(name) {
             let mut data = binding;
             if data.mutable {
-                data.value = Rc::new(value.clone());
-                Ok(AST_TRUE_LIT)
+                if let LiteralNode(lit) = &value {
+                    data.value = Rc::clone(&lit);
+                    Ok(AstNode::new_bool_lit(true))
+                } else { Err(format!("Attempted to bind non literal object: {:?}", value)) }
             } else {
                 Err(format!("Attempted to reassign immutable binding{}", name))
             }

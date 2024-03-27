@@ -1,13 +1,14 @@
 use std::collections::LinkedList;
-use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
-use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData};
+use std::ops::Deref;
+use crate::parse::{Def, Expr, Init, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
-use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, ObjectAssignment, ObjectCall, PairList, PrintExpr, WhileLoop};
-use crate::parse::Def::DefineStruct;
+use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, NanoExpr, ObjectAssignment, ObjectCall, PairList, PrintExpr, WhileLoop};
+use crate::parse::Def::{DefineClass, DefineStruct};
 use crate::parse::Lex::{LeftParen, RightParen};
 
 
-use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
+use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier, Initializer};
 
 
 macro_rules! nano_time {
@@ -151,9 +152,9 @@ impl ParserState {
             Expression(_) => self.parse_exact_expr(),
             Definition(Def::Define) => self.parse_define(),
             Definition(Def::DefineFunc) => self.parse_func(),
-            Definition(Def::Lambda) =>
-                Ok(DefinitionNode(Box::new(DefNode::Lambda(self.parse_lambda(false)?)))),
+            Definition(Def::Lambda) => Ok(DefinitionNode(Box::new(DefNode::Lambda(self.parse_lambda(false)?)))),
             Definition(Def::DefineStruct) => self.parse_struct_def(),
+            Definition(Def::DefineClass) => self.parse_class_def(),
             Syntactic(_) => Err(format!("Unexpected token: {:?}", &self.peek())), // TODO implement quote
             _ => Err(format!("Unexpected token: {:?}", &self.peek()))
         }
@@ -607,6 +608,52 @@ impl ParserState {
         let fields = self.parse_fields()?;
         Ok(DefinitionNode(Box::new(DefNode::StructDef(DefStructData { name, fields }))))
     }
+
+
+    pub fn parse_class_def(&mut self) -> Result<AstNode, String> {
+        self.consume(Definition(DefineClass))?;
+
+        let name = match &self.consume(Literal(Lit::Identifier))?.data {
+            Some(TokenData::String(name)) => name.clone(),
+            _ => return Err("Expected name for class".to_string())
+        };
+
+        let mut class_data = DefClassData::empty_def(name);
+
+
+        while self.peek().token_type != TokenType::Lexical(RightParen) {
+            self.consume_left_paren()?;
+            match self.advance()?.token_type {
+                Initializer(Init::Init) => { class_data.init = self.parse_class_init()?; }
+                Initializer(Init::Param) => { class_data.params = self.parse_modifiers()? }
+                Initializer(Init::Var) => { class_data.fields = self.parse_fields()?; }
+                Initializer(Init::Func) => {}
+                Initializer(Init::Pre) => {}
+                Initializer(Init::Post) => {}
+                Initializer(Init::Final) => {}
+                _ => { return Err(format!("Unexpected token in class definition: {:?}", &self.previous())); }
+            }
+            self.consume_right_paren()?;
+        }
+
+        Err()
+    }
+
+    pub fn parse_class_init(&mut self) -> Result<Option<Vec<DefFuncData>>, String> {
+        let mut init_vec = Vec::<DefFuncData>::with_capacity(4);
+
+        while self.peek().token_type != Lexical(RightParen) {
+            self.consume_left_paren()?;
+            if let Ok(DefinitionNode(init)) = self.parse_func() {
+                if let DefNode::Function(def) = init.deref() {
+                    init_vec.push(def.clone());
+                }
+            }
+            self.consume_right_paren()?
+        }
+        return if init_vec.is_empty() { Ok(None) } else { Ok(Some(init_vec)) };
+    }
+
 
     pub fn parse_fields(&mut self) -> Result<Option<Vec<Field>>, String> {
         let mut fields = Vec::<Field>::new();

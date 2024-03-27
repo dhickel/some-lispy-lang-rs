@@ -3,7 +3,7 @@ use std::collections::LinkedList;
 use std::rc::Rc;
 use std::vec;
 use crate::eval::environment::Environment;
-use crate::lang::datatypes::{ClassData, ObjectAccess, StructData};
+use crate::lang::datatypes::{ClassData, ClassMetaData, ObjectAccess, StructData};
 use crate::lang::types::Type;
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::{Lit, Mod};
@@ -12,7 +12,6 @@ use crate::parse::{Lit, Mod};
 const NIL_LIT: LitNode = LitNode::Nil(NilValue());
 const TRUE_LIT: LitNode = LitNode::Boolean(BoolValue(true));
 const FALSE_LIT: LitNode = LitNode::Boolean(BoolValue(false));
-
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,7 +34,7 @@ impl AstNode {
     }
 
     pub fn new_bool_lit(b: bool) -> AstNode {
-        if b { LiteralNode(Rc::new(TRUE_LIT)) } else {LiteralNode(Rc::new(FALSE_LIT)) }
+        if b { LiteralNode(Rc::new(TRUE_LIT)) } else { LiteralNode(Rc::new(FALSE_LIT)) }
     }
 
     pub fn new_string_lit(s: String) -> AstNode {
@@ -81,6 +80,7 @@ pub enum DefNode {
     Lambda(DefLambdaData),
     Function(DefFuncData),
     StructDef(DefStructData),
+    ClassDef(DefClassData),
     InstanceDef(DefStructInst),
 }
 
@@ -129,6 +129,33 @@ pub struct DefStructData {
     pub fields: Option<Vec<Field>>,
 }
 
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DefClassData {
+    pub name: String,
+    pub params: Option<Vec<Mod>>,
+    pub fields: Option<Vec<Field>>,
+    pub init: Option<Vec<DefFuncData>>,
+    pub methods: Option<Vec<DefFuncData>>,
+    pub pre_init: Option<Vec<AstNode>>,
+    pub post_init: Option<Vec<AstNode>>,
+    pub fin : Option<Vec<AstNode>>
+}
+
+impl DefClassData {
+    pub fn empty_def(name : String) -> DefClassData{
+        DefClassData{
+            name,
+            params: None,
+            fields : None,
+            init: None,
+            methods: None,
+            pre_init: None,
+            post_init: None,
+            fin: None
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefStructInst {
@@ -229,6 +256,7 @@ pub struct ObjectCallData {
     pub name: String,
     pub accessors: LinkedList<Accessor>,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectAssignData {
@@ -446,7 +474,7 @@ impl ObjectAccess for ObjectValue {
         }
     }
 
-    fn get_method(&self, name: &str) -> Result<Rc<LitNode>, String> {
+    fn get_method(&self, name: &str) -> Result<LitNode, String> {
         match self {
             ObjectValue::Struct(s) => s.get_method(name),
             ObjectValue::Class(c) => c.get_method(name),
@@ -565,7 +593,7 @@ impl PairValue {
     }
 
     pub fn from_lit(car: Rc<LitNode>, cdr: Rc<LitNode>) -> AstNode {
-        LiteralNode(Rc::new(LitNode::Pair(PairValue { car:  Rc::clone(&car), cdr:  Rc::clone(&cdr) })))
+        LiteralNode(Rc::new(LitNode::Pair(PairValue { car: Rc::clone(&car), cdr: Rc::clone(&cdr) })))
     }
 
     pub fn from_lit_as_lit(car: Rc<LitNode>, cdr: Rc<LitNode>) -> LitNode {

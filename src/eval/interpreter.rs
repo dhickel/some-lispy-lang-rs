@@ -192,7 +192,7 @@ fn eval_definition<'a>(
                     let inst = s.new_instance(inst.name, evaled_args)?;
                     return Ok(Cow::Owned(inst));
                 }
-                ClassDef::Class => { todo!() }
+                ClassDef::Class(c) => { todo!() }
             }
         }
     }
@@ -221,6 +221,8 @@ fn eval_expression<'a>(
         ExprNode::ObjectAssignment(data) => { eval_object_assignment(env, loader, data) }
     }
 }
+
+
 
 
 fn eval_assignment<'a>(
@@ -260,7 +262,8 @@ fn eval_object_assignment<'a>(
 }
 
 
-// Unsafe: This need mutable only in the context when setting, it either that or refcell
+// Unsafe: This needs mutability only in the context when setting. This avoid using a refcell since
+// the bindings need to be also wrapped in an rc for performance reasons to avoid cloning.
 fn set_field_unsafe<'a>(
     object: Rc<LitNode>,
     name: &String,
@@ -307,7 +310,7 @@ fn recur_object_assignment<'a>(
                 recur_object_assignment(env, loader, obj, accessors, evaled_value)
             } else { Err(format!("Accessors cannot be applied to non-object: {}", &acc.name)) };
         } else { Err(format!("Field not found: {}", &acc.name)) }
-    } else if let LitNode::Lambda(lambda) = call.get_method(&acc.name)?.deref() {
+    } else if let LitNode::Lambda(lambda) = call.get_method(&acc.name)? {
         match eval_lambda_call(env, loader, &lambda, acc.args)? {
             Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
             Cow::Owned(o) => Ok(Cow::Owned(o))
@@ -396,11 +399,22 @@ fn eval_while_expr<'a>(
     expr: &WhileData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if expr.is_do { eval_node(env, loader, &expr.body)?; }
-    loop {
-        match eval_node(env, loader, &expr.condition).as_deref()? {
-            LiteralNode(lit) if lit.value().as_bool() => { eval_node(env, loader, &expr.body)?; }
-            _ => { return Err("Expression in while loop did not evaluate to literal".to_string()); }
-        }
+
+    let mut cond = if let LiteralNode(cond) = eval_node(env, loader, &expr.condition)?.as_ref() {
+        cond.value().as_bool()
+    } else {
+        return Err(format!("Expression in while loop did not evaluate to literal: {:?}", expr.condition));
+    };
+
+    if !expr.is_do && !cond { return Ok(Cow::Owned(AstNode::new_bool_lit(false))); }
+
+    while cond {
+        eval_node(env, loader, &expr.body)?;
+        cond = if let LiteralNode(cond) = eval_node(env, loader, &expr.condition)?.as_ref() {
+            cond.value().as_bool()
+        } else {
+            return Err(format!("Expression in while loop did not evaluate to literal: {:?}", expr.condition));
+        };
     }
     Ok(Cow::Owned(AstNode::new_bool_lit(true)))
 }
@@ -605,7 +619,7 @@ fn recur_object_call<'a>(
                 recur_object_call(env, loader, obj, accessors)
             } else { Err(format!("Accessors cannot be applied to non-object: {}", &acc.name)) };
         } else { Err(format!("Field not found: {}", &acc.name)) }
-    } else if let LitNode::Lambda(lambda) = call.get_method(&acc.name)?.deref() {
+    } else if let LitNode::Lambda(lambda) = call.get_method(&acc.name)? {
         match eval_lambda_call(env, loader, &lambda, acc.args)? {
             Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
             Cow::Owned(o) => Ok(Cow::Owned(o))

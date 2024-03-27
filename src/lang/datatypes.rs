@@ -2,8 +2,9 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
 use ahash::AHashMap;
+use crate::eval::environment::Environment;
 use crate::lang::types::Type;
-use crate::parse::ast_nodes::{ AstNode, EvalResult, Field, FuncArg, InstArgs, LitNode, ObjectValue};
+use crate::parse::ast_nodes::{AstNode, DefFuncData, DefLambdaData, EvalResult, Field, FuncArg, InstArgs, LambdaValue, LitNode, ObjectValue};
 use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::Mod;
 
@@ -67,7 +68,7 @@ impl Binding {
 
 pub trait ObjectAccess {
     fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String>;
-    fn get_method(&self, name: &str) -> Result<Rc<LitNode>, String>;
+    fn get_method(&self, name: &str) -> Result<LitNode, String>;
     fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String>;
 }
 
@@ -85,10 +86,6 @@ pub struct StructMetaData {
     data: Option<AHashMap<String, Binding>>,
     arity: u8,
 }
-
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ClassData {}
 
 
 impl StructMetaData {
@@ -151,7 +148,7 @@ impl ObjectAccess for StructData {
         } else { Err(format!("Could not locate field: {}", name)) }
     }
 
-    fn get_method(&self, name: &str) -> Result<Rc<LitNode>, String> {
+    fn get_method(&self, name: &str) -> Result<LitNode, String> {
         todo!()
     }
 
@@ -173,22 +170,6 @@ impl ObjectAccess for StructData {
 }
 
 
-impl ObjectAccess for ClassData {
-    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String> {
-        todo!()
-    }
-
-    fn get_method(&self, name: &str) -> Result<Rc<LitNode>, String> {
-        todo!()
-    }
-
-
-    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String> {
-        todo!()
-    }
-}
-
-
 impl EvalResult for StructData {
     fn as_int(&self) -> i64 { 1 }
     fn as_float(&self) -> f64 { 1.0 }
@@ -202,3 +183,125 @@ impl EvalResult for StructData {
     }
     fn get_type(&self) -> Type { Type::Struct }
 }
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassMetaData {
+    arity: u8,
+    data: AHashMap<String, Binding>,
+    methods: AHashMap<String, DefLambdaData>,
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassData {
+    env: Rc<RefCell<Environment>>,
+    methods: AHashMap<String, Box<DefLambdaData>>,
+}
+
+
+
+
+
+impl ClassMetaData {
+    pub fn new_declaration(fields: Option<Vec<Field>>, methods: Option<Vec<DefFuncData>>,
+    ) -> Result<ClassMetaData, String> {
+        let arity: usize;
+        let mut field_map: AHashMap::<String, Binding>;
+        if let Some(fields) = fields {
+            arity = fields.len();
+            field_map = AHashMap::<String, Binding>::with_capacity(arity);
+            for field in fields {
+                let binding: Binding = Binding::new_binding(&AstNode::new_nil_lit(), &field.modifiers)?;
+                field_map.insert(field.name, binding);
+            }
+        } else {
+            arity = 0;
+            field_map = AHashMap::<String, Binding>::with_capacity(0);
+        }
+
+        let mut method_map: AHashMap::<String, DefLambdaData>;
+        if let Some(methods) = methods {
+            method_map = AHashMap::<String, DefLambdaData>::with_capacity(methods.len());
+            for method in methods {
+                method_map.insert(method.name, method.lambda);
+            }
+        } else { method_map = AHashMap::<String, DefLambdaData>::with_capacity(0); }
+
+        Ok(ClassMetaData { data: field_map, methods: method_map, arity: arity as u8 })
+    }
+
+    pub fn new_instance(&self, name: String, args: Option<Vec<InstArgs>>,
+    ) -> Result<AstNode, String> {
+        let mut methods =
+            AHashMap::<String, Box<DefLambdaData>>::with_capacity(self.methods.len());
+
+        for (key, value) in &self.methods {
+            methods.insert(key.clone(), Box::new(value.clone()));
+        }
+
+
+        if self.arity != 0 && !args.is_none() {
+            if let Some(args) = args {
+                if args.len() as u8 != self.arity {
+                    return Err(format!("Invalid amount of instance args expect :{}, found: {}", self.arity, args.len()));
+                }
+
+                if args.len() as u8 != self.arity {
+                    return Err(format!(
+                        "Expected {} instance arguments but found {} for:{}",
+                        self.arity, args.len(), &name));
+                }
+
+                let mut inst_data = self.data.clone();
+                for arg in args {
+                    let field = inst_data.get(&arg.name);
+                    if let Some(field) = field {
+                        // TODO type matching
+                        let binding = Binding::replace_binding(&arg.value, field.dynamic, field.mutable)?;
+                        inst_data.insert(arg.name, binding);
+                    } else {
+                        return Err(format!("Instance argument not found: {} for struct: {}", &arg.name, &name));
+                    }
+                }
+                let env = Environment::of_fields(inst_data);
+                let class_data = ClassData { env, methods };
+                Ok(LiteralNode(Rc::new(LitNode::Object(ObjectValue::Class(class_data)))))
+            } else {
+                Err(format!("Expected instance arguments but found none for:{}", name))
+            }
+        } else if self.arity != 0 && args.is_none() {
+            Err(format!("Expected instance arguments but found none for:{}", name))
+        } else {
+            let env = Environment::of_fields(AHashMap::<String, Binding>::with_capacity(0));
+            let class_data = ClassData { env, methods };
+            Ok(LiteralNode(Rc::new(LitNode::Object(ObjectValue::Class(class_data)))))
+        }
+    }
+}
+
+
+impl ObjectAccess for ClassData{
+    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String> {
+        self.env.borrow().get_literal(name)
+    }
+
+    fn get_method(&self, name: &str) -> Result<LitNode, String> {
+        if let Some(method) = self.methods.get(name) {
+             Ok(LitNode::Lambda( LambdaValue{ env: Rc::clone(&self.env), def: method.clone() }))
+        } else {
+            Err(format!("Failed to find method: {}", name))
+        }
+    }
+
+
+    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String> {
+        let result = self.env.borrow_mut().update_binding(name, value)?;
+        if let LiteralNode(lit) = result {
+            Ok(Rc::clone(&lit))
+        } else {
+            Err("Non literal, should happen".to_string())
+        }
+    }
+}
+

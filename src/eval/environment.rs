@@ -36,6 +36,13 @@ impl Environment {
             bindings: AHashMap::with_capacity(10),
         }))
     }
+    
+    pub fn of_fields(field_map:  AHashMap<String, Binding>)  -> Rc<RefCell<Environment>>  {
+        Rc::new(RefCell::new(Environment {
+            parent: None,
+            bindings: field_map
+        }))
+    }
 
     // pub fn print_bindings(&self) {
     //     for i in self.bindings.iter() {
@@ -56,7 +63,7 @@ impl Environment {
     }
 
 
-    pub fn get_literal(&self, name: &String) -> Result<Rc<LitNode>, String> {
+    pub fn get_literal(&self, name: &str) -> Result<Rc<LitNode>, String> {
         if let Some(found) = self.bindings.get(name) {
             Ok(Rc::clone(&found.value))
         } else if let Some(p_env) = &self.parent {
@@ -74,7 +81,7 @@ impl Environment {
         }
     }
 
-    pub fn update_binding<'a>(&mut self, name: &String, value: &'a AstNode) -> Result<AstNode, String> {
+    pub fn update_binding<'a>(&mut self, name: &str, value: &'a AstNode) -> Result<AstNode, String> {
         if !matches!(value, LiteralNode(_)) {
             return Err(format!("Attempted to assign non literal value to{}", name));
         }

@@ -1,4 +1,6 @@
 use std::string::String;
+use crate::parse::ast_nodes::Param;
+use crate::parse::token::Init::*;
 use crate::parse::token::Lex::*;
 use crate::parse::token::Lit::*;
 use crate::parse::token::Op::*;
@@ -7,6 +9,7 @@ use crate::parse::token::Expr::*;
 use crate::parse::token::Def::*;
 use crate::parse::token::Mod::*;
 use crate::parse::TokenType::*;
+
 
 pub fn match_single_token(input: char) -> Option<TokenType> {
     match input {
@@ -43,6 +46,7 @@ pub fn match_single_token(input: char) -> Option<TokenType> {
     }
 }
 
+
 pub fn match_double_token(input: (char, char)) -> Option<TokenType> {
     match input {
         (':', ':') => Some(Syntactic(DoubleColon)),
@@ -61,6 +65,7 @@ pub fn match_double_token(input: (char, char)) -> Option<TokenType> {
         _ => None,
     }
 }
+
 
 pub fn match_word_token(input: &str) -> Option<TokenType> {
     match input {
@@ -90,9 +95,17 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
         "def-class" => Some(Definition(DefineClass)),
         "def-struct" => Some(Definition(DefineStruct)),
         "lambda" => Some(Definition(Lambda)),
+        ":init" => Some(Initializer(Init)),
+        ":var" => Some(Initializer(Var)),
+        ":func" => Some(Initializer(Func)),
+        ":pre" => Some(Initializer(Pre)),
+        ":post" => Some(Initializer(Post)),
+        ":final" => Some(Initializer(Final)),
+        ":param" => Some(Initializer(Param)),
         _ => None
     }
 }
+
 
 pub fn match_modifier_token(input: &str) -> Option<TokenType> {
     match input {
@@ -117,7 +130,9 @@ pub enum TokenType {
     Expression(Expr),
     Definition(Def),
     Modifier(Mod),
+    Initializer(Init),
 }
+
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Lex {
@@ -133,6 +148,7 @@ pub enum Lex {
     DoubleQuote,
     EOF,
 }
+
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Syn {
@@ -152,6 +168,7 @@ pub enum Syn {
     Else,
     EqualGreater,
 }
+
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Op {
@@ -179,6 +196,7 @@ pub enum Op {
     RefEqual,
 }
 
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Lit {
     True,
@@ -190,6 +208,7 @@ pub enum Lit {
     Instance,
     Nil,
 }
+
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Expr {
@@ -208,6 +227,7 @@ pub enum Expr {
     Lacc,
 }
 
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Def {
     Define,
@@ -216,6 +236,7 @@ pub enum Def {
     DefineStruct,
     Lambda,
 }
+
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Mod {
@@ -228,12 +249,26 @@ pub enum Mod {
     Do,
 }
 
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Init {
+    Init,
+    Var,
+    Func,
+    Pre,
+    Post,
+    Final,
+    Param,
+}
+
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenData {
     String(String),
     Integer(i64),
     Float(f64),
 }
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Token {

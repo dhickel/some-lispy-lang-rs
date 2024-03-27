@@ -1,10 +1,12 @@
 use ahash::AHashMap;
-use crate::lang::datatypes::StructMetaData;
+use crate::lang::datatypes::{ClassMetaData, StructMetaData};
+use crate::parse::ast_nodes::LambdaValue;
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClassDef {
     Struct(StructMetaData),
-    Class,
+    Class(ClassMetaData),
 }
 
 #[derive(Debug)]

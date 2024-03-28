@@ -17,8 +17,8 @@ const FALSE_LIT: LitNode = LitNode::Boolean(BoolValue(false));
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
-    DefinitionNode(Box<DefNode>),
-    ExpressionNode(Box<ExprNode>),
+    DefinitionNode(Rc<DefNode>),
+    ExpressionNode(Rc<ExprNode>),
     LiteralNode(Rc<LitNode>),
     OperationNode(OpNode),
     ProgramNode(Vec<AstNode>),
@@ -65,8 +65,8 @@ impl AstNode {
     //     Rc::new(LitNode::Pair(PairValue { car: Box::new(car), cdr: Box::new(cdr) }))
     // }
 
-    pub fn new_lambda_lit(def: DefLambdaData, envs: Rc<RefCell<Environment>>) -> AstNode {
-        LiteralNode(Rc::new(LitNode::Lambda(LambdaValue { def: Box::new(def), env: envs })))
+    pub fn new_lambda_lit(def: Rc<DefLambdaData>, envs: Rc<RefCell<Environment>>) -> AstNode {
+        LiteralNode(Rc::new(LitNode::Lambda(LambdaValue { def: Rc::clone(&def), env: envs })))
     }
 
     pub fn new_struct_lit(data: StructData) -> AstNode {
@@ -78,7 +78,7 @@ impl AstNode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DefNode {
     Variable(DefVarData),
-    Lambda(DefLambdaData),
+    Lambda(Rc<DefLambdaData>),
     Function(DefFuncData),
     StructDef(DefStructData),
     ClassDef(DefClassData),
@@ -90,7 +90,7 @@ pub enum DefNode {
 pub struct DefVarData {
     pub name: Spur,
     pub modifiers: Option<Vec<Mod>>,
-    pub value: Box<AstNode>,
+    pub value: Rc<AstNode>,
     pub var_type: Option<Spur>,
 }
 
@@ -108,7 +108,7 @@ pub struct DefLambdaData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefFuncData {
     pub name: Spur,
-    pub lambda: DefLambdaData,
+    pub lambda: Rc<DefLambdaData>,
 }
 
 
@@ -620,7 +620,7 @@ impl EvalResult for PairValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaValue {
-    pub def: Box<DefLambdaData>,
+    pub def: Rc<DefLambdaData>,
     pub env: Rc<RefCell<Environment>>,
 }
 

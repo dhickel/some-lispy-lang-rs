@@ -89,7 +89,7 @@ fn eval_node<'a>(
         ExpressionNode(expr) => eval_expression(env, loader, s_cache, expr),
         LiteralNode(_) => Ok(Cow::Borrowed(node)),
         OperationNode(op) => eval_operation(env, loader, s_cache, op),
-        DefinitionNode(def) => eval_definition(env, loader, s_cache, *def.clone()),
+        DefinitionNode(def) => eval_definition(env, loader, s_cache, def.deref().clone()),
         ProgramNode(_) => Err("Fatal: Found Nested Program Node".to_string())
     }
 }

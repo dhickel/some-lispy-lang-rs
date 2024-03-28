@@ -1,5 +1,6 @@
 use std::collections::LinkedList;
 use std::ops::Deref;
+use std::rc::Rc;
 use lasso::{Rodeo, Spur};
 use crate::parse::{Def, Expr, Init, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
 use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData};
@@ -33,7 +34,7 @@ struct ParserState<'a> {
 }
 
 
-impl <'a>ParserState<'a> {
+impl<'a> ParserState<'a> {
     pub fn new(tokens: Vec<Token>, s_cache: &mut Rodeo) -> ParserState {
         let len = tokens.len();
         ParserState {
@@ -156,7 +157,7 @@ impl <'a>ParserState<'a> {
             Expression(_) => self.parse_exact_expr(),
             Definition(Def::Define) => self.parse_define(),
             Definition(Def::DefineFunc) => self.parse_func(),
-            Definition(Def::Lambda) => Ok(DefinitionNode(Box::new(DefNode::Lambda(self.parse_lambda(false)?)))),
+            Definition(Def::Lambda) => Ok(DefinitionNode(Rc::new(DefNode::Lambda(Rc::new(self.parse_lambda(false)?))))),
             Definition(Def::DefineStruct) => self.parse_struct_def(),
             Definition(Def::DefineClass) => self.parse_class_def(),
             Syntactic(_) => Err(format!("Unexpected token: {:?}", &self.peek())), // TODO implement quote
@@ -173,7 +174,7 @@ impl <'a>ParserState<'a> {
         if self.peek().token_type != Lexical(Lex::RightParen) {
             let args = self.parse_func_args()?;
             self.consume_right_paren()?;
-            return Ok(ExpressionNode(Box::new(ExprFuncCal(ExprFuncCallData {
+            return Ok(ExpressionNode(Rc::new(ExprFuncCal(ExprFuncCallData {
                 expr: expression,
                 accessors: None,
                 arguments: args,
@@ -278,7 +279,7 @@ impl <'a>ParserState<'a> {
             Expression(Expr::While) => self.parse_while(),
             Expression(Expr::Cons) => self.parse_cons(),
             Expression(Expr::Car) => {
-                Ok(ExpressionNode(Box::new(ListAccess(
+                Ok(ExpressionNode(Rc::new(ListAccess(
                     ListAccData {
                         index_expr: None,
                         pattern: Some(self.s_cache.get_or_intern("f")),
@@ -286,7 +287,7 @@ impl <'a>ParserState<'a> {
                     }))))
             }
             Expression(Expr::Cdr) => {
-                Ok(ExpressionNode(Box::new(ListAccess(
+                Ok(ExpressionNode(Rc::new(ListAccess(
                     ListAccData {
                         index_expr: None,
                         pattern: Some(self.s_cache.get_or_intern("r")),
@@ -305,7 +306,7 @@ impl <'a>ParserState<'a> {
                     _ => return Err("Expected a string identifier".to_string())
                 };
                 let value = self.parse_expr_data()?;
-                Ok(ExpressionNode(Box::new(Assignment(AssignData { name, value }))))
+                Ok(ExpressionNode(Rc::new(Assignment(AssignData { name, value }))))
             }
             Lexical(Lex::LeftParen) => {
                 self.consume_left_paren()?;
@@ -324,7 +325,7 @@ impl <'a>ParserState<'a> {
 
                 let access = ObjectCallData { name, accessors };
                 let assign_data = ObjectAssignData { access, value };
-                Ok(ExpressionNode(Box::new(ObjectAssignment(assign_data))))
+                Ok(ExpressionNode(Rc::new(ObjectAssignment(assign_data))))
             }
             _ => Err(format!(
                 "Expected identifier or object access to assign to, found: {:?}"
@@ -340,7 +341,7 @@ impl <'a>ParserState<'a> {
         let else_branch = if self.peek().token_type != Lexical(Lex::RightParen) {
             Some(self.parse_expr_data()?)
         } else { None };
-        Ok(ExpressionNode(Box::new(IfExpr(IfData { if_branch, else_branch }))))
+        Ok(ExpressionNode(Rc::new(IfExpr(IfData { if_branch, else_branch }))))
     }
 
     pub fn parse_cond(&mut self) -> Result<AstNode, String> {
@@ -360,7 +361,7 @@ impl <'a>ParserState<'a> {
 
         if cond_branches.is_empty() {
             Err(format!("Cond expression must have at least one branch, line: {}", self.peek().line))
-        } else { Ok(ExpressionNode(Box::new(CondExpr(CondData { cond_branches, else_branch })))) }
+        } else { Ok(ExpressionNode(Rc::new(CondExpr(CondData { cond_branches, else_branch })))) }
     }
 
     pub fn parse_cond_branch(&mut self) -> Result<CondBranch, String> {
@@ -382,12 +383,12 @@ impl <'a>ParserState<'a> {
             Err(format!("Expected one or more expressions, line: {}", self.peek().line))
         } else if expressions.len() == 1 {
             Ok(expressions.pop().unwrap())
-        } else { Ok(ExpressionNode(Box::new(MultiExpr(expressions)))) }
+        } else { Ok(ExpressionNode(Rc::new(MultiExpr(expressions)))) }
     }
 
     pub fn parse_print(&mut self) -> Result<AstNode, String> {
         let expr = self.parse_expr_data()?;
-        Ok(ExpressionNode(Box::new(PrintExpr(expr))))
+        Ok(ExpressionNode(Rc::new(PrintExpr(expr))))
     }
 
     pub fn parse_list(&mut self) -> Result<AstNode, String> {
@@ -398,7 +399,7 @@ impl <'a>ParserState<'a> {
 
         if elements.is_empty() {
             Ok(AstNode::new_nil_lit())
-        } else { Ok(ExpressionNode(Box::new(PairList(elements)))) }
+        } else { Ok(ExpressionNode(Rc::new(PairList(elements)))) }
     }
 
     pub fn parse_list_head(&mut self) -> Result<AstNode, String> {
@@ -415,12 +416,12 @@ impl <'a>ParserState<'a> {
             let list = self.parse_list_head()?;
 
             if let Some(TokenData::String(s)) = token_data {
-                Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: None, pattern: Some(s.clone()), list }))))
+                Ok(ExpressionNode(Rc::new(ListAccess(ListAccData { index_expr: None, pattern: Some(s.clone()), list }))))
             } else { Err("Expected fr... access pattern".to_string()) }
         } else {
             let index = self.parse_expr_data()?;
             let list = self.parse_list_head()?;
-            Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: Some(index), pattern: None, list }))))
+            Ok(ExpressionNode(Rc::new(ListAccess(ListAccData { index_expr: Some(index), pattern: None, list }))))
         }
     }
 
@@ -432,7 +433,7 @@ impl <'a>ParserState<'a> {
 
         let condition = self.parse_expr_data()?;
         let body = self.parse_multi_expr()?;
-        Ok(ExpressionNode(Box::new(WhileLoop(WhileData { condition, body, is_do }))))
+        Ok(ExpressionNode(Rc::new(WhileLoop(WhileData { condition, body, is_do }))))
     }
 
     pub fn parse_cons(&mut self) -> Result<AstNode, String> {
@@ -441,7 +442,7 @@ impl <'a>ParserState<'a> {
         println!("{:?}", self.peek());
         if self.peek().token_type != Lexical(Lex::RightParen) {
             Err("Cons expression may only have 2 arguments".to_string())
-        } else { Ok(ExpressionNode(Box::new(ConsExpr(ConsData { car, cdr })))) }
+        } else { Ok(ExpressionNode(Rc::new(ConsExpr(ConsData { car, cdr })))) }
     }
 
     pub fn parse_type_if_exists(&mut self) -> Result<Option<Spur>, String> {
@@ -478,16 +479,16 @@ impl <'a>ParserState<'a> {
                 Ex: ((<Object>::<Method/Field>) <args>)".to_string());
             }
             if let Some(accessors) = accessors {
-                Ok(ExpressionNode(Box::new(ObjectCall(ObjectCallData { name, accessors }))))
+                Ok(ExpressionNode(Rc::new(ObjectCall(ObjectCallData { name, accessors }))))
             } else {
-                Ok(ExpressionNode(Box::new(FuncCall(FuncCallData { name, arguments }))))
+                Ok(ExpressionNode(Rc::new(FuncCall(FuncCallData { name, arguments }))))
             }
         } else {
             if accessors.is_some() {
                 return Err("All object access must be contained inside an expression,\
                 Ex: (<Object>:.field) not <Object>:.field".to_string());
             }
-            Ok(ExpressionNode(Box::new(LiteralCall(name))))
+            Ok(ExpressionNode(Rc::new(LiteralCall(name))))
         }
     }
 
@@ -551,15 +552,15 @@ impl <'a>ParserState<'a> {
                     self.consume_left_paren()?;
                     let lambda = self.parse_lambda(false)?;
                     self.consume_right_paren()?;
-                    DefinitionNode(Box::new(DefNode::Function(DefFuncData { name, lambda })))
+                    DefinitionNode(Rc::new(DefNode::Function(DefFuncData { name, lambda: Rc::new(lambda) })))
                 } else {
-                    let value = Box::new(self.parse_expr_data()?);
-                    DefinitionNode(Box::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
+                    let value = Rc::new(self.parse_expr_data()?);
+                    DefinitionNode(Rc::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
                 }
             }
             Literal(_) => {
-                let value = Box::new(self.parse_literal()?);
-                DefinitionNode(Box::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
+                let value = Rc::new(self.parse_literal()?);
+                DefinitionNode(Rc::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
             }
             Syntactic(Syn::Grave) => self.parse_quote()?,
             _ => panic!() //return Err(format!("Invalid syntax in define, line: {}", self.peek().line))
@@ -569,7 +570,7 @@ impl <'a>ParserState<'a> {
 
     pub fn parse_instance(&mut self, name: Spur) -> Result<AstNode, String> {
         let args = self.parse_named_args()?;
-        Ok(DefinitionNode(Box::new(DefNode::InstanceDef(DefStructInst { name, args }))))
+        Ok(DefinitionNode(Rc::new(DefNode::InstanceDef(DefStructInst { name, args }))))
     }
 
     pub fn parse_named_args(&mut self) -> Result<Option<Vec<InstArgs>>, String> {
@@ -612,7 +613,7 @@ impl <'a>ParserState<'a> {
             _ => return Err("Expected name for struct".to_string())
         };
         let fields = self.parse_fields()?;
-        Ok(DefinitionNode(Box::new(DefNode::StructDef(DefStructData { name, fields }))))
+        Ok(DefinitionNode(Rc::new(DefNode::StructDef(DefStructData { name, fields }))))
     }
 
 
@@ -642,7 +643,7 @@ impl <'a>ParserState<'a> {
             self.consume_right_paren()?;
         }
 
-        Ok(DefinitionNode(Box::new(ClassDef(class_data))))
+        Ok(DefinitionNode(Rc::new(ClassDef(class_data))))
     }
 
     pub fn parse_function_multi(&mut self) -> Result<Option<Vec<DefFuncData>>, String> {
@@ -698,7 +699,7 @@ impl <'a>ParserState<'a> {
             _ => return Err("Expected name for function".to_string())
         };
         let lambda = self.parse_lambda(true)?;
-        Ok(DefinitionNode(Box::new(DefNode::Function(DefFuncData { name, lambda }))))
+        Ok(DefinitionNode(Rc::new(DefNode::Function(DefFuncData { name, lambda: Rc::new(lambda) }))))
     }
 
     pub fn parse_lambda(&mut self, is_defunc: bool) -> Result<DefLambdaData, String> {
@@ -816,7 +817,7 @@ impl <'a>ParserState<'a> {
 }
 
 
-pub fn process(tokens: Vec<Token>, s_cache : &mut Rodeo) -> Result<Vec<AstNode>, String> {
+pub fn process(tokens: Vec<Token>, s_cache: &mut Rodeo) -> Result<Vec<AstNode>, String> {
     let mut state = ParserState::new(tokens, s_cache);
     state.process()
 }

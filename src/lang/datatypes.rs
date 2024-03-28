@@ -190,14 +190,14 @@ impl EvalResult for StructData {
 pub struct ClassMetaData {
     arity: u8,
     data: AHashMap<Spur, Binding>,
-    methods: AHashMap<Spur, DefLambdaData>,
+    methods: AHashMap<Spur, Rc<DefLambdaData>>
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassData {
     env: Rc<RefCell<Environment>>,
-    methods: AHashMap<Spur, Box<DefLambdaData>>,
+    methods: AHashMap<Spur, Rc<DefLambdaData>>,
 }
 
 
@@ -222,14 +222,14 @@ impl ClassMetaData {
             field_map = AHashMap::<Spur, Binding>::with_capacity(0);
         }
 
-        let mut method_map: AHashMap::<Spur, DefLambdaData>;
+        let mut method_map: AHashMap::<Spur, Rc<DefLambdaData>>;
         if let Some(methods) = methods {
-            method_map = AHashMap::<Spur, DefLambdaData>::with_capacity(methods.len());
+            method_map = AHashMap::<Spur, Rc<DefLambdaData>>::with_capacity(methods.len());
             
             for method in methods {
-                method_map.insert(method.name, method.lambda);
+                method_map.insert(method.name, Rc::clone(&method.lambda));
             }
-        } else { method_map = AHashMap::<Spur, DefLambdaData>::with_capacity(0); }
+        } else { method_map = AHashMap::<Spur, Rc<DefLambdaData>>::with_capacity(0); }
 
         Ok(ClassMetaData { data: field_map, methods: method_map, arity: arity as u8 })
     }
@@ -237,10 +237,10 @@ impl ClassMetaData {
     pub fn new_instance(&self, name: &Spur, args: Option<Vec<InstArgs>>,
     ) -> Result<AstNode, String> {
         let mut methods =
-            AHashMap::<Spur, Box<DefLambdaData>>::with_capacity(self.methods.len());
+            AHashMap::<Spur, Rc<DefLambdaData>>::with_capacity(self.methods.len());
 
         for (key, value) in &self.methods {
-            methods.insert(*key, Box::new(value.clone()));
+            methods.insert(*key, Rc::clone(&value));
         }
 
 
@@ -251,9 +251,7 @@ impl ClassMetaData {
                 }
 
                 if args.len() as u8 != self.arity {
-                    return Err(format!(
-                        "Expected {} instance arguments but found {} for:{:?}",
-                        self.arity, args.len(), &name));
+                    return Err(format!("Expected {} instance arguments but found {} for:{:?}", self.arity, args.len(), &name));
                 }
 
                 let mut inst_data = self.data.clone();
@@ -293,7 +291,7 @@ impl ObjectAccess for ClassData{
 
     fn get_method(&self, name: &Spur) -> Result<LitNode, String> {
         if let Some(method) = self.methods.get(name) {
-             Ok(LitNode::Lambda( LambdaValue{ env: Rc::clone(&self.env), def: method.clone() }))
+             Ok(LitNode::Lambda( LambdaValue{ env: Rc::clone(&self.env), def: Rc::clone(&method)}))
         } else {
             Err(format!("Failed to find method: {:?}", name))
         }

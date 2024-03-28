@@ -2,6 +2,7 @@ use std::cell::{Ref, RefCell};
 use std::collections::LinkedList;
 use std::rc::Rc;
 use std::vec;
+use lasso::Spur;
 use crate::eval::environment::Environment;
 use crate::lang::datatypes::{ClassData, ClassMetaData, ObjectAccess, StructData};
 use crate::lang::types::Type;
@@ -87,10 +88,10 @@ pub enum DefNode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefVarData {
-    pub name: String,
+    pub name: Spur,
     pub modifiers: Option<Vec<Mod>>,
     pub value: Box<AstNode>,
-    pub var_type: Option<String>,
+    pub var_type: Option<Spur>,
 }
 
 
@@ -99,22 +100,22 @@ pub struct DefLambdaData {
     pub modifiers: Option<Vec<Mod>>,
     pub parameters: Option<Vec<Param>>,
     pub body: AstNode,
-    pub p_type: Option<String>,
+    pub p_type: Option<Spur>,
     pub c_type: Option<Type>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefFuncData {
-    pub name: String,
+    pub name: Spur,
     pub lambda: DefLambdaData,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
-    pub name: String,
-    pub p_type: Option<String>,
+    pub name: Spur,
+    pub p_type: Option<Spur>,
     pub optional: bool,
     pub default_value: Option<AstNode>,
     pub dynamic: bool,
@@ -125,14 +126,14 @@ pub struct Param {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefStructData {
-    pub name: String,
+    pub name: Spur,
     pub fields: Option<Vec<Field>>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefClassData {
-    pub name: String,
+    pub name: Spur,
     pub params: Option<Vec<Mod>>,
     pub fields: Option<Vec<Field>>,
     pub init: Option<Vec<DefFuncData>>,
@@ -143,7 +144,7 @@ pub struct DefClassData {
 }
 
 impl DefClassData {
-    pub fn empty_def(name : String) -> DefClassData{
+    pub fn empty_def(name : Spur) -> DefClassData{
         DefClassData{
             name,
             params: None,
@@ -159,16 +160,16 @@ impl DefClassData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefStructInst {
-    pub name: String,
+    pub name: Spur,
     pub args: Option<Vec<InstArgs>>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
-    pub name: String,
+    pub name: Spur,
     pub modifiers: Option<Vec<Mod>>,
-    pub p_type: Option<String>,
+    pub p_type: Option<Spur>,
     pub default_value: Option<AstNode>,
     pub c_type: Option<Type>,
 }
@@ -188,7 +189,7 @@ pub enum ExprNode {
     FuncCall(FuncCallData),
     ExprFuncCal(ExprFuncCallData),
     ObjectCall(ObjectCallData),
-    LiteralCall(String),
+    LiteralCall(Spur),
     ObjectAssignment(ObjectAssignData),
 }
 
@@ -202,7 +203,7 @@ pub struct CondBranch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignData {
-    pub name: String,
+    pub name: Spur,
     pub value: AstNode,
 }
 
@@ -239,21 +240,21 @@ pub struct ConsData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListAccData {
     pub index_expr: Option<AstNode>,
-    pub pattern: Option<String>,
+    pub pattern: Option<Spur>,
     pub list: AstNode,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncCallData {
-    pub name: String,
+    pub name: Spur,
     pub arguments: Option<Vec<FuncArg>>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectCallData {
-    pub name: String,
+    pub name: Spur,
     pub accessors: LinkedList<Accessor>,
 }
 
@@ -275,7 +276,7 @@ pub struct ExprFuncCallData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Accessor {
-    pub name: String,
+    pub name: Spur,
     pub is_field: bool,
     pub args: Option<Vec<FuncArg>>,
 }
@@ -284,13 +285,13 @@ pub struct Accessor {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncArg {
     pub value: AstNode,
-    pub name: Option<String>,
+    pub name: Option<Spur>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InstArgs {
-    pub name: String,
+    pub name: Spur,
     pub value: AstNode,
 }
 
@@ -467,21 +468,21 @@ pub enum ObjectValue {
 
 
 impl ObjectAccess for ObjectValue {
-    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String> {
+    fn get_field(&self, name: &Spur) -> Result<Rc<LitNode>, String> {
         match self {
             ObjectValue::Struct(s) => s.get_field(name),
             ObjectValue::Class(c) => c.get_field(name),
         }
     }
 
-    fn get_method(&self, name: &str) -> Result<LitNode, String> {
+    fn get_method(&self, name: &Spur) -> Result<LitNode, String> {
         match self {
             ObjectValue::Struct(s) => s.get_method(name),
             ObjectValue::Class(c) => c.get_method(name),
         }
     }
 
-    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String> {
+    fn set_field(&mut self, name: &Spur, value: &AstNode) -> Result<Rc<LitNode>, String> {
         match self {
             ObjectValue::Struct(s) => s.set_field(name, value),
             ObjectValue::Class(c) => c.set_field(name, value),

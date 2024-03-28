@@ -1,9 +1,11 @@
 use std::collections::LinkedList;
 use std::ops::Deref;
+use lasso::{Rodeo, Spur};
 use crate::parse::{Def, Expr, Init, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
 use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
-use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, NanoExpr, ObjectAssignment, ObjectCall, PairList, PrintExpr, WhileLoop};
+use crate::parse::ast_nodes::DefNode::ClassDef;
+use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, ObjectAssignment, ObjectCall, PairList, PrintExpr, WhileLoop};
 use crate::parse::Def::{DefineClass, DefineStruct};
 use crate::parse::Lex::{LeftParen, RightParen};
 
@@ -21,17 +23,18 @@ macro_rules! nano_time {
 }
 
 
-struct ParserState {
+struct ParserState<'a> {
     pub tokens: Vec<Token>,
     pub current: usize,
     pub end: usize,
     pub depth: i32,
     pub warnings: Vec<String>,
+    pub s_cache: &'a mut Rodeo,
 }
 
 
-impl ParserState {
-    pub fn new(tokens: Vec<Token>) -> ParserState {
+impl <'a>ParserState<'a> {
+    pub fn new(tokens: Vec<Token>, s_cache: &mut Rodeo) -> ParserState {
         let len = tokens.len();
         ParserState {
             tokens,
@@ -39,6 +42,7 @@ impl ParserState {
             end: len,
             depth: 0,
             warnings: Vec::<String>::new(),
+            s_cache,
         }
     }
 
@@ -83,7 +87,7 @@ impl ParserState {
     }
 
 
-    pub fn advance<'a>(&'a mut self) -> Result<&'a Token, String> {
+    pub fn advance(&mut self) -> Result<&Token, String> {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
         if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
@@ -229,7 +233,8 @@ impl ParserState {
                     Lit::False => Ok(AstNode::new_bool_lit(false)),
                     Lit::String => {
                         if let Some(TokenData::String(value)) = data {
-                            Ok(AstNode::new_string_lit(value.clone()))
+                            let string = self.s_cache.resolve(value).to_string();
+                            Ok(AstNode::new_string_lit(string))
                         } else { Err(format!("Invalid data for string literal: {:?}", &self.peek().data)) }
                     }
                     Lit::Int => {
@@ -244,12 +249,12 @@ impl ParserState {
                     }
                     Lit::Identifier => {
                         if let Some(TokenData::String(value)) = data {
-                            self.parse_identifier(value.clone())
+                            self.parse_identifier(*value)
                         } else { Err(format!("Invalid data for identifier: {:?}", &self.peek().data)) }
                     }
                     Lit::Instance => {
                         if let Some(TokenData::String(value)) = data {
-                            self.parse_instance(value.clone())
+                            self.parse_instance(*value)
                         } else { Err(format!("Invalid data for identifier: {:?}", &self.peek().data)) }
                     }
                     Lit::Nil => Ok(AstNode::new_nil_lit()),
@@ -276,7 +281,7 @@ impl ParserState {
                 Ok(ExpressionNode(Box::new(ListAccess(
                     ListAccData {
                         index_expr: None,
-                        pattern: Some("f".to_string()),
+                        pattern: Some(self.s_cache.get_or_intern("f")),
                         list: self.parse_list_head()?,
                     }))))
             }
@@ -284,7 +289,7 @@ impl ParserState {
                 Ok(ExpressionNode(Box::new(ListAccess(
                     ListAccData {
                         index_expr: None,
-                        pattern: Some("r".to_string()),
+                        pattern: Some(self.s_cache.get_or_intern("r")),
                         list: self.parse_list_head()?,
                     }))))
             }
@@ -408,6 +413,7 @@ impl ParserState {
             self.advance()?;
             let token_data = &self.consume(Literal(Lit::Identifier))?.data.clone();
             let list = self.parse_list_head()?;
+
             if let Some(TokenData::String(s)) = token_data {
                 Ok(ExpressionNode(Box::new(ListAccess(ListAccData { index_expr: None, pattern: Some(s.clone()), list }))))
             } else { Err("Expected fr... access pattern".to_string()) }
@@ -438,13 +444,12 @@ impl ParserState {
         } else { Ok(ExpressionNode(Box::new(ConsExpr(ConsData { car, cdr })))) }
     }
 
-    pub fn parse_type_if_exists(&mut self) -> Result<Option<String>, String> {
+    pub fn parse_type_if_exists(&mut self) -> Result<Option<Spur>, String> {
         let typ = if let Syntactic(Syn::DoubleColon) = &self.peek().token_type {
             self.advance()?;
             let next = self.advance()?;
             if let (
-                Literal(Lit::Identifier), Some(TokenData::String(s))
-            ) = (&next.token_type, &next.data) {
+                Literal(Lit::Identifier), Some(TokenData::String(s))) = (&next.token_type, &next.data) {
                 Some(s.clone())
             } else {
                 return Err(format!("Expected type identifier, found: {:?}", next));
@@ -455,7 +460,7 @@ impl ParserState {
         Ok(typ)
     }
 
-    pub fn parse_identifier(&mut self, identifier: String) -> Result<AstNode, String> {
+    pub fn parse_identifier(&mut self, identifier: Spur) -> Result<AstNode, String> {
         let name = identifier;
         let mut accessors = None;
 
@@ -515,6 +520,7 @@ impl ParserState {
                     let value = self.parse_expr_data()?;
                     args.push(FuncArg { value, name })
                 }
+
                 self.consume(Lexical(Lex::RightBracket))?;
                 Some(args)
             } else { None };
@@ -539,7 +545,7 @@ impl ParserState {
                     if var_type != None {
                         self.push_warning(format!(
                             "Type specifier: {}, is unused for function definition, line: {}",
-                            var_type.unwrap(), self.peek().line))
+                            self.s_cache.resolve(&var_type.unwrap()), self.peek().line))
                     }
 
                     self.consume_left_paren()?;
@@ -561,7 +567,7 @@ impl ParserState {
         return Ok(definition);
     }
 
-    pub fn parse_instance(&mut self, name: String) -> Result<AstNode, String> {
+    pub fn parse_instance(&mut self, name: Spur) -> Result<AstNode, String> {
         let args = self.parse_named_args()?;
         Ok(DefinitionNode(Box::new(DefNode::InstanceDef(DefStructInst { name, args }))))
     }
@@ -591,8 +597,8 @@ impl ParserState {
         self.consume(Syntactic(Syn::Grave))?;
         if self.peek().token_type == Lexical(Lex::LeftParen)
             && self.peek_n(2).token_type == Lexical(Lex::RightParen) {
-            self.consume_left_paren();
-            self.consume_right_paren();
+            self.consume_left_paren()?;
+            self.consume_right_paren()?;
             return Ok(AstNode::new_nil_lit());
         }
         Ok(AstNode::new_quote_lit(self.parse_expr_data()?))
@@ -621,13 +627,13 @@ impl ParserState {
         let mut class_data = DefClassData::empty_def(name);
 
 
-        while self.peek().token_type != TokenType::Lexical(RightParen) {
+        while self.peek().token_type != Lexical(RightParen) {
             self.consume_left_paren()?;
             match self.advance()?.token_type {
-                Initializer(Init::Init) => { class_data.init = self.parse_class_init()?; }
+                Initializer(Init::Init) => { class_data.init = self.parse_function_multi()?; }
                 Initializer(Init::Param) => { class_data.params = self.parse_modifiers()? }
                 Initializer(Init::Var) => { class_data.fields = self.parse_fields()?; }
-                Initializer(Init::Func) => {}
+                Initializer(Init::Func) => { class_data.methods = self.parse_function_multi()?; }
                 Initializer(Init::Pre) => {}
                 Initializer(Init::Post) => {}
                 Initializer(Init::Final) => {}
@@ -636,10 +642,10 @@ impl ParserState {
             self.consume_right_paren()?;
         }
 
-        Err()
+        Ok(DefinitionNode(Box::new(ClassDef(class_data))))
     }
 
-    pub fn parse_class_init(&mut self) -> Result<Option<Vec<DefFuncData>>, String> {
+    pub fn parse_function_multi(&mut self) -> Result<Option<Vec<DefFuncData>>, String> {
         let mut init_vec = Vec::<DefFuncData>::with_capacity(4);
 
         while self.peek().token_type != Lexical(RightParen) {
@@ -716,6 +722,7 @@ impl ParserState {
             modifiers.push(*modifier);
             self.advance()?;
         }
+
         if modifiers.is_empty() {
             Ok(None)
         } else { Ok(Some(modifiers)) }
@@ -736,6 +743,7 @@ impl ParserState {
                     Some(TokenData::String(ref s)) => s.clone(),
                     _ => return Err("Expected a string identifier".to_string())
                 };
+
                 let value = self.parse_expr_data()?;
                 func_args.push(FuncArg { name: Some(name.clone()), value });
             } else {
@@ -763,6 +771,7 @@ impl ParserState {
         while self.peek().token_type != Lexical(Lex::RightParen) {
             let mut dynamic = false;
             let mut mutable = false;
+
             let modifiers = self.parse_modifiers()?;
             for modifier in modifiers.unwrap_or_default() {
                 match modifier {
@@ -798,7 +807,8 @@ impl ParserState {
                 dynamic,
                 mutable,
                 c_type: None,
-            });
+            }
+            );
         }
         self.consume_right_paren()?;
         Ok(Some(params))
@@ -806,7 +816,7 @@ impl ParserState {
 }
 
 
-pub fn process(tokens: Vec<Token>) -> Result<Vec<AstNode>, String> {
-    let mut state = ParserState::new(tokens);
+pub fn process(tokens: Vec<Token>, s_cache : &mut Rodeo) -> Result<Vec<AstNode>, String> {
+    let mut state = ParserState::new(tokens, s_cache);
     state.process()
 }

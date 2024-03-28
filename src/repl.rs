@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::io;
 use std::io::Write;
 use std::time::SystemTime;
+use lasso::Rodeo;
 use crate::eval::class_loader::ClassLoader;
 use crate::eval::environment::{Context, Environment};
 
@@ -13,6 +14,7 @@ pub mod eval;
 fn main() {
     let mut env = Environment::new();
     let mut loader = RefCell::new(ClassLoader::default());
+    let mut string_cache = Rodeo::default();
 
     loop {
         print!("> ");
@@ -24,7 +26,7 @@ fn main() {
                 if input.trim() == "exit" {
                     break;
                 }
-                println!("{}", eval::interpreter::repl_eval(&env, &loader, input))
+                println!("{}", eval::interpreter::repl_eval(&env, &loader, &mut string_cache, input))
             }
             // }
             Err(error) => println!("error: {}", error),

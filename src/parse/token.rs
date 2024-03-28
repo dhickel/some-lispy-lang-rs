@@ -1,4 +1,5 @@
 use std::string::String;
+use lasso::Spur;
 use crate::parse::ast_nodes::Param;
 use crate::parse::token::Init::*;
 use crate::parse::token::Lex::*;
@@ -264,7 +265,7 @@ pub enum Init {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenData {
-    String(String),
+    String(Spur),
     Integer(i64),
     Float(f64),
 }

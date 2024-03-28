@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
 use ahash::AHashMap;
+use lasso::Spur;
 use crate::eval::environment::Environment;
 use crate::lang::types::Type;
 use crate::parse::ast_nodes::{AstNode, DefFuncData, DefLambdaData, EvalResult, Field, FuncArg, InstArgs, LambdaValue, LitNode, ObjectValue};
@@ -9,9 +10,9 @@ use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::Mod;
 
 
-fn is_literal(name: &str, value: &AstNode) -> Result<(), String> {
+fn is_literal(name: &Spur, value: &AstNode) -> Result<(), String> {
     if !matches!(value, LiteralNode(_)) {
-        Err(format!("Attempted to assign non literal value to{}", name))
+        Err(format!("Attempted to assign non literal value to{:?}", name))
     } else { Ok(()) }
 }
 
@@ -67,23 +68,23 @@ impl Binding {
 
 
 pub trait ObjectAccess {
-    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String>;
-    fn get_method(&self, name: &str) -> Result<LitNode, String>;
-    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String>;
+    fn get_field(&self, name: &Spur) -> Result<Rc<LitNode>, String>;
+    fn get_method(&self, name: &Spur) -> Result<LitNode, String>;
+    fn set_field(&mut self, name: &Spur, value: &AstNode) -> Result<Rc<LitNode>, String>;
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructData {
     immutable: bool,
-    data: AHashMap<String, Binding>,
+    data: AHashMap<Spur, Binding>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructMetaData {
     immutable: bool,
-    data: Option<AHashMap<String, Binding>>,
+    data: Option<AHashMap<Spur, Binding>>,
     arity: u8,
 }
 
@@ -93,7 +94,7 @@ impl StructMetaData {
         if let Some(fields) = fields {
             let mut immutable = true;
             let mut arity = fields.len();
-            let mut data = AHashMap::<String, Binding>::with_capacity(arity);
+            let mut data = AHashMap::<Spur, Binding>::with_capacity(arity);
 
             for field in fields {
                 let binding: Binding = Binding::new_binding(&AstNode::new_nil_lit(), &field.modifiers)?;
@@ -106,7 +107,7 @@ impl StructMetaData {
 
     pub fn new_instance(
         &self,
-        name: String,
+        name: Spur,
         args: Option<Vec<InstArgs>>,
     ) -> Result<AstNode, String> {
         if self.arity == 0 && args.is_none() {
@@ -117,7 +118,7 @@ impl StructMetaData {
         if let Some(args) = args {
             if args.len() as u8 != self.arity {
                 return Err(format!(
-                    "Expected {} instance arguments but found {} for:{}",
+                    "Expected {} instance arguments but found {} for:{:?}",
                     self.arity, args.len(), &name));
             }
 
@@ -129,41 +130,41 @@ impl StructMetaData {
                     let binding = Binding::replace_binding(&arg.value, field.dynamic, field.mutable)?;
                     inst_data.insert(arg.name, binding);
                 } else {
-                    return Err(format!("Instance argument not found: {} for struct: {}", &arg.name, &name));
+                    return Err(format!("Instance argument not found: {:?} for struct: {:?}", &arg.name, &name));
                 }
             }
             let data = StructData { immutable: self.immutable, data: inst_data };
             Ok(LiteralNode(Rc::new(LitNode::Object(ObjectValue::Struct(data)))))
         } else {
-            Err(format!("Expected instance arguments but found none for:{}", name))
+            Err(format!("Expected instance arguments but found none for:{:?}", name))
         }
     }
 }
 
 
 impl ObjectAccess for StructData {
-    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String> {
+    fn get_field(&self, name: &Spur) -> Result<Rc<LitNode>, String> {
         if let Some(found) = self.data.get(name) {
             Ok(Rc::clone(&found.value))
-        } else { Err(format!("Could not locate field: {}", name)) }
+        } else { Err(format!("Could not locate field: {:?}", name)) }
     }
 
-    fn get_method(&self, name: &str) -> Result<LitNode, String> {
+    fn get_method(&self, name: &Spur) -> Result<LitNode, String> {
         todo!()
     }
 
 
-    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String> {
+    fn set_field(&mut self, name: &Spur, value: &AstNode) -> Result<Rc<LitNode>, String> {
         is_literal(name, value)?;
 
         let found = self.data.get_mut(name);
         match found {
-            None => Err(format!("Struct field not found: {}", name)),
+            None => Err(format!("Struct field not found: {:?}", name)),
             Some(data) => {
                 if let LiteralNode(lit) = value {
                     data.value = Rc::clone(lit);
                     Ok(Rc::clone(lit))
-                } else { Err(format!("Attempted to reassign immutable field: {}", name)) }
+                } else { Err(format!("Attempted to reassign immutable field: {:?}", name)) }
             }
         }
     }
@@ -188,15 +189,15 @@ impl EvalResult for StructData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassMetaData {
     arity: u8,
-    data: AHashMap<String, Binding>,
-    methods: AHashMap<String, DefLambdaData>,
+    data: AHashMap<Spur, Binding>,
+    methods: AHashMap<Spur, DefLambdaData>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassData {
     env: Rc<RefCell<Environment>>,
-    methods: AHashMap<String, Box<DefLambdaData>>,
+    methods: AHashMap<Spur, Box<DefLambdaData>>,
 }
 
 
@@ -207,37 +208,39 @@ impl ClassMetaData {
     pub fn new_declaration(fields: Option<Vec<Field>>, methods: Option<Vec<DefFuncData>>,
     ) -> Result<ClassMetaData, String> {
         let arity: usize;
-        let mut field_map: AHashMap::<String, Binding>;
+        let mut field_map: AHashMap::<Spur, Binding>;
         if let Some(fields) = fields {
             arity = fields.len();
-            field_map = AHashMap::<String, Binding>::with_capacity(arity);
+            field_map = AHashMap::<Spur, Binding>::with_capacity(arity);
+            
             for field in fields {
                 let binding: Binding = Binding::new_binding(&AstNode::new_nil_lit(), &field.modifiers)?;
                 field_map.insert(field.name, binding);
             }
         } else {
             arity = 0;
-            field_map = AHashMap::<String, Binding>::with_capacity(0);
+            field_map = AHashMap::<Spur, Binding>::with_capacity(0);
         }
 
-        let mut method_map: AHashMap::<String, DefLambdaData>;
+        let mut method_map: AHashMap::<Spur, DefLambdaData>;
         if let Some(methods) = methods {
-            method_map = AHashMap::<String, DefLambdaData>::with_capacity(methods.len());
+            method_map = AHashMap::<Spur, DefLambdaData>::with_capacity(methods.len());
+            
             for method in methods {
                 method_map.insert(method.name, method.lambda);
             }
-        } else { method_map = AHashMap::<String, DefLambdaData>::with_capacity(0); }
+        } else { method_map = AHashMap::<Spur, DefLambdaData>::with_capacity(0); }
 
         Ok(ClassMetaData { data: field_map, methods: method_map, arity: arity as u8 })
     }
 
-    pub fn new_instance(&self, name: String, args: Option<Vec<InstArgs>>,
+    pub fn new_instance(&self, name: &Spur, args: Option<Vec<InstArgs>>,
     ) -> Result<AstNode, String> {
         let mut methods =
-            AHashMap::<String, Box<DefLambdaData>>::with_capacity(self.methods.len());
+            AHashMap::<Spur, Box<DefLambdaData>>::with_capacity(self.methods.len());
 
         for (key, value) in &self.methods {
-            methods.insert(key.clone(), Box::new(value.clone()));
+            methods.insert(*key, Box::new(value.clone()));
         }
 
 
@@ -249,31 +252,33 @@ impl ClassMetaData {
 
                 if args.len() as u8 != self.arity {
                     return Err(format!(
-                        "Expected {} instance arguments but found {} for:{}",
+                        "Expected {} instance arguments but found {} for:{:?}",
                         self.arity, args.len(), &name));
                 }
 
                 let mut inst_data = self.data.clone();
                 for arg in args {
                     let field = inst_data.get(&arg.name);
+                    
                     if let Some(field) = field {
                         // TODO type matching
                         let binding = Binding::replace_binding(&arg.value, field.dynamic, field.mutable)?;
                         inst_data.insert(arg.name, binding);
                     } else {
-                        return Err(format!("Instance argument not found: {} for struct: {}", &arg.name, &name));
+                        return Err(format!("Instance argument not found: {:?} for struct: {:?}", &arg.name, &name));
                     }
                 }
+                
                 let env = Environment::of_fields(inst_data);
                 let class_data = ClassData { env, methods };
                 Ok(LiteralNode(Rc::new(LitNode::Object(ObjectValue::Class(class_data)))))
             } else {
-                Err(format!("Expected instance arguments but found none for:{}", name))
+                Err(format!("Expected instance arguments but found none for:{:?}", name))
             }
         } else if self.arity != 0 && args.is_none() {
-            Err(format!("Expected instance arguments but found none for:{}", name))
+            Err(format!("Expected instance arguments but found none for:{:?}", name))
         } else {
-            let env = Environment::of_fields(AHashMap::<String, Binding>::with_capacity(0));
+            let env = Environment::of_fields(AHashMap::<Spur, Binding>::with_capacity(0));
             let class_data = ClassData { env, methods };
             Ok(LiteralNode(Rc::new(LitNode::Object(ObjectValue::Class(class_data)))))
         }
@@ -282,20 +287,20 @@ impl ClassMetaData {
 
 
 impl ObjectAccess for ClassData{
-    fn get_field(&self, name: &str) -> Result<Rc<LitNode>, String> {
+    fn get_field(&self, name: &Spur) -> Result<Rc<LitNode>, String> {
         self.env.borrow().get_literal(name)
     }
 
-    fn get_method(&self, name: &str) -> Result<LitNode, String> {
+    fn get_method(&self, name: &Spur) -> Result<LitNode, String> {
         if let Some(method) = self.methods.get(name) {
              Ok(LitNode::Lambda( LambdaValue{ env: Rc::clone(&self.env), def: method.clone() }))
         } else {
-            Err(format!("Failed to find method: {}", name))
+            Err(format!("Failed to find method: {:?}", name))
         }
     }
 
 
-    fn set_field(&mut self, name: &str, value: &AstNode) -> Result<Rc<LitNode>, String> {
+    fn set_field(&mut self, name: &Spur, value: &AstNode) -> Result<Rc<LitNode>, String> {
         let result = self.env.borrow_mut().update_binding(name, value)?;
         if let LiteralNode(lit) = result {
             Ok(Rc::clone(&lit))

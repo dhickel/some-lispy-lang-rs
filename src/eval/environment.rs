@@ -2,6 +2,7 @@ use std::cell::RefCell;
 
 use std::rc::Rc;
 use ahash::AHashMap;
+use lasso::Spur;
 use crate::eval::class_loader::{ClassDef, ClassLoader};
 use crate::lang::datatypes::Binding;
 
@@ -18,7 +19,7 @@ pub struct Context<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
     parent: Option<Rc<RefCell<Environment>>>,
-    bindings: AHashMap<String, Binding>,
+    bindings: AHashMap<Spur, Binding>,
 }
 
 
@@ -37,7 +38,7 @@ impl Environment {
         }))
     }
     
-    pub fn of_fields(field_map:  AHashMap<String, Binding>)  -> Rc<RefCell<Environment>>  {
+    pub fn of_fields(field_map:  AHashMap<Spur, Binding>)  -> Rc<RefCell<Environment>>  {
         Rc::new(RefCell::new(Environment {
             parent: None,
             bindings: field_map
@@ -63,7 +64,7 @@ impl Environment {
     }
 
 
-    pub fn get_literal(&self, name: &str) -> Result<Rc<LitNode>, String> {
+    pub fn get_literal(&self, name: &Spur) -> Result<Rc<LitNode>, String> {
         if let Some(found) = self.bindings.get(name) {
             Ok(Rc::clone(&found.value))
         } else if let Some(p_env) = &self.parent {
@@ -72,18 +73,18 @@ impl Environment {
     }
 
 
-    pub fn create_binding(&mut self, name: String, binding: Binding) -> Result<AstNode, String> {
+    pub fn create_binding(&mut self, name: Spur, binding: Binding) -> Result<AstNode, String> {
         if let Some(_) = self.bindings.get(&name) {
-            Err(format!("Binding already exists for: {}", name))
+            Err("Binding already exists".to_string())
         } else {
             self.bindings.insert(name, binding);
             Ok(AstNode::new_bool_lit(true))
         }
     }
 
-    pub fn update_binding<'a>(&mut self, name: &str, value: &'a AstNode) -> Result<AstNode, String> {
+    pub fn update_binding<'a>(&mut self, name: &Spur, value: &'a AstNode) -> Result<AstNode, String> {
         if !matches!(value, LiteralNode(_)) {
-            return Err(format!("Attempted to assign non literal value to{}", name));
+            return Err(format!("Attempted to assign non literal value to{:?}", name));
         }
         if let Some(binding) = self.bindings.get_mut(name) {
             let mut data = binding;
@@ -93,12 +94,12 @@ impl Environment {
                     Ok(AstNode::new_bool_lit(true))
                 } else { Err(format!("Attempted to bind non literal object: {:?}", value)) }
             } else {
-                Err(format!("Attempted to reassign immutable binding{}", name))
+                Err(format!("Attempted to reassign immutable binding{:?}", name))
             }
         } else if let Some(p_env) = &mut self.parent {
             p_env.borrow_mut().update_binding(name, value)
         } else {
-            Err(format!("Failed to find binding to update for: {}", name))
+            Err(format!("Failed to find binding to update for: {:?}", name))
         }
     }
 }

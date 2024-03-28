@@ -21,3 +21,4 @@ lto = true
 [dependencies]
 ahash = "0.8.11"
 backtrace-on-stack-overflow = "0.3.0"
+lasso = "0.7.2"

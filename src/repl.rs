@@ -6,9 +6,11 @@ use lasso::Rodeo;
 use crate::eval::class_loader::ClassLoader;
 use crate::eval::environment::{Context, Environment};
 
+
 pub mod parse;
 pub mod lang;
 pub mod eval;
+
 
 #[allow(dead_code)]
 fn main() {
@@ -23,10 +25,13 @@ fn main() {
         let mut input = String::new();
         match io::stdin().read_line(&mut input) {
             Ok(n) => {
-                if input.trim() == "exit" {
-                    break;
+                if input.trim() == "exit" { break; }
+                if input.starts_with("$load-file") {
+                    let file_name = input.replace("$load-file", "").trim().to_string();
+                    println!("{}", eval::interpreter::file_eval(&env, &loader, &mut string_cache, &file_name))
+                } else {
+                    println!("{}", eval::interpreter::repl_eval(&env, &loader, &mut string_cache, input))
                 }
-                println!("{}", eval::interpreter::repl_eval(&env, &loader, &mut string_cache, input))
             }
             // }
             Err(error) => println!("error: {}", error),

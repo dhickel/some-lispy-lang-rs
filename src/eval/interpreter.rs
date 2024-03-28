@@ -2,6 +2,7 @@ use std::any::type_name;
 use std::borrow::Cow;
 use std::cell::{RefCell, UnsafeCell};
 use std::collections::LinkedList;
+use std::fs;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::mpsc::sync_channel;
@@ -27,6 +28,27 @@ macro_rules! nano_time {
             .expect("Time went backwards")
             .as_nanos()
     };
+}
+
+pub fn file_eval(
+    env: &Rc<RefCell<Environment>>,
+    loader: &RefCell<ClassLoader>,
+    s_cache: &mut Rodeo, 
+    file_path: &String)
+    -> String {
+    let time = nano_time!();
+     match fs::read_to_string(file_path) {
+         Ok(content) => {
+             println!("content:{}",content);
+             repl_eval(env, loader, s_cache, content);
+             format!("Loaded file: {}, Processing Time: {}", &file_path, nano_time!() - time)
+         },
+         
+         Err(s) => {
+             println!("error");
+             s.to_string()
+         }
+     }
 }
 
 

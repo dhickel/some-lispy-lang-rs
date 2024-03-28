@@ -153,7 +153,7 @@ impl<'a> ParserState<'a> {
             }
             Operation(_) => self.parse_operation(),
             Literal(_) => self.parse_literal(),
-            Syntactic(Syn::Grave) => self.parse_quote(),
+            Lexical(Lex::SingleQuote) => self.parse_quote(),
             Expression(_) => self.parse_exact_expr(),
             Definition(Def::Define) => self.parse_define(),
             Definition(Def::DefineFunc) => self.parse_func(),
@@ -410,7 +410,7 @@ impl<'a> ParserState<'a> {
     }
 
     pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
-        if self.peek().token_type == Syntactic(Syn::Grave) {
+        if self.peek().token_type == Lexical(Lex::SingleQuote) {
             self.advance()?;
             let token_data = &self.consume(Literal(Lit::Identifier))?.data.clone();
             let list = self.parse_list_head()?;
@@ -562,7 +562,7 @@ impl<'a> ParserState<'a> {
                 let value = Rc::new(self.parse_literal()?);
                 DefinitionNode(Rc::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
             }
-            Syntactic(Syn::Grave) => self.parse_quote()?,
+            Lexical(Lex::SingleQuote) => self.parse_quote()?,
             _ => panic!() //return Err(format!("Invalid syntax in define, line: {}", self.peek().line))
         };
         return Ok(definition);
@@ -595,7 +595,7 @@ impl<'a> ParserState<'a> {
 
 
     pub fn parse_quote(&mut self) -> Result<AstNode, String> {
-        self.consume(Syntactic(Syn::Grave))?;
+        self.consume(Lexical(Lex::SingleQuote))?;
         if self.peek().token_type == Lexical(Lex::LeftParen)
             && self.peek_n(2).token_type == Lexical(Lex::RightParen) {
             self.consume_left_paren()?;

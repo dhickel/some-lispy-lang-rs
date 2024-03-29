@@ -136,27 +136,31 @@ pub struct DefClassData {
     pub name: Spur,
     pub params: Option<Vec<Mod>>,
     pub fields: Option<Vec<Field>>,
-    pub init: Option<Vec<DefFuncData>>,
+    pub init: Option<Vec<DefLambdaData>>,
     pub methods: Option<Vec<DefFuncData>>,
-    pub pre_init: Option<Vec<AstNode>>,
-    pub post_init: Option<Vec<AstNode>>,
-    pub fin : Option<Vec<AstNode>>
+    pub pre_init: Option<AstNode>,
+    pub post_init: Option<AstNode>,
+    pub fin: Option<AstNode>,
+    pub validate: Option<AstNode>,
 }
 
+
 impl DefClassData {
-    pub fn empty_def(name : Spur) -> DefClassData{
-        DefClassData{
+    pub fn empty_def(name: Spur) -> DefClassData {
+        DefClassData {
             name,
             params: None,
-            fields : None,
+            fields: None,
             init: None,
             methods: None,
             pre_init: None,
             post_init: None,
-            fin: None
+            fin: None,
+            validate: None,
         }
     }
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefStructInst {
@@ -191,6 +195,7 @@ pub enum ExprNode {
     ObjectCall(ObjectCallData),
     LiteralCall(Spur),
     ObjectAssignment(ObjectAssignData),
+    GenRand(bool, AstNode, AstNode)
 }
 
 

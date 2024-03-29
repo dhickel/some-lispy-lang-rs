@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::rc::Rc;
 use ahash::AHashMap;
 use lasso::Spur;
+use crate::eval::class_loader::ClassLoader;
 use crate::eval::environment::Environment;
 use crate::lang::types::Type;
 use crate::parse::ast_nodes::{AstNode, DefFuncData, DefLambdaData, EvalResult, Field, FuncArg, InstArgs, LambdaValue, LitNode, ObjectValue};
@@ -190,7 +191,7 @@ impl EvalResult for StructData {
 pub struct ClassMetaData {
     arity: u8,
     data: AHashMap<Spur, Binding>,
-    methods: AHashMap<Spur, Rc<DefLambdaData>>
+    methods: AHashMap<Spur, Rc<DefLambdaData>>,
 }
 
 
@@ -201,18 +202,17 @@ pub struct ClassData {
 }
 
 
-
-
-
 impl ClassMetaData {
-    pub fn new_declaration(fields: Option<Vec<Field>>, methods: Option<Vec<DefFuncData>>,
+    pub fn new_declaration(
+        fields: Option<Vec<Field>>,
+        methods: Option<Vec<DefFuncData>>,
     ) -> Result<ClassMetaData, String> {
         let arity: usize;
         let mut field_map: AHashMap::<Spur, Binding>;
+
         if let Some(fields) = fields {
             arity = fields.len();
             field_map = AHashMap::<Spur, Binding>::with_capacity(arity);
-            
             for field in fields {
                 let binding: Binding = Binding::new_binding(&AstNode::new_nil_lit(), &field.modifiers)?;
                 field_map.insert(field.name, binding);
@@ -225,7 +225,6 @@ impl ClassMetaData {
         let mut method_map: AHashMap::<Spur, Rc<DefLambdaData>>;
         if let Some(methods) = methods {
             method_map = AHashMap::<Spur, Rc<DefLambdaData>>::with_capacity(methods.len());
-            
             for method in methods {
                 method_map.insert(method.name, Rc::clone(&method.lambda));
             }
@@ -234,7 +233,11 @@ impl ClassMetaData {
         Ok(ClassMetaData { data: field_map, methods: method_map, arity: arity as u8 })
     }
 
-    pub fn new_instance(&self, name: &Spur, args: Option<Vec<InstArgs>>,
+    pub fn new_instance(
+        &self,
+        name: &Spur,
+        args: Option<Vec<InstArgs>>,
+        loader: &RefCell<ClassLoader>,
     ) -> Result<AstNode, String> {
         let mut methods =
             AHashMap::<Spur, Rc<DefLambdaData>>::with_capacity(self.methods.len());
@@ -242,7 +245,6 @@ impl ClassMetaData {
         for (key, value) in &self.methods {
             methods.insert(*key, Rc::clone(&value));
         }
-
 
         if self.arity != 0 && !args.is_none() {
             if let Some(args) = args {
@@ -255,9 +257,11 @@ impl ClassMetaData {
                 }
 
                 let mut inst_data = self.data.clone();
+                
+                
                 for arg in args {
                     let field = inst_data.get(&arg.name);
-                    
+
                     if let Some(field) = field {
                         // TODO type matching
                         let binding = Binding::replace_binding(&arg.value, field.dynamic, field.mutable)?;
@@ -266,7 +270,7 @@ impl ClassMetaData {
                         return Err(format!("Instance argument not found: {:?} for struct: {:?}", &arg.name, &name));
                     }
                 }
-                
+
                 let env = Environment::of_fields(inst_data);
                 let class_data = ClassData { env, methods };
                 Ok(LiteralNode(Rc::new(LitNode::Object(ObjectValue::Class(class_data)))))
@@ -284,17 +288,16 @@ impl ClassMetaData {
 }
 
 
-impl ObjectAccess for ClassData{
+impl ObjectAccess for ClassData {
     fn get_field(&self, name: &Spur) -> Result<Rc<LitNode>, String> {
         self.env.borrow().get_literal(name)
     }
 
+
     fn get_method(&self, name: &Spur) -> Result<LitNode, String> {
         if let Some(method) = self.methods.get(name) {
-             Ok(LitNode::Lambda( LambdaValue{ env: Rc::clone(&self.env), def: Rc::clone(&method)}))
-        } else {
-            Err(format!("Failed to find method: {:?}", name))
-        }
+            Ok(LitNode::Lambda(LambdaValue { env: Rc::clone(&self.env), def: Rc::clone(&method) }))
+        } else { Err(format!("Failed to find method: {:?}", name)) }
     }
 
 
@@ -302,9 +305,7 @@ impl ObjectAccess for ClassData{
         let result = self.env.borrow_mut().update_binding(name, value)?;
         if let LiteralNode(lit) = result {
             Ok(Rc::clone(&lit))
-        } else {
-            Err("Non literal, should happen".to_string())
-        }
+        } else { Err("Non literal, should happen".to_string()) }
     }
 }
 

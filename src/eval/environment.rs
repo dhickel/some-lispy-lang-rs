@@ -16,6 +16,7 @@ pub struct Context<'a> {
     pub class_loader: &'a ClassLoader,
 }
 
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
     parent: Option<Rc<RefCell<Environment>>>,
@@ -37,11 +38,11 @@ impl Environment {
             bindings: AHashMap::with_capacity(10),
         }))
     }
-    
-    pub fn of_fields(field_map:  AHashMap<Spur, Binding>)  -> Rc<RefCell<Environment>>  {
+
+    pub fn of_fields(field_map: AHashMap<Spur, Binding>) -> Rc<RefCell<Environment>> {
         Rc::new(RefCell::new(Environment {
             parent: None,
-            bindings: field_map
+            bindings: field_map,
         }))
     }
 
@@ -88,11 +89,32 @@ impl Environment {
         }
         if let Some(binding) = self.bindings.get_mut(name) {
             let mut data = binding;
+
             if data.mutable {
                 if let LiteralNode(lit) = &value {
                     data.value = Rc::clone(&lit);
                     Ok(AstNode::new_bool_lit(true))
                 } else { Err(format!("Attempted to bind non literal object: {:?}", value)) }
+            } else {
+                Err(format!("Attempted to reassign immutable binding{:?}", name))
+            }
+        } else if let Some(p_env) = &mut self.parent {
+            p_env.borrow_mut().update_binding(name, value)
+        } else {
+            Err(format!("Failed to find binding to update for: {:?}", name))
+        }
+    }
+
+    pub fn update_binding_mut<'a>(&mut self, name: &Spur, value: &'a AstNode) -> Result<AstNode, String> {
+        if !matches!(value, LiteralNode(_)) {
+            return Err(format!("Attempted to assign non literal value to{:?}", name));
+        }
+        if let Some(binding) = self.bindings.get_mut(name) {
+            let mut data = binding;
+
+            if let LiteralNode(lit) = &value {
+                data.value = Rc::clone(&lit);
+                Ok(AstNode::new_bool_lit(true))
             } else {
                 Err(format!("Attempted to reassign immutable binding{:?}", name))
             }

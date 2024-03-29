@@ -1,23 +1,23 @@
-use std::any::type_name;
 use std::borrow::Cow;
+use std::borrow::Cow::Owned;
 use std::cell::{RefCell, UnsafeCell};
 use std::collections::LinkedList;
 use std::fs;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::mpsc::sync_channel;
 use std::time::{SystemTime, UNIX_EPOCH};
-use lasso::{Rodeo, Spur};
+use lasso::{Spur};
+use rand::{Rng, thread_rng};
 use AstNode::LiteralNode;
 use crate::eval::class_loader::{ClassDef, ClassLoader};
 use crate::eval::environment::{Environment};
 use crate::eval::operation_eval;
 use crate::lang::datatypes::{Binding, ObjectAccess, StructMetaData};
 use crate::parse;
-use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondData, ConsData,
-    DefNode, ExprFuncCallData, ExprNode, FuncArg, FuncCallData, IfData, InstArgs, LambdaValue,
-    ListAccData, LitNode, ObjectAssignData, ObjectCallData, ObjectValue, OpNode, PairValue, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondData, ConsData, DefNode, ExprFuncCallData, ExprNode, FloatValue, FuncArg, FuncCallData, IfData, InstArgs, IntValue, LambdaValue, ListAccData, LitNode, ObjectAssignData, ObjectCallData, ObjectValue, OpNode, PairValue, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode, ProgramNode};
+use crate::parse::Lit::Float;
+use crate::parse::util;
 
 
 
@@ -33,34 +33,37 @@ macro_rules! nano_time {
 pub fn file_eval(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo, 
     file_path: &String)
     -> String {
     let time = nano_time!();
-     match fs::read_to_string(file_path) {
-         Ok(content) => {
-             println!("content:{}",content);
-             repl_eval(env, loader, s_cache, content);
-             format!("Loaded file: {}, Processing Time: {}", &file_path, nano_time!() - time)
-         },
-         
-         Err(s) => {
-             println!("error");
-             s.to_string()
-         }
-     }
+    match fs::read_to_string(file_path) {
+        Ok(content) => {
+            println!("content:{}", content);
+            repl_eval(env, loader, content);
+            format!("Loaded file: {}, Processing Time: {}", &file_path, nano_time!() - time)
+        }
+
+        Err(s) => {
+            println!("error");
+            s.to_string()
+        }
+    }
 }
 
 
-pub fn repl_eval(env: &Rc<RefCell<Environment>>, loader: &RefCell<ClassLoader>, s_cache: &mut Rodeo, input: String) -> String {
+pub fn repl_eval(
+    env: &Rc<RefCell<Environment>>,
+    loader: &RefCell<ClassLoader>,
+    input: String,
+) -> String {
     let start = nano_time!();
     let proc_time;
     let eval_time;
     let total_time;
-    let tokens = parse::lexer::process(input, s_cache);
+    let tokens = parse::lexer::process(input);
     println!("\n{:?}\n", tokens);
     let ast = match tokens {
-        Ok(tokens) => parse::parser::process(tokens, s_cache),
+        Ok(tokens) => parse::parser::process(tokens),
         Err(msg) => return msg
     };
 
@@ -69,7 +72,7 @@ pub fn repl_eval(env: &Rc<RefCell<Environment>>, loader: &RefCell<ClassLoader>, 
     proc_time = nano_time!() - start;
     let eval_start = nano_time!();
     let result = match ast {
-        Ok(ast) => eval(env, loader, s_cache, ast).join("\n"),
+        Ok(ast) => eval(env, loader, ast).join("\n"),
         Err(error) => return error
     };
     eval_time = nano_time!() - eval_start;
@@ -84,12 +87,11 @@ pub fn repl_eval(env: &Rc<RefCell<Environment>>, loader: &RefCell<ClassLoader>, 
 pub fn eval(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     input: Vec<AstNode>,
 ) -> Vec<String> {
     let mut evaled = Vec::<String>::new();
     for node in input {
-        match eval_node(env, loader, s_cache, &node) {
+        match eval_node(env, loader, &node) {
             Ok(rtn) => match &*rtn {
                 LiteralNode(any) => evaled.push(any.value().as_string()),
                 invalid => evaled.push(format!("Fatal: Invalid Eval Return :{:?}", invalid))
@@ -104,14 +106,13 @@ pub fn eval(
 fn eval_node<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     node: &'a AstNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
-        ExpressionNode(expr) => eval_expression(env, loader, s_cache, expr),
+        ExpressionNode(expr) => eval_expression(env, loader, expr),
         LiteralNode(_) => Ok(Cow::Borrowed(node)),
-        OperationNode(op) => eval_operation(env, loader, s_cache, op),
-        DefinitionNode(def) => eval_definition(env, loader, s_cache, def.deref().clone()),
+        OperationNode(op) => eval_operation(env, loader, op),
+        DefinitionNode(def) => eval_definition(env, loader, def.deref().clone()),
         ProgramNode(_) => Err("Fatal: Found Nested Program Node".to_string())
     }
 }
@@ -120,32 +121,31 @@ fn eval_node<'a>(
 fn eval_operation<'a>(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     node: &OpNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
-        OpNode::Addition(op_nodes) => Ok(operation_eval::add(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Subtraction(op_nodes) => Ok(operation_eval::subtract(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Multiplication(op_nodes) => Ok(operation_eval::multiply(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Division(op_nodes) => Ok(operation_eval::divide(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Modulo(op_nodes) => Ok(operation_eval::modulo(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Exponentiate(op_nodes) => Ok(operation_eval::exponentiate(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Increment(op_nodes) => Ok(operation_eval::increment(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Decrement(op_nodes) => Ok(operation_eval::decrement(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Or(op_nodes) => Ok(operation_eval::or(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::And(op_nodes) => Ok(operation_eval::and(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Xor(op_nodes) => Ok(operation_eval::xor(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Nor(op_nodes) => Ok(operation_eval::nor(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Xnor(op_nodes) => Ok(operation_eval::xnor(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Nand(op_nodes) => Ok(operation_eval::nand(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Negate(op_nodes) => Ok(operation_eval::negate(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::GreaterThan(op_nodes) => Ok(operation_eval::greater_than(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::GreaterThanEqual(op_nodes) => Ok(operation_eval::greater_than_eq(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::LessThan(op_nodes) => Ok(operation_eval::less_than(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::LessThanEqual(op_nodes) => Ok(operation_eval::less_than_eq(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::Equality(op_nodes) => Ok(operation_eval::ref_equality(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::RefEquality(op_nodes) => Ok(operation_eval::value_equality(eval_operands(env, loader, s_cache, op_nodes)?)),
-        OpNode::RefNonEquality(op_nodes) => Ok(operation_eval::value_non_equality(eval_operands(env, loader, s_cache, op_nodes)?))
+        OpNode::Addition(op_nodes) => Ok(operation_eval::add(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Subtraction(op_nodes) => Ok(operation_eval::subtract(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Multiplication(op_nodes) => Ok(operation_eval::multiply(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Division(op_nodes) => Ok(operation_eval::divide(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Modulo(op_nodes) => Ok(operation_eval::modulo(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Exponentiate(op_nodes) => Ok(operation_eval::exponentiate(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Increment(op_nodes) => Ok(operation_eval::increment(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Decrement(op_nodes) => Ok(operation_eval::decrement(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Or(op_nodes) => Ok(operation_eval::or(eval_operands(env, loader, op_nodes)?)),
+        OpNode::And(op_nodes) => Ok(operation_eval::and(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Xor(op_nodes) => Ok(operation_eval::xor(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Nor(op_nodes) => Ok(operation_eval::nor(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Xnor(op_nodes) => Ok(operation_eval::xnor(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Nand(op_nodes) => Ok(operation_eval::nand(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Negate(op_nodes) => Ok(operation_eval::negate(eval_operands(env, loader, op_nodes)?)),
+        OpNode::GreaterThan(op_nodes) => Ok(operation_eval::greater_than(eval_operands(env, loader, op_nodes)?)),
+        OpNode::GreaterThanEqual(op_nodes) => Ok(operation_eval::greater_than_eq(eval_operands(env, loader, op_nodes)?)),
+        OpNode::LessThan(op_nodes) => Ok(operation_eval::less_than(eval_operands(env, loader, op_nodes)?)),
+        OpNode::LessThanEqual(op_nodes) => Ok(operation_eval::less_than_eq(eval_operands(env, loader, op_nodes)?)),
+        OpNode::Equality(op_nodes) => Ok(operation_eval::ref_equality(eval_operands(env, loader, op_nodes)?)),
+        OpNode::RefEquality(op_nodes) => Ok(operation_eval::value_equality(eval_operands(env, loader, op_nodes)?)),
+        OpNode::RefNonEquality(op_nodes) => Ok(operation_eval::value_non_equality(eval_operands(env, loader, op_nodes)?))
     }
 }
 
@@ -153,13 +153,12 @@ fn eval_operation<'a>(
 fn eval_operands(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     op_nodes: &Vec<AstNode>,
 ) -> Result<(bool, Vec<Rc<LitNode>>), String> {
     let mut operands = Vec::<Rc<LitNode>>::with_capacity(op_nodes.len());
     let mut is_float = false;
     for node in op_nodes {
-        match eval_node(env, loader, s_cache, &node)? {
+        match eval_node(env, loader, &node)? {
             Cow::Borrowed(LiteralNode(val)) => {
                 if matches!(val.as_ref(), LitNode::Float(_)) { is_float = true; }
                 operands.push(Rc::clone(val));
@@ -178,12 +177,11 @@ fn eval_operands(
 fn eval_definition<'a>(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     node: DefNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
         DefNode::Variable(var) => {
-            let evaled = eval_node(env, loader, s_cache, &var.value);
+            let evaled = eval_node(env, loader, &var.value);
             if let Ok(evaled_var) = evaled {
                 let binding = Binding::new_binding(evaled_var.deref(), &var.modifiers);
                 let bind = env.borrow_mut().create_binding(var.name, binding?)?;
@@ -209,7 +207,7 @@ fn eval_definition<'a>(
             let evaled_args = if let Some(args) = inst.args {
                 let mut vec = Vec::<InstArgs>::with_capacity(args.len());
                 for arg in args {
-                    let evaled_arg = match eval_node(env, loader, s_cache, &arg.value)? {
+                    let evaled_arg = match eval_node(env, loader, &arg.value)? {
                         Cow::Borrowed(b) => b.clone(),
                         Cow::Owned(o) => o
                     };
@@ -237,35 +235,65 @@ fn eval_definition<'a>(
 fn eval_expression<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     node: &'a ExprNode,
 ) -> Result<Cow<'a, AstNode>, String> {
     match node {
-        ExprNode::Assignment(data) => eval_assignment(env, loader, s_cache, data),
-        ExprNode::MultiExpr(data) => eval_multi_expr(env, loader, s_cache, data),
-        ExprNode::PrintExpr(data) => eval_print_expr(env, loader, s_cache, data),
-        ExprNode::IfExpr(data) => eval_if_expr(env, loader, s_cache, &data),
-        ExprNode::CondExpr(data) => eval_cond_expr(env, loader, s_cache, data),
-        ExprNode::WhileLoop(data) => eval_while_expr(env, loader, s_cache, data),
-        ExprNode::ConsExpr(data) => eval_cons_expr(env, loader, s_cache, data),
-        ExprNode::PairList(data) => eval_pair_list_expr(env, loader, s_cache, data),
-        ExprNode::ListAccess(data) => eval_list_acc_expr(env, loader, s_cache, data),
-        ExprNode::FuncCall(data) => eval_func_call_expr(env, loader, s_cache, data),
+        ExprNode::Assignment(data) => eval_assignment(env, loader, data),
+        ExprNode::MultiExpr(data) => eval_multi_expr(env, loader, data),
+        ExprNode::PrintExpr(data) => eval_print_expr(env, loader, data),
+        ExprNode::IfExpr(data) => eval_if_expr(env, loader, &data),
+        ExprNode::CondExpr(data) => eval_cond_expr(env, loader, data),
+        ExprNode::WhileLoop(data) => eval_while_expr(env, loader, data),
+        ExprNode::ConsExpr(data) => eval_cons_expr(env, loader, data),
+        ExprNode::PairList(data) => eval_pair_list_expr(env, loader, data),
+        ExprNode::ListAccess(data) => eval_list_acc_expr(env, loader, data),
+        ExprNode::FuncCall(data) => eval_func_call_expr(env, loader, data),
         ExprNode::LiteralCall(data) => eval_lit_call_expr(env, data),
-        ExprNode::ExprFuncCal(data) => eval_expr_func_call(env, loader, s_cache, data),
-        ExprNode::ObjectCall(data) => eval_object_call(env, loader, s_cache, data),
-        ExprNode::ObjectAssignment(data) => { eval_object_assignment(env, loader, s_cache, data) }
+        ExprNode::ExprFuncCal(data) => eval_expr_func_call(env, loader, data),
+        ExprNode::ObjectCall(data) => eval_object_call(env, loader, data),
+        ExprNode::ObjectAssignment(data) => eval_object_assignment(env, loader, data),
+        ExprNode::GenRand(is_float, lower, upper) => eval_rand(env, loader, *is_float, lower, upper)
     }
 }
 
 
+fn eval_rand<'a>(
+    env: &Rc<RefCell<Environment>>,
+    loader: &RefCell<ClassLoader>,
+    is_float: bool, 
+    lower: &AstNode,
+    upper: &AstNode,
+) -> Result<Cow<'a, AstNode>, String>  { 
+    let l_eval = eval_node(env, loader, lower)?;
+    let u_eval = eval_node(env, loader, upper)?;
+
+    let l_val = if let LiteralNode(lit) = &l_eval.as_ref() { 
+        lit.value()
+    } else {
+        return Err("Expected literal value".to_string());
+    };
+
+    let u_val = if let LiteralNode(lit) = &u_eval.as_ref() {
+        lit.value()
+    } else {
+        return Err("Expected literal value".to_string());
+    };
+
+    if is_float {
+        let val = thread_rng().gen_range(l_val.as_float()..=u_val.as_float());
+        Ok(Cow::Owned(LiteralNode(Rc::new(LitNode::Float(FloatValue(val))))))
+    } else {
+        let val = thread_rng().gen_range(l_val.as_int()..=u_val.as_int());
+        Ok(Cow::Owned(LiteralNode(Rc::new(LitNode::Integer(IntValue(val))))))
+    }
+}
+
 fn eval_assignment<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &'a AssignData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    let evaled = eval_node(env, loader, s_cache, &expr.value)?;
+    let evaled = eval_node(env, loader, &expr.value)?;
     let rtn = env.borrow_mut().update_binding(&expr.name, evaled.deref())?;
     Ok(Cow::Owned(rtn))
 }
@@ -274,10 +302,9 @@ fn eval_assignment<'a>(
 fn eval_object_assignment<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &'a ObjectAssignData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    let value = match eval_node(env, loader, s_cache, &expr.value)? {
+    let value = match eval_node(env, loader, &expr.value)? {
         Cow::Borrowed(b) => b.clone(),
         Cow::Owned(o) => o
     };
@@ -292,7 +319,7 @@ fn eval_object_assignment<'a>(
             };
             set_field_unsafe(binding, name, value)
         } else {
-            recur_object_assignment(env, loader, s_cache, obj, &mut expr.access.accessors.clone(), value)
+            recur_object_assignment(env, loader, obj, &mut expr.access.accessors.clone(), value)
         }
     } else { Err(format!("Accessors applied to non-object literal: {:?}", &&expr.access.name)) }
 }
@@ -304,7 +331,7 @@ fn set_field_unsafe<'a>(
     object: Rc<LitNode>,
     name: &Spur,
     value: AstNode,
-) -> Result<Cow<'a, crate::parse::ast_nodes::AstNode>, String> {
+) -> Result<Cow<'a, AstNode>, String> {
     let field_mut_ptr = unsafe {
         // Transmute the Rc to Rc<UnsafeCell<LitNode>> to get a mutable pointer
         let field_uc: &Rc<UnsafeCell<LitNode>> = std::mem::transmute(&object);
@@ -322,7 +349,6 @@ fn set_field_unsafe<'a>(
 fn recur_object_assignment<'a>(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     call: &ObjectValue,
     accessors: &mut LinkedList<Accessor>,
     evaled_value: AstNode,
@@ -344,11 +370,11 @@ fn recur_object_assignment<'a>(
             return if accessors.is_empty() {
                 Err("Fatal: we should reach this its bad code lol".to_string())
             } else if let LitNode::Object(obj) = field.as_ref() {
-                recur_object_assignment(env, loader, s_cache, obj, accessors, evaled_value)
+                recur_object_assignment(env, loader, obj, accessors, evaled_value)
             } else { Err(format!("Accessors cannot be applied to non-object: {:?}", &acc.name)) };
         } else { Err(format!("Field not found: {:?}", &acc.name)) }
     } else if let LitNode::Lambda(lambda) = call.get_method(&acc.name)? {
-        match eval_lambda_call(env, loader, s_cache, &lambda, acc.args)? {
+        match eval_lambda_call(env, loader, &lambda, acc.args)? {
             Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
             Cow::Owned(o) => Ok(Cow::Owned(o))
         }
@@ -359,7 +385,6 @@ fn recur_object_assignment<'a>(
 fn eval_multi_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &'a Vec<AstNode>,
 ) -> Result<Cow<'a, AstNode>, String> {
     if expr.is_empty() { return Ok(Cow::Owned(AstNode::new_nil_lit())); }
@@ -368,8 +393,8 @@ fn eval_multi_expr<'a>(
     let result = loop {
         let next = iter.next().unwrap();
         if iter.peek() == None {
-            break eval_node(env, loader, s_cache, next)?;
-        } else { eval_node(env, loader, s_cache, next)?; }
+            break eval_node(env, loader, next)?;
+        } else { eval_node(env, loader, next)?; }
     };
     Ok(result)
 }
@@ -378,10 +403,9 @@ fn eval_multi_expr<'a>(
 fn eval_print_expr<'a>(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &AstNode,
 ) -> Result<Cow<'a, AstNode>, String> {
-    match eval_node(env, loader, s_cache, &expr)? {
+    match eval_node(env, loader, &expr)? {
         Cow::Borrowed(LiteralNode(lit)) => {
             println!("{}", lit.value().as_string());
             Ok(Cow::Owned(AstNode::new_nil_lit()))
@@ -398,14 +422,13 @@ fn eval_print_expr<'a>(
 fn eval_if_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &'a IfData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    if let Ok(LiteralNode(lit)) = eval_node(env, loader, s_cache, &expr.if_branch.cond_node).as_deref() {
+    if let Ok(LiteralNode(lit)) = eval_node(env, loader, &expr.if_branch.cond_node).as_deref() {
         if lit.value().as_bool() {
-            eval_node(env, loader, s_cache, &expr.if_branch.then_node)
+            eval_node(env, loader, &expr.if_branch.then_node)
         } else if expr.else_branch.is_some() {
-            match eval_node(env, loader, s_cache, expr.else_branch.as_ref().unwrap())? {
+            match eval_node(env, loader, expr.else_branch.as_ref().unwrap())? {
                 Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
                 Cow::Owned(o) => Ok(Cow::Owned(o))
             }
@@ -417,19 +440,18 @@ fn eval_if_expr<'a>(
 fn eval_cond_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &'a CondData,
 ) -> Result<Cow<'a, AstNode>, String> {
     for e in &expr.cond_branches {
-        if let Ok(LiteralNode(lit)) = eval_node(env, loader, s_cache, &e.cond_node).as_deref() {
+        if let Ok(LiteralNode(lit)) = eval_node(env, loader, &e.cond_node).as_deref() {
             if lit.value().as_bool() {
-                return eval_node(env, loader, s_cache, &e.then_node);
+                return eval_node(env, loader, &e.then_node);
             } else { continue; }
         } else { return Err("Cond condition did  not evaluate to boolean".to_string()); }
     }
 
     if let Some(else_branch) = &expr.else_branch {
-        eval_node(env, loader, s_cache, &else_branch)
+        eval_node(env, loader, &else_branch)
     } else { Ok(Cow::Owned(AstNode::new_bool_lit(false))) }
 }
 
@@ -437,12 +459,11 @@ fn eval_cond_expr<'a>(
 fn eval_while_expr<'a>(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &WhileData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    if expr.is_do { eval_node(env, loader, s_cache, &expr.body)?; }
+    if expr.is_do { eval_node(env, loader, &expr.body)?; }
 
-    let mut cond = if let LiteralNode(cond) = eval_node(env, loader, s_cache, &expr.condition)?.as_ref() {
+    let mut cond = if let LiteralNode(cond) = eval_node(env, loader, &expr.condition)?.as_ref() {
         cond.value().as_bool()
     } else {
         return Err(format!("Expression in while loop did not evaluate to literal: {:?}", expr.condition));
@@ -451,8 +472,8 @@ fn eval_while_expr<'a>(
     if !expr.is_do && !cond { return Ok(Cow::Owned(AstNode::new_bool_lit(false))); }
 
     while cond {
-        eval_node(env, loader, s_cache, &expr.body)?;
-        cond = if let LiteralNode(cond) = eval_node(env, loader, s_cache, &expr.condition)?.as_ref() {
+        eval_node(env, loader, &expr.body)?;
+        cond = if let LiteralNode(cond) = eval_node(env, loader, &expr.condition)?.as_ref() {
             cond.value().as_bool()
         } else {
             return Err(format!("Expression in while loop did not evaluate to literal: {:?}", expr.condition));
@@ -465,11 +486,10 @@ fn eval_while_expr<'a>(
 fn eval_cons_expr<'a>(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &ConsData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    let car = eval_node(env, loader, s_cache, &expr.car)?;
-    let cdr = eval_node(env, loader, s_cache, &expr.cdr)?;
+    let car = eval_node(env, loader, &expr.car)?;
+    let cdr = eval_node(env, loader, &expr.cdr)?;
     Ok(Cow::Owned(PairValue::from_ast(car.as_ref().clone(), cdr.as_ref().clone())?))
 }
 
@@ -477,12 +497,11 @@ fn eval_cons_expr<'a>(
 fn eval_pair_list_expr<'a>(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &Vec<AstNode>,
 ) -> Result<Cow<'a, AstNode>, String> {
     let mut head = AstNode::new_nil_lit();
     for element in expr.into_iter().rev() {
-        match eval_node(env, loader, s_cache, &element)? {
+        match eval_node(env, loader, &element)? {
             Cow::Borrowed(borrowed) => head = PairValue::from_ast(borrowed.clone(), head)?,
             Cow::Owned(owned) => head = PairValue::from_ast(owned, head)?
         };
@@ -494,10 +513,9 @@ fn eval_pair_list_expr<'a>(
 fn eval_list_acc_expr<'a>(
     env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     expr: &ListAccData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    let evaled_node = eval_node(env, loader, s_cache, &expr.list)?;
+    let evaled_node = eval_node(env, loader, &expr.list)?;
     let list = if let AstNode::LiteralNode(rc_lit_node) = evaled_node.as_ref() {
         match rc_lit_node.as_ref() {
             LitNode::Pair(pair) => pair,
@@ -508,7 +526,7 @@ fn eval_list_acc_expr<'a>(
 
     if expr.index_expr.is_some() {
         let index = if let LiteralNode(lit)
-            = eval_node(env, loader, s_cache, &expr.index_expr.as_ref().unwrap()).as_deref()?
+            = eval_node(env, loader, &expr.index_expr.as_ref().unwrap()).as_deref()?
         {
             lit.value().as_int()
         } else { return Err("Index did not evaluate to literal".to_string()); };
@@ -526,18 +544,22 @@ fn eval_list_acc_expr<'a>(
 
     if let Some(pattern) = &expr.pattern {
         let mut curr: &PairValue = &list;
-        let mut chars = s_cache.resolve(pattern).chars().peekable();
 
-        while let Some(acc) = chars.next() {
-            match (acc, &*curr.car, &*curr.cdr) {
-                ('f', LitNode::Pair(pair), _) if chars.peek().is_some() => curr = pair,
-                ('r', _, LitNode::Pair(pair)) if chars.peek().is_some() => curr = pair,
-                ('f', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(Rc::clone(&curr.car)))),
-                ('r', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(Rc::clone(&curr.cdr)))),
-                _ => return Err("Invalid access pattern or non-pair encountered before the end".to_string()),
+        if let resolved = util::SCACHE.resolve(pattern) {
+            let mut chars = resolved.chars().peekable();
+            while let Some(acc) = chars.next() {
+                match (acc, &*curr.car, &*curr.cdr) {
+                    ('f', LitNode::Pair(pair), _) if chars.peek().is_some() => curr = pair,
+                    ('r', _, LitNode::Pair(pair)) if chars.peek().is_some() => curr = pair,
+                    ('f', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(Rc::clone(&curr.car)))),
+                    ('r', _, _) if chars.peek().is_none() => return Ok(Cow::Owned(LiteralNode(Rc::clone(&curr.cdr)))),
+                    _ => return Err("Invalid access pattern or non-pair encountered before the end".to_string()),
+                }
             }
+            Err("Pattern empty or did not lead to a valid access.".to_string())
+        } else {
+            Err("Access pattern required.".to_string())
         }
-        Err("Pattern empty or did not lead to a valid access.".to_string())
     } else {
         Err("Access pattern required.".to_string())
     }
@@ -547,7 +569,6 @@ fn eval_list_acc_expr<'a>(
 fn eval_func_call_expr<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     call: &'a FuncCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Ok(binding) = env.borrow().get_literal(&call.name) {
@@ -558,7 +579,6 @@ fn eval_func_call_expr<'a>(
                 map_param_to_env(
                     env,
                     loader,
-                    s_cache,
                     lambda.def.parameters.as_ref().unwrap(),
                     &call.arguments.as_ref().unwrap(),
                     &new_env,
@@ -567,7 +587,7 @@ fn eval_func_call_expr<'a>(
                 return Err("Parameter-argument mismatch".to_string());
             }
 
-            match eval_node(&new_env, loader, s_cache, &lambda.def.body)? {
+            match eval_node(&new_env, loader, &lambda.def.body)? {
                 Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
                 Cow::Owned(o) => Ok(Cow::Owned(o))
             }
@@ -579,12 +599,11 @@ fn eval_func_call_expr<'a>(
 fn eval_object_call<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     call: &ObjectCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
     if let Ok(binding) = env.borrow().get_literal(&call.name) {
         if let LitNode::Object(obj) = binding.as_ref() {
-            recur_object_call(env, loader, s_cache, obj, &mut call.accessors.clone())
+            recur_object_call(env, loader, obj, &mut call.accessors.clone())
         } else { Err(format!("Accessors applied to non-object literal: {:?}", &call.name)) }
     } else { Err(format!("Failed to locate binding for: {:?}", call.name)) }
 }
@@ -593,10 +612,9 @@ fn eval_object_call<'a>(
 fn eval_expr_func_call<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     call: &'a ExprFuncCallData,
 ) -> Result<Cow<'a, AstNode>, String> {
-    if let Some(LitNode::Lambda(lambda)) = eval_node(env, loader, s_cache, &call.expr)
+    if let Some(LitNode::Lambda(lambda)) = eval_node(env, loader, &call.expr)
         .ok()
         .as_deref()
         .and_then(|node| match node {
@@ -609,7 +627,6 @@ fn eval_expr_func_call<'a>(
             map_param_to_env(
                 env,
                 loader,
-                s_cache,
                 lambda.def.parameters.as_ref().unwrap(),
                 &call.arguments.as_ref().unwrap(),
                 &new_env,
@@ -618,7 +635,7 @@ fn eval_expr_func_call<'a>(
             return Err("Parameter-argument mismatch".to_string());
         }
 
-        match eval_node(&new_env, loader, s_cache, &lambda.def.body)? {
+        match eval_node(&new_env, loader, &lambda.def.body)? {
             Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
             Cow::Owned(o) => Ok(Cow::Owned(o))
         }
@@ -629,7 +646,6 @@ fn eval_expr_func_call<'a>(
 fn eval_lambda_call<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     lambda: &'a LambdaValue,
     args: Option<Vec<FuncArg>>,
 ) -> Result<Cow<'a, AstNode>, String> {
@@ -638,7 +654,6 @@ fn eval_lambda_call<'a>(
         map_param_to_env(
             env,
             loader,
-            s_cache,
             lambda.def.parameters.as_ref().unwrap(),
             &args.as_ref().unwrap(),
             &new_env, // new_env is now directly passed as Rc<RefCell<Environment>>
@@ -647,7 +662,7 @@ fn eval_lambda_call<'a>(
         return Err("Parameter-argument mismatch".to_string());
     }
 
-    match eval_node(&new_env, loader, s_cache, &lambda.def.body)? {
+    match eval_node(&new_env, loader, &lambda.def.body)? {
         Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
         Cow::Owned(o) => Ok(Cow::Owned(o))
     }
@@ -657,7 +672,6 @@ fn eval_lambda_call<'a>(
 fn recur_object_call<'a>(
     env: &'a Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     call: &dyn ObjectAccess,
     accessors: &mut LinkedList<Accessor>,
 ) -> Result<Cow<'a, AstNode>, String> {
@@ -670,11 +684,11 @@ fn recur_object_call<'a>(
             return if accessors.is_empty() {
                 Ok(Cow::Owned(LiteralNode(field)))
             } else if let LitNode::Object(obj) = field.as_ref() {
-                recur_object_call(env, loader, s_cache, obj, accessors)
+                recur_object_call(env, loader, obj, accessors)
             } else { Err(format!("Accessors cannot be applied to non-object: {:?}", &acc.name)) };
         } else { Err(format!("Field not found: {:?}", &acc.name)) }
     } else if let LitNode::Lambda(lambda) = call.get_method(&acc.name)? {
-        match eval_lambda_call(env, loader, s_cache, &lambda, acc.args)? {
+        match eval_lambda_call(env, loader, &lambda, acc.args)? {
             Cow::Borrowed(b) => Ok(Cow::Owned(b.clone())),
             Cow::Owned(o) => Ok(Cow::Owned(o))
         }
@@ -685,7 +699,6 @@ fn recur_object_call<'a>(
 fn map_param_to_env(
     curr_env: &Rc<RefCell<Environment>>,
     loader: &RefCell<ClassLoader>,
-    s_cache: &mut Rodeo,
     params: &Vec<Param>,
     args: &Vec<FuncArg>,
     func_env: &Rc<RefCell<Environment>>,
@@ -693,7 +706,7 @@ fn map_param_to_env(
     if params.len() == args.len() {
         for i in 0..args.len() {
             let arg = &args[i].value;
-            let ast = eval_node(curr_env, loader, s_cache, arg)?;
+            let ast = eval_node(curr_env, loader, arg)?;
             let binding = Binding::new_binding(&ast, &None)?;
             func_env.borrow_mut().create_binding(params[i].name, binding)?;
         }

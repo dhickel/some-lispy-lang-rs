@@ -2,16 +2,16 @@ use std::collections::LinkedList;
 use std::ops::Deref;
 use std::rc::Rc;
 use lasso::{Rodeo, Spur};
-use crate::parse::{Def, Expr, Init, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType};
+use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType, util};
 use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
 use crate::parse::ast_nodes::DefNode::ClassDef;
-use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, IfExpr, ListAccess, LiteralCall, MultiExpr, ObjectAssignment, ObjectCall, PairList, PrintExpr, WhileLoop};
+use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, GenRand, IfExpr, ListAccess, LiteralCall, MultiExpr, ObjectAssignment, ObjectCall, PairList, PrintExpr, WhileLoop};
 use crate::parse::Def::{DefineClass, DefineStruct};
-use crate::parse::Lex::{LeftParen, RightParen};
+use crate::parse::Lex::{LeftParen, RightBracket, RightParen};
 
 
-use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier, Initializer};
+use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
 
 
 macro_rules! nano_time {
@@ -24,18 +24,17 @@ macro_rules! nano_time {
 }
 
 
-struct ParserState<'a> {
+struct ParserState {
     pub tokens: Vec<Token>,
     pub current: usize,
     pub end: usize,
     pub depth: i32,
     pub warnings: Vec<String>,
-    pub s_cache: &'a mut Rodeo,
 }
 
 
-impl<'a> ParserState<'a> {
-    pub fn new(tokens: Vec<Token>, s_cache: &mut Rodeo) -> ParserState {
+impl ParserState {
+    pub fn new(tokens: Vec<Token>) -> ParserState {
         let len = tokens.len();
         ParserState {
             tokens,
@@ -43,7 +42,6 @@ impl<'a> ParserState<'a> {
             end: len,
             depth: 0,
             warnings: Vec::<String>::new(),
-            s_cache,
         }
     }
 
@@ -122,7 +120,7 @@ impl<'a> ParserState<'a> {
 
     pub fn consume_left_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::LeftParen)) {
-            panic!("Expected: LeftParen, Found: {:?}", self.peek());
+            panic!("Expected: Left Paren, Found: {:?}", self.peek());
             return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -133,7 +131,28 @@ impl<'a> ParserState<'a> {
 
     pub fn consume_right_paren(&mut self) -> Result<(), String> {
         if !self.check(&Lexical(Lex::RightParen)) {
-            panic!("Expected: RightParent, Found: {:?}", self.peek());
+            panic!("Expected: Right Paren, Found: {:?}", self.peek());
+            return Err(format!("Expected: RightParen, Found: {:?}", self.peek()));
+        }
+        self.current += 1;
+        self.depth -= 1;
+        Ok(())
+    }
+
+    pub fn consume_left_bracket(&mut self) -> Result<(), String> {
+        if !self.check(&Lexical(Lex::LeftBracket)) {
+            panic!("Expected: Left Bracket, Found: {:?}", self.peek());
+            return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
+        }
+        self.current += 1;
+        self.depth += 1;
+        Ok(())
+    }
+
+
+    pub fn consume_right_bracket(&mut self) -> Result<(), String> {
+        if !self.check(&Lexical(Lex::RightBracket)) {
+            panic!("Expected: Right Bracket, Found: {:?}", self.peek());
             return Err(format!("Expected: RightParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -156,8 +175,10 @@ impl<'a> ParserState<'a> {
             Lexical(Lex::SingleQuote) => self.parse_quote(),
             Expression(_) => self.parse_exact_expr(),
             Definition(Def::Define) => self.parse_define(),
-            Definition(Def::DefineFunc) => self.parse_func(),
-            Definition(Def::Lambda) => Ok(DefinitionNode(Rc::new(DefNode::Lambda(Rc::new(self.parse_lambda(false)?))))),
+            Definition(Def::DefineFunc) =>
+                Ok(DefinitionNode(Rc::new(DefNode::Function(self.parse_func(true)?)))),
+            Definition(Def::Lambda) =>
+                Ok(DefinitionNode(Rc::new(DefNode::Lambda(Rc::new(self.parse_lambda(false, false)?))))),
             Definition(Def::DefineStruct) => self.parse_struct_def(),
             Definition(Def::DefineClass) => self.parse_class_def(),
             Syntactic(_) => Err(format!("Unexpected token: {:?}", &self.peek())), // TODO implement quote
@@ -234,7 +255,7 @@ impl<'a> ParserState<'a> {
                     Lit::False => Ok(AstNode::new_bool_lit(false)),
                     Lit::String => {
                         if let Some(TokenData::String(value)) = data {
-                            let string = self.s_cache.resolve(value).to_string();
+                            let string = util::SCACHE.resolve(value).to_string();
                             Ok(AstNode::new_string_lit(string))
                         } else { Err(format!("Invalid data for string literal: {:?}", &self.peek().data)) }
                     }
@@ -272,7 +293,10 @@ impl<'a> ParserState<'a> {
             Expression(Expr::Assign) => self.parse_assign(),
             Expression(Expr::If) => self.parse_if(),
             Expression(Expr::Cond) => self.parse_cond(),
-            Expression(Expr::Begin) => self.parse_multi_expr(),
+            Expression(Expr::Begin) => match self.parse_multi_expr()? {
+                None => { return Err("Expected body for begin, found none".to_string()); }
+                Some(s) => Ok(s)
+            },
             Expression(Expr::Print) => self.parse_print(),
             Expression(Expr::List) => self.parse_list(),
             Expression(Expr::Lacc) => self.parse_list_access(),
@@ -282,7 +306,7 @@ impl<'a> ParserState<'a> {
                 Ok(ExpressionNode(Rc::new(ListAccess(
                     ListAccData {
                         index_expr: None,
-                        pattern: Some(self.s_cache.get_or_intern("f")),
+                        pattern: Some(util::SCACHE.intern("f")),
                         list: self.parse_list_head()?,
                     }))))
             }
@@ -290,13 +314,23 @@ impl<'a> ParserState<'a> {
                 Ok(ExpressionNode(Rc::new(ListAccess(
                     ListAccData {
                         index_expr: None,
-                        pattern: Some(self.s_cache.get_or_intern("r")),
+                        pattern: Some(util::SCACHE.intern("r")),
                         list: self.parse_list_head()?,
                     }))))
             }
+            Expression(Expr::Randi) => self.parse_rand(false),
+            Expression(Expr::Randf) => self.parse_rand(true),
             _ => Err(format!("Expected expression found {:?}", expression))
         }
     }
+
+
+    pub fn parse_rand(&mut self, is_float: bool) -> Result<AstNode, String> {
+        let lower =  self.parse_expr_data()?;
+        let upper =  self.parse_expr_data()?;
+        Ok(ExpressionNode(Rc::new(GenRand (is_float, lower, upper))))
+    }
+
 
     pub fn parse_assign(&mut self) -> Result<AstNode, String> {
         match self.peek().token_type {
@@ -334,6 +368,7 @@ impl<'a> ParserState<'a> {
         }
     }
 
+
     pub fn parse_if(&mut self) -> Result<AstNode, String> {
         let condition = self.parse_expr_data()?;
         let then = self.parse_expr_data()?;
@@ -343,6 +378,7 @@ impl<'a> ParserState<'a> {
         } else { None };
         Ok(ExpressionNode(Rc::new(IfExpr(IfData { if_branch, else_branch }))))
     }
+
 
     pub fn parse_cond(&mut self) -> Result<AstNode, String> {
         let mut cond_branches = Vec::<CondBranch>::new();
@@ -364,6 +400,7 @@ impl<'a> ParserState<'a> {
         } else { Ok(ExpressionNode(Rc::new(CondExpr(CondData { cond_branches, else_branch })))) }
     }
 
+
     pub fn parse_cond_branch(&mut self) -> Result<CondBranch, String> {
         self.consume_left_paren()?;
 
@@ -373,23 +410,26 @@ impl<'a> ParserState<'a> {
         Ok(CondBranch { cond_node, then_node })
     }
 
-    pub fn parse_multi_expr(&mut self) -> Result<AstNode, String> {
+
+    pub fn parse_multi_expr(&mut self) -> Result<Option<AstNode>, String> {
         let mut expressions = Vec::<AstNode>::new();
         while self.peek().token_type != Lexical(Lex::RightParen) {
             expressions.push(self.parse_expr_data()?);
         }
 
         if expressions.is_empty() {
-            Err(format!("Expected one or more expressions, line: {}", self.peek().line))
+            Ok(None)
         } else if expressions.len() == 1 {
-            Ok(expressions.pop().unwrap())
-        } else { Ok(ExpressionNode(Rc::new(MultiExpr(expressions)))) }
+            Ok(Some(expressions.pop().unwrap()))
+        } else { Ok(Some(ExpressionNode(Rc::new(MultiExpr(expressions))))) }
     }
+
 
     pub fn parse_print(&mut self) -> Result<AstNode, String> {
         let expr = self.parse_expr_data()?;
         Ok(ExpressionNode(Rc::new(PrintExpr(expr))))
     }
+
 
     pub fn parse_list(&mut self) -> Result<AstNode, String> {
         let mut elements = Vec::<AstNode>::new();
@@ -402,12 +442,14 @@ impl<'a> ParserState<'a> {
         } else { Ok(ExpressionNode(Rc::new(PairList(elements)))) }
     }
 
+
     pub fn parse_list_head(&mut self) -> Result<AstNode, String> {
         let head = self.parse_expr_data()?;
         if self.peek().token_type != Lexical(Lex::RightParen) {
             Err(format!("Invalid argument count, line: {}", self.peek().line))
         } else { Ok(head) }
     }
+
 
     pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
         if self.peek().token_type == Lexical(Lex::SingleQuote) {
@@ -425,6 +467,7 @@ impl<'a> ParserState<'a> {
         }
     }
 
+
     pub fn parse_while(&mut self) -> Result<AstNode, String> {
         let is_do = if self.peek().token_type == Modifier(Mod::Do) {
             self.advance()?;
@@ -432,9 +475,13 @@ impl<'a> ParserState<'a> {
         } else { false };
 
         let condition = self.parse_expr_data()?;
-        let body = self.parse_multi_expr()?;
+        let body = match self.parse_multi_expr()? {
+            None => { return Err("Expected body for while loop, found none".to_string()); }
+            Some(s) => s
+        };
         Ok(ExpressionNode(Rc::new(WhileLoop(WhileData { condition, body, is_do }))))
     }
+
 
     pub fn parse_cons(&mut self) -> Result<AstNode, String> {
         let car = self.parse_expr_data()?;
@@ -444,6 +491,7 @@ impl<'a> ParserState<'a> {
             Err("Cons expression may only have 2 arguments".to_string())
         } else { Ok(ExpressionNode(Rc::new(ConsExpr(ConsData { car, cdr })))) }
     }
+
 
     pub fn parse_type_if_exists(&mut self) -> Result<Option<Spur>, String> {
         let typ = if let Syntactic(Syn::DoubleColon) = &self.peek().token_type {
@@ -460,6 +508,7 @@ impl<'a> ParserState<'a> {
         //  if typ.is_some() { self.advance()?; }
         Ok(typ)
     }
+
 
     pub fn parse_identifier(&mut self, identifier: Spur) -> Result<AstNode, String> {
         let name = identifier;
@@ -491,6 +540,7 @@ impl<'a> ParserState<'a> {
             Ok(ExpressionNode(Rc::new(LiteralCall(name))))
         }
     }
+
 
     fn parse_accessors(&mut self) -> Result<LinkedList<Accessor>, String> {
         let mut accessors = LinkedList::<Accessor>::new();
@@ -530,6 +580,7 @@ impl<'a> ParserState<'a> {
         Ok(accessors)
     }
 
+
     pub fn parse_define(&mut self) -> Result<AstNode, String> {
         self.consume(Definition(Def::Define))?;
 
@@ -546,11 +597,11 @@ impl<'a> ParserState<'a> {
                     if var_type != None {
                         self.push_warning(format!(
                             "Type specifier: {}, is unused for function definition, line: {}",
-                            self.s_cache.resolve(&var_type.unwrap()), self.peek().line))
+                            util::SCACHE.resolve(&var_type.unwrap()), self.peek().line))
                     }
 
                     self.consume_left_paren()?;
-                    let lambda = self.parse_lambda(false)?;
+                    let lambda = self.parse_lambda(false, false)?;
                     self.consume_right_paren()?;
                     DefinitionNode(Rc::new(DefNode::Function(DefFuncData { name, lambda: Rc::new(lambda) })))
                 } else {
@@ -568,10 +619,12 @@ impl<'a> ParserState<'a> {
         return Ok(definition);
     }
 
+
     pub fn parse_instance(&mut self, name: Spur) -> Result<AstNode, String> {
         let args = self.parse_named_args()?;
         Ok(DefinitionNode(Rc::new(DefNode::InstanceDef(DefStructInst { name, args }))))
     }
+
 
     pub fn parse_named_args(&mut self) -> Result<Option<Vec<InstArgs>>, String> {
         self.consume(Lexical(Lex::LeftBracket))?;
@@ -605,6 +658,7 @@ impl<'a> ParserState<'a> {
         Ok(AstNode::new_quote_lit(self.parse_expr_data()?))
     }
 
+
     pub fn parse_struct_def(&mut self) -> Result<AstNode, String> {
         self.consume(Definition(DefineStruct))?;
 
@@ -630,40 +684,102 @@ impl<'a> ParserState<'a> {
 
         while self.peek().token_type != Lexical(RightParen) {
             self.consume_left_paren()?;
-            match self.advance()?.token_type {
-                Initializer(Init::Init) => { class_data.init = self.parse_function_multi()?; }
-                Initializer(Init::Param) => { class_data.params = self.parse_modifiers()? }
-                Initializer(Init::Var) => { class_data.fields = self.parse_fields()?; }
-                Initializer(Init::Func) => { class_data.methods = self.parse_function_multi()?; }
-                Initializer(Init::Pre) => {}
-                Initializer(Init::Post) => {}
-                Initializer(Init::Final) => {}
-                _ => { return Err(format!("Unexpected token in class definition: {:?}", &self.previous())); }
+            self.consume(Syntactic(Syn::Colon))?;
+
+            match &self.peek().data {
+                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_init => {
+                    self.advance()?;
+                    let mut init_vec = Vec::<DefLambdaData>::with_capacity(4);
+
+                    while self.peek().token_type != Lexical(RightParen) {
+                        self.consume_left_paren()?;
+                        match self.parse_lambda(true, true) {
+                            Ok(init) => init_vec.push(init),
+                            Err(e) => return Err(e),
+                        }
+                        self.consume_right_paren()?;
+                    }
+
+                    class_data.init = if init_vec.is_empty() { None } else { Some(init_vec) }
+                }
+
+                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_param => {
+                    self.advance()?;
+                    class_data.params = self.parse_modifiers()?;
+                }
+
+                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_var => {
+                    self.advance()?;
+                    class_data.fields = self.parse_fields()?
+                }
+
+                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_func => {
+                    self.advance()?;
+                    let mut func_vec = Vec::<DefFuncData>::with_capacity(4);
+
+                    while self.peek().token_type != Lexical(RightParen) {
+                        self.consume_left_paren()?;
+                        match self.parse_func(false) {
+                            Ok(func) => func_vec.push(func),
+                            Err(e) => return Err(e),
+                        }
+                        self.consume_right_paren()?;
+                    }
+
+                    class_data.methods = if func_vec.is_empty() { None } else { Some(func_vec) }
+                }
+
+                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_pre => {
+                    self.advance()?;
+                    class_data.pre_init = self.parse_multi_expr()?;
+                }
+
+                Some(TokenData::String(spur))if spur == &util::SCACHE.const_post => {
+                    self.advance()?;
+                    class_data.post_init = self.parse_multi_expr()?;
+                }
+
+                Some(TokenData::String(spur))if spur == &util::SCACHE.const_final => {
+                    self.advance()?;
+                    class_data.fin = self.parse_multi_expr()?;
+                }
+
+                Some(TokenData::String(spur))if spur == &util::SCACHE.const_validate => {
+                    self.advance()?;
+                    class_data.validate = self.parse_multi_expr()?;
+                }
+
+                _ => { return Err(format!("Invalid token in class definition:  {:?}", &self.peek())); }
             }
+
             self.consume_right_paren()?;
         }
 
         Ok(DefinitionNode(Rc::new(ClassDef(class_data))))
     }
 
-    pub fn parse_function_multi(&mut self) -> Result<Option<Vec<DefFuncData>>, String> {
-        let mut init_vec = Vec::<DefFuncData>::with_capacity(4);
-
-        while self.peek().token_type != Lexical(RightParen) {
-            self.consume_left_paren()?;
-            if let Ok(DefinitionNode(init)) = self.parse_func() {
-                if let DefNode::Function(def) = init.deref() {
-                    init_vec.push(def.clone());
-                }
-            }
-            self.consume_right_paren()?
-        }
-        return if init_vec.is_empty() { Ok(None) } else { Ok(Some(init_vec)) };
-    }
+// 
+// pub fn parse_multi<F>(&mut self, f: F) -> Result<Option<Vec<AstNode>>, String>
+//     where
+//         F: Fn() -> Result<AstNode, String>,
+// {
+//     let mut init_vec = Vec::<AstNode>::with_capacity(4);
+// 
+//     while self.peek().token_type != Lexical(RightParen) {
+//         self.consume_left_paren()?;
+//         match f() {
+//             Ok(node) => init_vec.push(node),
+//             Err(e) => return Err(e),
+//         }
+//         self.consume_right_paren()?;
+//     }
+//     Ok(if init_vec.is_empty() { None } else { Some(init_vec) })
+// }
 
 
     pub fn parse_fields(&mut self) -> Result<Option<Vec<Field>>, String> {
         let mut fields = Vec::<Field>::new();
+
         while self.peek().token_type != Lexical(RightParen) {
             self.consume_left_paren()?;
 
@@ -691,29 +807,36 @@ impl<'a> ParserState<'a> {
         } else { Ok(Some(fields)) }
     }
 
-    pub fn parse_func(&mut self) -> Result<AstNode, String> {
-        self.consume(Definition(Def::DefineFunc))?;
+
+    pub fn parse_func(&mut self, is_defunc: bool) -> Result<DefFuncData, String> {
+        if is_defunc { self.consume(Definition(Def::DefineFunc))?; }
 
         let name = match &self.consume(Literal(Lit::Identifier))?.data {
             Some(TokenData::String(name)) => name.clone(),
             _ => return Err("Expected name for function".to_string())
         };
-        let lambda = self.parse_lambda(true)?;
-        Ok(DefinitionNode(Rc::new(DefNode::Function(DefFuncData { name, lambda: Rc::new(lambda) }))))
+
+        let lambda = self.parse_lambda(true, true)?;
+        Ok(DefFuncData { name, lambda: Rc::new(lambda) })
     }
 
-    pub fn parse_lambda(&mut self, is_defunc: bool) -> Result<DefLambdaData, String> {
+
+    pub fn parse_lambda(&mut self, is_defunc: bool, bracketed: bool) -> Result<DefLambdaData, String> {
         if !is_defunc { self.consume(Definition(Def::Lambda))?; }
 
         let modifiers = if matches!(self.peek().token_type, Modifier(_)) {
             self.parse_modifiers()?
         } else { None };
 
-        let parameters = self.parse_parameters()?;
-        let body = self.parse_multi_expr()?;
+        let parameters = self.parse_parameters(bracketed)?;
+        let body = match self.parse_multi_expr()? {
+            None => { return Err("Expected body for lambda, found none".to_string()); }
+            Some(s) => s
+        };
         let rtn_type = self.parse_type_if_exists()?;
         Ok(DefLambdaData { modifiers, parameters, body, p_type: rtn_type, c_type: None })
     }
+
 
     pub fn parse_modifiers(&mut self) -> Result<Option<Vec<Mod>>, String> {
         if !matches!(self.peek().token_type, Modifier(_)) { return Ok(None); };
@@ -729,6 +852,7 @@ impl<'a> ParserState<'a> {
         } else { Ok(Some(modifiers)) }
     }
 
+
     pub fn parse_func_args(&mut self) -> Result<Option<Vec<FuncArg>>, String> {
         let mut func_args = Vec::<FuncArg>::new();
         let mut at_opt = false;
@@ -741,7 +865,7 @@ impl<'a> ParserState<'a> {
                 at_opt = true;
                 let token_data = self.consume(Literal(Lit::Identifier))?;
                 let name = match token_data.data {
-                    Some(TokenData::String(ref s)) => s.clone(),
+                    Some(TokenData::String(ref s)) => *s,
                     _ => return Err("Expected a string identifier".to_string())
                 };
 
@@ -759,17 +883,29 @@ impl<'a> ParserState<'a> {
         Ok(if func_args.is_empty() { None } else { Some(func_args) })
     }
 
-    pub fn parse_parameters(&mut self) -> Result<Option<Vec<Param>>, String> {
-        self.consume_left_paren()?;
-        if self.peek().token_type == Lexical(Lex::RightParen) {
-            self.consume_right_paren()?;
-            return Ok(None);
+
+    pub fn parse_parameters(&mut self, bracketed: bool) -> Result<Option<Vec<Param>>, String> {
+        if bracketed {
+            self.consume_left_bracket();
+            if self.peek().token_type == Lexical(Lex::RightBracket) {
+                self.consume_right_bracket()?;
+                return Ok(None);
+            }
+        } else {
+            self.consume_left_paren();
+            if self.peek().token_type == Lexical(Lex::RightParen) {
+                self.consume_right_paren()?;
+                return Ok(None);
+            }
         }
 
         let mut optional = false;
         let mut params = Vec::<Param>::new();
 
-        while self.peek().token_type != Lexical(Lex::RightParen) {
+        while self.peek().token_type != if bracketed {
+            Lexical(RightBracket)
+        } else { Lexical(Lex::RightParen) }
+        {
             let mut dynamic = false;
             let mut mutable = false;
 
@@ -811,13 +947,13 @@ impl<'a> ParserState<'a> {
             }
             );
         }
-        self.consume_right_paren()?;
+        if bracketed { self.consume_right_bracket()?; } else { self.consume_right_paren()?; }
         Ok(Some(params))
     }
 }
 
 
-pub fn process(tokens: Vec<Token>, s_cache: &mut Rodeo) -> Result<Vec<AstNode>, String> {
-    let mut state = ParserState::new(tokens, s_cache);
+pub fn process(tokens: Vec<Token>) -> Result<Vec<AstNode>, String> {
+    let mut state = ParserState::new(tokens);
     state.process()
 }

@@ -2,9 +2,10 @@ use std::iter::Peekable;
 use std::ops::Deref;
 use std::str::Chars;
 use lasso::{Rodeo, Spur};
-use crate::parse::{Lex, Lit, match_single_token, Op, Syn, Token, token, TokenData, TokenType};
+use crate::parse::{Lex, Lit, match_single_token, Op, Syn, Token, token, TokenData, TokenType, util};
 
 use crate::parse::TokenType::{Lexical, Literal, Syntactic, Operation};
+use crate::parse::util::SCACHE;
 
 
 struct LexicalState<'a> {
@@ -14,12 +15,11 @@ struct LexicalState<'a> {
     char_iter: Peekable<Chars<'a>>,
     pub curr_char: char,
     pub last_char: char,
-    pub s_cache: &'a mut Rodeo,
 }
 
 
 impl<'a> LexicalState<'a> {
-    pub fn new(source: &'a String, s_cache: &'a mut Rodeo) -> Self {
+    pub fn new(source: &'a String) -> Self {
         let char_iter = source.chars().peekable();
         LexicalState {
             tokens: Vec::new(),
@@ -28,7 +28,6 @@ impl<'a> LexicalState<'a> {
             char_iter: char_iter,
             curr_char: '\0',
             last_char: '\0',
-            s_cache,
         }
     }
 
@@ -76,8 +75,8 @@ impl<'a> LexicalState<'a> {
 }
 
 
-pub fn process(input: String, s_cache: &mut Rodeo) -> Result<Vec<Token>, String> {
-    let mut state = LexicalState::new(&input, s_cache);
+pub fn process(input: String) -> Result<Vec<Token>, String> {
+    let mut state = LexicalState::new(&input);
 
     while state.have_next() {
         let c = state.advance();
@@ -139,7 +138,7 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
 
 fn lex_word_token(state: &mut LexicalState) -> bool {
     let string_data = read_data_to_string(state);
-    match token::match_word_token(state.s_cache.resolve(&string_data)) {
+    match token::match_word_token(util::SCACHE.resolve(&string_data)) {
         None => state.add_token_data(Literal(Lit::Identifier), TokenData::String(string_data)),
         Some(value) => state.add_token_data(value, TokenData::String(string_data))
     }
@@ -156,7 +155,7 @@ fn lex_type(state: &mut LexicalState) -> bool {
 
 fn lex_modifier(state: &mut LexicalState) -> bool {
     let mod_string = read_data_to_string(state);
-    match token::match_modifier_token(state.s_cache.resolve(&mod_string)) {
+    match token::match_modifier_token(SCACHE.resolve(&mod_string)) {
         None => false,
         Some(value) => {
             state.add_token(value)
@@ -173,7 +172,7 @@ fn lex_string_literal(state: &mut LexicalState) -> bool {
         string_data.push(state.advance());
     }
 
-    let spur = state.s_cache.get_or_intern(string_data);
+    let spur = util::SCACHE.intern(&string_data);
     state.advance(); // Consume closing "
     state.add_token_data(Literal(Lit::String), TokenData::String(spur));
     true
@@ -213,7 +212,7 @@ fn read_data_to_string(state: &mut LexicalState) -> Spur {
         string_data.push(state.advance());
         c = state.peek()
     }
-    state.s_cache.get_or_intern(string_data)
+    util::SCACHE.intern(&string_data)
 }
 
 

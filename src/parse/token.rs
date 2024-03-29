@@ -1,7 +1,6 @@
 use std::string::String;
 use lasso::Spur;
 use crate::parse::ast_nodes::Param;
-use crate::parse::token::Init::*;
 use crate::parse::token::Lex::*;
 use crate::parse::token::Lit::*;
 use crate::parse::token::Op::*;
@@ -96,13 +95,8 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
         "def-class" => Some(Definition(DefineClass)),
         "def-struct" => Some(Definition(DefineStruct)),
         "lambda" => Some(Definition(Lambda)),
-        ":init" => Some(Initializer(Init)),
-        ":var" => Some(Initializer(Var)),
-        ":func" => Some(Initializer(Func)),
-        ":pre" => Some(Initializer(Pre)),
-        ":post" => Some(Initializer(Post)),
-        ":final" => Some(Initializer(Final)),
-        ":param" => Some(Initializer(Param)),
+        "randi" => Some(Expression(Randi)),
+        "randf" => Some(Expression(Randf)),
         _ => None
     }
 }
@@ -130,8 +124,7 @@ pub enum TokenType {
     Literal(Lit),
     Expression(Expr),
     Definition(Def),
-    Modifier(Mod),
-    Initializer(Init),
+    Modifier(Mod)
 }
 
 
@@ -226,6 +219,8 @@ pub enum Expr {
     Cdr,
     List,
     Lacc,
+    Randi,
+    Randf,
 }
 
 
@@ -248,18 +243,6 @@ pub enum Mod {
     Dynamic,
     Optional,
     Do,
-}
-
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum Init {
-    Init,
-    Var,
-    Func,
-    Pre,
-    Post,
-    Final,
-    Param,
 }
 
 

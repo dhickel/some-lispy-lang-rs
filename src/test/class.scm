@@ -2,37 +2,35 @@
   (:param &mut)
   (:var
     (time &mut ::LocalDateTime)
-    (uuid ::UUID)
+    (uuid ::UUID | "234234234sdf")
     (name ::String)
     (address ::String))
 
   (:pre
-    (:= uuid 10)
     (:= name 10)
     (:= address "String"))
 
   (:init
     ([name address]
       (:= name name)
-      (:= address address))
-
-    ([name address]
-      (:= name name)
-      (:= address address))
-
-    ([name address]
-      (:= name name)
-      (:= address address))
+      (:= address address)
+      (:= time 0 ))
 
     ([] ()))
 
   (:validate
     (!= uuid #nil)
-    (> (address:.len) 20))
+    (== address "address")
+    (> 10 time))
 
   (:func
-    (get-address-formated [formatter ::formatter]
-      (try ((formatter address)) (catch IOException (e))))))
+    (get-time [] time)
 
+    (get-time2 [ignore] time)
+
+    (set-time [arg] (:= time arg))
+    
+    (times-2 [x]
+      (* x 2))))
 
 

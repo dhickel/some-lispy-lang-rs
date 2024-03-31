@@ -1,5 +1,5 @@
 use crate::parse::{Def, Expr, lexer, Lit, Syn, TokenData};
-use crate::parse::TokenType::{Definition, Expression, Literal, Syntactic};
+use crate::parse::TokenType::{TDefinition, TExpression, TLiteral, TSyntactic};
 
 //  fn main(){
 //      test_number_lexing();

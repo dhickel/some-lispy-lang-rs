@@ -10,9 +10,9 @@ use crate::parse::ast_nodes::AstNode::LiteralNode;
 use crate::parse::{Lit, Mod};
 
 
-const NIL_LIT: LitNode = LitNode::Nil(NilValue());
-const TRUE_LIT: LitNode = LitNode::Boolean(BoolValue(true));
-const FALSE_LIT: LitNode = LitNode::Boolean(BoolValue(false));
+pub const NIL_LIT: LitNode = LitNode::Nil(NilValue());
+pub const TRUE_LIT: LitNode = LitNode::Boolean(BoolValue(true));
+pub const FALSE_LIT: LitNode = LitNode::Boolean(BoolValue(false));
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,14 +57,6 @@ impl AstNode {
         LiteralNode(Rc::new(LitNode::Vector(VectorValue(v))))
     }
 
-    // pub fn new_pair_lit(car: LitNode, cdr: LitNode) -> AstNode {
-    //     LiteralNode(Rc::new(LitNode::Pair(PairValue { car: Box::new(car), cdr: Box::new(cdr) })))
-    // }
-
-    // pub fn new_raw_pair(car: LitNode, cdr: LitNode) -> Rc<LitNode> {
-    //     Rc::new(LitNode::Pair(PairValue { car: Box::new(car), cdr: Box::new(cdr) }))
-    // }
-
     pub fn new_lambda_lit(def: Rc<DefLambdaData>, envs: Rc<RefCell<Environment>>) -> AstNode {
         LiteralNode(Rc::new(LitNode::Lambda(LambdaValue { def: Rc::clone(&def), env: envs })))
     }
@@ -82,7 +74,7 @@ pub enum DefNode {
     Function(DefFuncData),
     StructDef(DefStructData),
     ClassDef(DefClassData),
-    InstanceDef(DefStructInst),
+
 }
 
 
@@ -163,7 +155,7 @@ impl DefClassData {
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DefStructInst {
+pub struct DirectInst {
     pub name: Spur,
     pub args: Option<Vec<InstArgs>>,
 }
@@ -195,7 +187,9 @@ pub enum ExprNode {
     ObjectCall(ObjectCallData),
     LiteralCall(Spur),
     ObjectAssignment(ObjectAssignData),
-    GenRand(bool, AstNode, AstNode)
+    GenRand(bool, AstNode, AstNode),
+    DirectInst(DirectInst),
+    InitInst(FuncCallData)
 }
 
 
@@ -582,9 +576,11 @@ impl PairValue {
         let car = if let LiteralNode(lit) = car_val {
             Rc::clone(&lit)
         } else { return Err("Invalid, car value not a literal".to_string()); };
+
         let cdr = if let LiteralNode(lit) = cdr_val {
             Rc::clone(&lit)
         } else { return Err("Invalid, car value not a literal".to_string()); };
+
         Ok(LiteralNode(Rc::new(LitNode::Pair(PairValue { car, cdr }))))
     }
 
@@ -592,9 +588,11 @@ impl PairValue {
         let car = if let LiteralNode(lit) = car_val {
             Rc::clone(&lit)
         } else { return Err("Invalid, car value not a literal".to_string()); };
+
         let cdr = if let LiteralNode(lit) = cdr_val {
             Rc::clone(&lit)
         } else { return Err("Invalid, car value not a literal".to_string()); };
+
         Ok(LitNode::Pair(PairValue { car, cdr }))
     }
 

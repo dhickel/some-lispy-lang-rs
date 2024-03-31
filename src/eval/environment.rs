@@ -8,19 +8,14 @@ use crate::lang::datatypes::Binding;
 
 use crate::parse::ast_nodes::{AstNode, LitNode};
 use crate::parse::ast_nodes::AstNode::LiteralNode;
-
-
-#[derive(Clone, Debug)]
-pub struct Context<'a> {
-    pub env: &'a Rc<RefCell<Environment>>,
-    pub class_loader: &'a ClassLoader,
-}
+use crate::parse::util;
 
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
     parent: Option<Rc<RefCell<Environment>>>,
     bindings: AHashMap<Spur, Binding>,
+    locked: bool,
 }
 
 
@@ -29,13 +24,15 @@ impl Environment {
         Rc::new(RefCell::new(Environment {
             parent: None,
             bindings: AHashMap::with_capacity(50),
+            locked: true,
         }))
     }
 
-    pub fn of(env: Rc<RefCell<Environment>>) -> Rc<RefCell<Environment>> {
+    pub fn of_nested(env: Rc<RefCell<Environment>>) -> Rc<RefCell<Environment>> {
         Rc::new(RefCell::new(Environment {
             parent: Some(env),
             bindings: AHashMap::with_capacity(10),
+            locked: true,
         }))
     }
 
@@ -43,17 +40,23 @@ impl Environment {
         Rc::new(RefCell::new(Environment {
             parent: None,
             bindings: field_map,
+            locked: true,
         }))
     }
 
-    // pub fn print_bindings(&self) {
-    //     for i in self.bindings.iter() {
-    //         println!("{}:{:?}", i.0, i.1.obj_type)
-    //     }
-    //     if let Some(p_env) = &self.parent {
-    //         p_env.borrow().print_bindings();
-    //     }
-    // }
+    pub fn unlock(&mut self) { self.locked = false; }
+    pub fn lock(&mut self) { self.locked = true; }
+
+    pub fn validate_bindings(&self) -> bool {
+        let valid = self.bindings.values().all(|binding| binding.is_set);
+        if !valid { return false; }
+
+        if let Some(p_env) = &self.parent {
+            p_env.borrow().validate_bindings()
+        } else {
+            true
+        }
+    }
 
     pub fn depth(&self, mut i: usize) -> usize {
         i += self.bindings.len();
@@ -87,37 +90,18 @@ impl Environment {
         if !matches!(value, LiteralNode(_)) {
             return Err(format!("Attempted to assign non literal value to{:?}", name));
         }
+        
+        println!("updating: {:?}", util::SCACHE.resolve(name));
         if let Some(binding) = self.bindings.get_mut(name) {
             let mut data = binding;
 
-            if data.mutable {
+            if data.mutable || !self.locked {
                 if let LiteralNode(lit) = &value {
+                    data.is_set = true;
                     data.value = Rc::clone(&lit);
                     Ok(AstNode::new_bool_lit(true))
                 } else { Err(format!("Attempted to bind non literal object: {:?}", value)) }
-            } else {
-                Err(format!("Attempted to reassign immutable binding{:?}", name))
-            }
-        } else if let Some(p_env) = &mut self.parent {
-            p_env.borrow_mut().update_binding(name, value)
-        } else {
-            Err(format!("Failed to find binding to update for: {:?}", name))
-        }
-    }
-
-    pub fn update_binding_mut<'a>(&mut self, name: &Spur, value: &'a AstNode) -> Result<AstNode, String> {
-        if !matches!(value, LiteralNode(_)) {
-            return Err(format!("Attempted to assign non literal value to{:?}", name));
-        }
-        if let Some(binding) = self.bindings.get_mut(name) {
-            let mut data = binding;
-
-            if let LiteralNode(lit) = &value {
-                data.value = Rc::clone(&lit);
-                Ok(AstNode::new_bool_lit(true))
-            } else {
-                Err(format!("Attempted to reassign immutable binding{:?}", name))
-            }
+            } else { Err(format!("Attempted to reassign immutable binding{:?}", name)) }
         } else if let Some(p_env) = &mut self.parent {
             p_env.borrow_mut().update_binding(name, value)
         } else {

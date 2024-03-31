@@ -1,9 +1,8 @@
 use std::collections::LinkedList;
-use std::ops::Deref;
 use std::rc::Rc;
 use lasso::{Rodeo, Spur};
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType, util};
-use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefNode, DefStructData, DefStructInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefNode, DefStructData, DirectInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
 use crate::parse::ast_nodes::DefNode::ClassDef;
 use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, GenRand, IfExpr, ListAccess, LiteralCall, MultiExpr, ObjectAssignment, ObjectCall, PairList, PrintExpr, WhileLoop};
@@ -11,17 +10,8 @@ use crate::parse::Def::{DefineClass, DefineStruct};
 use crate::parse::Lex::{LeftParen, RightBracket, RightParen};
 
 
-use crate::parse::TokenType::{Definition, Expression, Lexical, Literal, Operation, Syntactic, Modifier};
+use crate::parse::TokenType::{TDefinition, TExpression, TLexical, TLiteral, TOperation, TSyntactic, TModifier};
 
-
-macro_rules! nano_time {
-    () => {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_nanos() // Returns the number of nanoseconds since the Unix epoch
-    };
-}
 
 
 struct ParserState {
@@ -89,8 +79,8 @@ impl ParserState {
     pub fn advance(&mut self) -> Result<&Token, String> {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
-        if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
-            panic!("Parenthesis should  be advanced via consume paren function");
+        if matches!(self.peek().token_type, TLexical(Lex::LeftParen) | TLexical(Lex::RightParen)) {
+           // panic!("Parenthesis should  be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         self.current += 1;
@@ -106,8 +96,8 @@ impl ParserState {
     pub fn consume(&mut self, token_type: TokenType) -> Result<&Token, String> {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
-        if matches!(self.peek().token_type, Lexical(Lex::LeftParen) | Lexical(Lex::RightParen)) {
-            panic!("Parenthesis should only be advanced via consume paren function");
+        if matches!(self.peek().token_type, TLexical(Lex::LeftParen) | TLexical(Lex::RightParen)) {
+            //panic!("Parenthesis should only be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
         if !self.check(&token_type) {
@@ -119,8 +109,8 @@ impl ParserState {
 
 
     pub fn consume_left_paren(&mut self) -> Result<(), String> {
-        if !self.check(&Lexical(Lex::LeftParen)) {
-            panic!("Expected: Left Paren, Found: {:?}", self.peek());
+        if !self.check(&TLexical(Lex::LeftParen)) {
+            //  panic!("Expected: Left Paren, Found: {:?}", self.peek());
             return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -130,8 +120,8 @@ impl ParserState {
 
 
     pub fn consume_right_paren(&mut self) -> Result<(), String> {
-        if !self.check(&Lexical(Lex::RightParen)) {
-            panic!("Expected: Right Paren, Found: {:?}", self.peek());
+        if !self.check(&TLexical(Lex::RightParen)) {
+            //  panic!("Expected: Right Paren, Found: {:?}", self.peek());
             return Err(format!("Expected: RightParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -140,8 +130,8 @@ impl ParserState {
     }
 
     pub fn consume_left_bracket(&mut self) -> Result<(), String> {
-        if !self.check(&Lexical(Lex::LeftBracket)) {
-            panic!("Expected: Left Bracket, Found: {:?}", self.peek());
+        if !self.check(&TLexical(Lex::LeftBracket)) {
+            // panic!("Expected: Left Bracket, Found: {:?}", self.peek());
             return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -151,8 +141,8 @@ impl ParserState {
 
 
     pub fn consume_right_bracket(&mut self) -> Result<(), String> {
-        if !self.check(&Lexical(Lex::RightBracket)) {
-            panic!("Expected: Right Bracket, Found: {:?}", self.peek());
+        if !self.check(&TLexical(Lex::RightBracket)) {
+            //   panic!("Expected: Right Bracket, Found: {:?}", self.peek());
             return Err(format!("Expected: RightParen, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -163,26 +153,29 @@ impl ParserState {
 
     pub fn parse_expr_data(&mut self) -> Result<AstNode, String> {
         match &self.peek().token_type {
-            Lexical(Lex::LeftParen) => self.parse_s_expr(),
-            Lexical(Lex::RightParen) => {
+            TLexical(LeftParen) => self.parse_s_expr(),
+            TLexical(RightParen) => {
                 // Needed, this function is entered by parse_s_expr, but could be null list lit
-                if matches!(self.previous().token_type, Lexical(Lex::LeftParen)) {
+                if matches!(self.previous().token_type, TLexical(Lex::LeftParen)) {
                     Ok(AstNode::new_nil_lit())
                 } else { Err(format!("Right paren with no matching open, line: {}", self.peek().line)) }
             }
-            Operation(_) => self.parse_operation(),
-            Literal(_) => self.parse_literal(),
-            Lexical(Lex::SingleQuote) => self.parse_quote(),
-            Expression(_) => self.parse_exact_expr(),
-            Definition(Def::Define) => self.parse_define(),
-            Definition(Def::DefineFunc) =>
-                Ok(DefinitionNode(Rc::new(DefNode::Function(self.parse_func(true)?)))),
-            Definition(Def::Lambda) =>
-                Ok(DefinitionNode(Rc::new(DefNode::Lambda(Rc::new(self.parse_lambda(false, false)?))))),
-            Definition(Def::DefineStruct) => self.parse_struct_def(),
-            Definition(Def::DefineClass) => self.parse_class_def(),
-            Syntactic(_) => Err(format!("Unexpected token: {:?}", &self.peek())), // TODO implement quote
-            _ => Err(format!("Unexpected token: {:?}", &self.peek()))
+            TOperation(_) => self.parse_operation(),
+            TLiteral(_) => self.parse_literal(),
+            TLexical(Lex::SingleQuote) => self.parse_quote(),
+            TExpression(_) => self.parse_exact_expr(),
+            TDefinition(Def::Define) => self.parse_define(),
+            TDefinition(Def::DefineFunc) => {
+                Ok(DefinitionNode(Rc::new(DefNode::Function(self.parse_func(true)?))))
+            }
+            TDefinition(Def::Lambda) => {
+                Ok(DefinitionNode(Rc::new(DefNode::Lambda(Rc::new(self.parse_lambda(false, false)?)))))
+            }
+            TDefinition(Def::DefineStruct) => self.parse_struct_def(),
+            TDefinition(Def::DefineClass) => self.parse_class_def(),
+
+            TSyntactic(_) => Err(format!("Unexpected token: {:?}", &self.peek())), // TODO implement quote
+            _ =>  Err(format!("Unexpected token: {:?}", &self.peek()))
         }
     }
 
@@ -192,7 +185,7 @@ impl ParserState {
         let expression = self.parse_expr_data()?;
 
         // Handle edge case where first expr in an s-expr is something that evals to a lambda call
-        if self.peek().token_type != Lexical(Lex::RightParen) {
+        if self.peek().token_type != TLexical(Lex::RightParen) {
             let args = self.parse_func_args()?;
             self.consume_right_paren()?;
             return Ok(ExpressionNode(Rc::new(ExprFuncCal(ExprFuncCallData {
@@ -201,6 +194,7 @@ impl ParserState {
                 arguments: args,
             }))));
         }
+        
         self.consume_right_paren()?;
         Ok(expression)
     }
@@ -211,34 +205,34 @@ impl ParserState {
         self.advance()?;
 
         let mut operands = Vec::<AstNode>::new();
-        while self.have_next() && self.peek().token_type != Lexical(Lex::RightParen) {
+        while self.have_next() && self.peek().token_type != TLexical(Lex::RightParen) {
             operands.push(self.parse_expr_data()?);
         }
 
 
         match operation {
-            Operation(Op::And) => Ok(OperationNode(OpNode::And(operands))),
-            Operation(Op::Or) => Ok(OperationNode(OpNode::Or(operands))),
-            Operation(Op::Nor) => Ok(OperationNode(OpNode::Nor(operands))),
-            Operation(Op::Xor) => Ok(OperationNode(OpNode::Xor(operands))),
-            Operation(Op::Xnor) => Ok(OperationNode(OpNode::Xnor(operands))),
-            Operation(Op::Nand) => Ok(OperationNode(OpNode::Nand(operands))),
-            Operation(Op::Negate) => Ok(OperationNode(OpNode::Negate(operands))),
-            Operation(Op::Plus) => Ok(OperationNode(OpNode::Addition(operands))),
-            Operation(Op::Minus) => Ok(OperationNode(OpNode::Subtraction(operands))),
-            Operation(Op::Asterisk) => Ok(OperationNode(OpNode::Multiplication(operands))),
-            Operation(Op::Slash) => Ok(OperationNode(OpNode::Division(operands))),
-            Operation(Op::Caret) => Ok(OperationNode(OpNode::Exponentiate(operands))),
-            Operation(Op::Percent) => Ok(OperationNode(OpNode::Modulo(operands))),
-            Operation(Op::PlusPlus) => Ok(OperationNode(OpNode::Increment(operands))),
-            Operation(Op::MinusMinus) => Ok(OperationNode(OpNode::Decrement(operands))),
-            Operation(Op::Greater) => Ok(OperationNode(OpNode::GreaterThan(operands))),
-            Operation(Op::Less) => Ok(OperationNode(OpNode::LessThan(operands))),
-            Operation(Op::GreaterEqual) => Ok(OperationNode(OpNode::GreaterThanEqual(operands))),
-            Operation(Op::LessEqual) => Ok(OperationNode(OpNode::LessThanEqual(operands))),
-            Operation(Op::Equals) => Ok(OperationNode(OpNode::Equality(operands))),
-            Operation(Op::BangEquals) => Ok(OperationNode(OpNode::RefNonEquality(operands))),
-            Operation(Op::RefEqual) => Ok(OperationNode(OpNode::RefEquality(operands))),
+            TOperation(Op::And) => Ok(OperationNode(OpNode::And(operands))),
+            TOperation(Op::Or) => Ok(OperationNode(OpNode::Or(operands))),
+            TOperation(Op::Nor) => Ok(OperationNode(OpNode::Nor(operands))),
+            TOperation(Op::Xor) => Ok(OperationNode(OpNode::Xor(operands))),
+            TOperation(Op::Xnor) => Ok(OperationNode(OpNode::Xnor(operands))),
+            TOperation(Op::Nand) => Ok(OperationNode(OpNode::Nand(operands))),
+            TOperation(Op::Negate) => Ok(OperationNode(OpNode::Negate(operands))),
+            TOperation(Op::Plus) => Ok(OperationNode(OpNode::Addition(operands))),
+            TOperation(Op::Minus) => Ok(OperationNode(OpNode::Subtraction(operands))),
+            TOperation(Op::Asterisk) => Ok(OperationNode(OpNode::Multiplication(operands))),
+            TOperation(Op::Slash) => Ok(OperationNode(OpNode::Division(operands))),
+            TOperation(Op::Caret) => Ok(OperationNode(OpNode::Exponentiate(operands))),
+            TOperation(Op::Percent) => Ok(OperationNode(OpNode::Modulo(operands))),
+            TOperation(Op::PlusPlus) => Ok(OperationNode(OpNode::Increment(operands))),
+            TOperation(Op::MinusMinus) => Ok(OperationNode(OpNode::Decrement(operands))),
+            TOperation(Op::Greater) => Ok(OperationNode(OpNode::GreaterThan(operands))),
+            TOperation(Op::Less) => Ok(OperationNode(OpNode::LessThan(operands))),
+            TOperation(Op::GreaterEqual) => Ok(OperationNode(OpNode::GreaterThanEqual(operands))),
+            TOperation(Op::LessEqual) => Ok(OperationNode(OpNode::LessThanEqual(operands))),
+            TOperation(Op::Equals) => Ok(OperationNode(OpNode::Equality(operands))),
+            TOperation(Op::BangEquals) => Ok(OperationNode(OpNode::RefNonEquality(operands))),
+            TOperation(Op::RefEqual) => Ok(OperationNode(OpNode::RefEquality(operands))),
             _ => Err(format!("Fatal, Expected Operation received {:?}", operation))
         }
     }
@@ -249,7 +243,7 @@ impl ParserState {
         let data = &self.previous().data;
 
         match token {
-            Literal(lit) => {
+            TLiteral(lit) => {
                 match lit {
                     Lit::True => Ok(AstNode::new_bool_lit(true)),
                     Lit::False => Ok(AstNode::new_bool_lit(false)),
@@ -290,19 +284,19 @@ impl ParserState {
     pub fn parse_exact_expr(&mut self) -> Result<AstNode, String> {
         let expression = self.advance()?;
         match expression.token_type {
-            Expression(Expr::Assign) => self.parse_assign(),
-            Expression(Expr::If) => self.parse_if(),
-            Expression(Expr::Cond) => self.parse_cond(),
-            Expression(Expr::Begin) => match self.parse_multi_expr()? {
-                None => { return Err("Expected body for begin, found none".to_string()); }
+            TExpression(Expr::Assign) => self.parse_assign(),
+            TExpression(Expr::If) => self.parse_if(),
+            TExpression(Expr::Cond) => self.parse_cond(),
+            TExpression(Expr::Begin) => match self.parse_multi_expr()? {
+                None => { Err("Expected body for begin, found none".to_string()) }
                 Some(s) => Ok(s)
             },
-            Expression(Expr::Print) => self.parse_print(),
-            Expression(Expr::List) => self.parse_list(),
-            Expression(Expr::Lacc) => self.parse_list_access(),
-            Expression(Expr::While) => self.parse_while(),
-            Expression(Expr::Cons) => self.parse_cons(),
-            Expression(Expr::Car) => {
+            TExpression(Expr::Print) => self.parse_print(),
+            TExpression(Expr::List) => self.parse_list(),
+            TExpression(Expr::Lacc) => self.parse_list_access(),
+            TExpression(Expr::While) => self.parse_while(),
+            TExpression(Expr::Cons) => self.parse_cons(),
+            TExpression(Expr::Car) => {
                 Ok(ExpressionNode(Rc::new(ListAccess(
                     ListAccData {
                         index_expr: None,
@@ -310,7 +304,7 @@ impl ParserState {
                         list: self.parse_list_head()?,
                     }))))
             }
-            Expression(Expr::Cdr) => {
+            TExpression(Expr::Cdr) => {
                 Ok(ExpressionNode(Rc::new(ListAccess(
                     ListAccData {
                         index_expr: None,
@@ -318,49 +312,50 @@ impl ParserState {
                         list: self.parse_list_head()?,
                     }))))
             }
-            Expression(Expr::Randi) => self.parse_rand(false),
-            Expression(Expr::Randf) => self.parse_rand(true),
+            TExpression(Expr::Randi) => self.parse_rand(false),
+            TExpression(Expr::Randf) => self.parse_rand(true),
             _ => Err(format!("Expected expression found {:?}", expression))
         }
     }
 
 
     pub fn parse_rand(&mut self, is_float: bool) -> Result<AstNode, String> {
-        let lower =  self.parse_expr_data()?;
-        let upper =  self.parse_expr_data()?;
-        Ok(ExpressionNode(Rc::new(GenRand (is_float, lower, upper))))
+        let lower = self.parse_expr_data()?;
+        let upper = self.parse_expr_data()?;
+        Ok(ExpressionNode(Rc::new(GenRand(is_float, lower, upper))))
     }
 
 
     pub fn parse_assign(&mut self) -> Result<AstNode, String> {
         match self.peek().token_type {
-            Literal(Lit::Identifier) => {
-                let name = match &self.consume(Literal(Lit::Identifier))?.data {
+            TLiteral(Lit::Identifier) => {
+                let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
                     Some(TokenData::String(name)) => name.clone(),
                     _ => return Err("Expected a string identifier".to_string())
                 };
                 let value = self.parse_expr_data()?;
                 Ok(ExpressionNode(Rc::new(Assignment(AssignData { name, value }))))
             }
-            Lexical(Lex::LeftParen) => {
+
+            TLexical(LeftParen) => {
                 self.consume_left_paren()?;
                 let token = self.advance()?;
 
                 let name = if let (
-                    Literal(Lit::Identifier), Some(TokenData::String(s))
-                ) = (&token.token_type, &token.data) {
-                    s.clone()
+                    TLiteral(Lit::Identifier), Some(TokenData::String(s))) = (&token.token_type, &token.data) {
+                    *s
                 } else { return Err(format!("Expected object name to assign to, found: {:?}", token)); };
 
                 let accessors = self.parse_accessors()?;
+
                 self.consume_right_paren()?;
 
                 let value = self.parse_expr_data()?;
-
                 let access = ObjectCallData { name, accessors };
                 let assign_data = ObjectAssignData { access, value };
                 Ok(ExpressionNode(Rc::new(ObjectAssignment(assign_data))))
             }
+
             _ => Err(format!(
                 "Expected identifier or object access to assign to, found: {:?}"
                 , self.peek().token_type)
@@ -373,7 +368,7 @@ impl ParserState {
         let condition = self.parse_expr_data()?;
         let then = self.parse_expr_data()?;
         let if_branch = CondBranch { cond_node: condition, then_node: then };
-        let else_branch = if self.peek().token_type != Lexical(Lex::RightParen) {
+        let else_branch = if self.peek().token_type != TLexical(Lex::RightParen) {
             Some(self.parse_expr_data()?)
         } else { None };
         Ok(ExpressionNode(Rc::new(IfExpr(IfData { if_branch, else_branch }))))
@@ -384,10 +379,10 @@ impl ParserState {
         let mut cond_branches = Vec::<CondBranch>::new();
         let mut else_branch = None;
 
-        while self.peek().token_type != Lexical(Lex::RightParen) {
-            if self.peek_n(2).token_type == Syntactic(Syn::Else) {
+        while self.peek().token_type != TLexical(Lex::RightParen) {
+            if self.peek_n(2).token_type == TSyntactic(Syn::Else) {
                 self.consume_left_paren()?;
-                self.consume(Syntactic(Syn::Else))?;
+                self.consume(TSyntactic(Syn::Else))?;
                 else_branch = Some(self.parse_expr_data()?);
                 self.consume_right_paren()?;
                 break;
@@ -413,7 +408,7 @@ impl ParserState {
 
     pub fn parse_multi_expr(&mut self) -> Result<Option<AstNode>, String> {
         let mut expressions = Vec::<AstNode>::new();
-        while self.peek().token_type != Lexical(Lex::RightParen) {
+        while self.peek().token_type != TLexical(Lex::RightParen) {
             expressions.push(self.parse_expr_data()?);
         }
 
@@ -433,7 +428,7 @@ impl ParserState {
 
     pub fn parse_list(&mut self) -> Result<AstNode, String> {
         let mut elements = Vec::<AstNode>::new();
-        while self.peek().token_type != Lexical(Lex::RightParen) {
+        while self.peek().token_type != TLexical(Lex::RightParen) {
             elements.push(self.parse_expr_data()?);
         }
 
@@ -445,16 +440,17 @@ impl ParserState {
 
     pub fn parse_list_head(&mut self) -> Result<AstNode, String> {
         let head = self.parse_expr_data()?;
-        if self.peek().token_type != Lexical(Lex::RightParen) {
+        if self.peek().token_type != TLexical(Lex::RightParen) {
             Err(format!("Invalid argument count, line: {}", self.peek().line))
         } else { Ok(head) }
     }
 
 
     pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
-        if self.peek().token_type == Lexical(Lex::SingleQuote) {
+        if self.peek().token_type == TLexical(Lex::SingleQuote) {
             self.advance()?;
-            let token_data = &self.consume(Literal(Lit::Identifier))?.data.clone();
+
+            let token_data = &self.consume(TLiteral(Lit::Identifier))?.data.clone();
             let list = self.parse_list_head()?;
 
             if let Some(TokenData::String(s)) = token_data {
@@ -469,7 +465,7 @@ impl ParserState {
 
 
     pub fn parse_while(&mut self) -> Result<AstNode, String> {
-        let is_do = if self.peek().token_type == Modifier(Mod::Do) {
+        let is_do = if self.peek().token_type == TModifier(Mod::Do) {
             self.advance()?;
             true
         } else { false };
@@ -486,23 +482,21 @@ impl ParserState {
     pub fn parse_cons(&mut self) -> Result<AstNode, String> {
         let car = self.parse_expr_data()?;
         let cdr = self.parse_expr_data()?;
-        println!("{:?}", self.peek());
-        if self.peek().token_type != Lexical(Lex::RightParen) {
+
+        if self.peek().token_type != TLexical(Lex::RightParen) {
             Err("Cons expression may only have 2 arguments".to_string())
         } else { Ok(ExpressionNode(Rc::new(ConsExpr(ConsData { car, cdr })))) }
     }
 
 
     pub fn parse_type_if_exists(&mut self) -> Result<Option<Spur>, String> {
-        let typ = if let Syntactic(Syn::DoubleColon) = &self.peek().token_type {
+        let typ = if let TSyntactic(Syn::DoubleColon) = &self.peek().token_type {
             self.advance()?;
             let next = self.advance()?;
-            if let (
-                Literal(Lit::Identifier), Some(TokenData::String(s))) = (&next.token_type, &next.data) {
-                Some(s.clone())
-            } else {
-                return Err(format!("Expected type identifier, found: {:?}", next));
-            }
+
+            if let (TLiteral(Lit::Identifier), Some(TokenData::String(s))) = (&next.token_type, &next.data) {
+                Some(*s)
+            } else { return Err(format!("Expected type identifier, found: {:?}", next)); }
         } else { None };
 
         //  if typ.is_some() { self.advance()?; }
@@ -514,24 +508,24 @@ impl ParserState {
         let name = identifier;
         let mut accessors = None;
 
-        let is_func_call = self.previous_n(2).token_type == Lexical(Lex::LeftParen);
+        let is_func_call = self.previous_n(2).token_type == TLexical(Lex::LeftParen);
 
-        if matches!(self.peek().token_type, Syntactic(Syn::DoubleColon) | Syntactic(Syn::ColonDot)) {
+        if matches!(self.peek().token_type, TSyntactic(Syn::DoubleColon) | TSyntactic(Syn::ColonDot)) {
             accessors = Some(self.parse_accessors()?);
         }
 
         if is_func_call {
             let arguments = self.parse_func_args()?;
+
             if accessors.is_some() && arguments.is_some() {
                 return Err("Can't call arguments on result of object access pattern, \
                 object access should be it's own expression: \
                 Ex: ((<Object>::<Method/Field>) <args>)".to_string());
             }
+
             if let Some(accessors) = accessors {
                 Ok(ExpressionNode(Rc::new(ObjectCall(ObjectCallData { name, accessors }))))
-            } else {
-                Ok(ExpressionNode(Rc::new(FuncCall(FuncCallData { name, arguments }))))
-            }
+            } else { Ok(ExpressionNode(Rc::new(FuncCall(FuncCallData { name, arguments })))) }
         } else {
             if accessors.is_some() {
                 return Err("All object access must be contained inside an expression,\
@@ -545,46 +539,53 @@ impl ParserState {
     fn parse_accessors(&mut self) -> Result<LinkedList<Accessor>, String> {
         let mut accessors = LinkedList::<Accessor>::new();
         while matches!(
-            self.peek().token_type, Syntactic(Syn::DoubleColon) | Syntactic(Syn::ColonDot)
+            self.peek().token_type, TSyntactic(Syn::DoubleColon) | TSyntactic(Syn::ColonDot)
         ) {
             let is_field = match self.advance()?.token_type {
-                Syntactic(Syn::DoubleColon) => false,
-                Syntactic(Syn::ColonDot) => true,
+                TSyntactic(Syn::DoubleColon) => false,
+                TSyntactic(Syn::ColonDot) => true,
                 _ => { return Err(format!("Expected accessor pattern(:: | :.) found: {:?}", self.peek())); }
             };
 
             let name = if let Some(TokenData::String(id)) = &self.advance()?.data {
-                id.clone()
+                *id
             } else { return Err(format!("Expected identifier for accessors, found {:?}", self.peek())); };
 
-            let args = if let Lexical(Lex::LeftBracket) = self.peek().token_type {
-                self.advance()?;
-                let mut args = Vec::<FuncArg>::with_capacity(4);
-
-                while self.peek().token_type != Lexical(Lex::RightBracket) {
-                    let name = if let Literal(Lit::Identifier) = self.peek().token_type {
-                        if let Some(TokenData::String(name)) = &self.advance()?.data {
-                            Some(name.clone())
-                        } else { return Err("Expected value for identifier".to_string()); }
-                    } else { None };
-
-                    let value = self.parse_expr_data()?;
-                    args.push(FuncArg { value, name })
-                }
-
-                self.consume(Lexical(Lex::RightBracket))?;
+            let args = if let TLexical(Lex::LeftBracket) = self.peek().token_type {
+                self.consume_left_bracket()?;
+                let args = self.parse_method_args()?;
+                self.consume_right_bracket()?;
                 Some(args)
             } else { None };
+
             accessors.push_back(Accessor { name, is_field, args })
         }
         Ok(accessors)
     }
 
+    fn parse_method_args(&mut self) -> Result<Vec<FuncArg>, String> {
+        let mut args = Vec::<FuncArg>::with_capacity(4);
+
+        while self.peek().token_type != TLexical(RightBracket) {
+            let name = if let TLiteral(Lit::Identifier) = self.peek().token_type {
+                if let Some(TokenData::String(name)) = &self.advance()?.data {
+                    Some(*name)
+                } else {
+                    return Err("Expected value for identifier".to_string());
+                }
+            } else { None };
+
+            let value = self.parse_expr_data()?;
+            args.push(FuncArg { value, name })
+        }
+        Ok(args)
+    }
+
 
     pub fn parse_define(&mut self) -> Result<AstNode, String> {
-        self.consume(Definition(Def::Define))?;
+        self.consume(TDefinition(Def::Define))?;
 
-        let name = match &self.consume(Literal(Lit::Identifier))?.data {
+        let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
             Some(TokenData::String(name)) => name.clone(),
             _ => return Err("Expected a string identifier".to_string())
         };
@@ -592,8 +593,8 @@ impl ParserState {
         let var_type = self.parse_type_if_exists()?;
 
         let definition = match self.peek().token_type {
-            Lexical(Lex::LeftParen) => {
-                if self.peek_n(2).token_type == Definition(Def::Lambda) {
+            TLexical(Lex::LeftParen) => {
+                if self.peek_n(2).token_type == TDefinition(Def::Lambda) {
                     if var_type != None {
                         self.push_warning(format!(
                             "Type specifier: {}, is unused for function definition, line: {}",
@@ -603,54 +604,59 @@ impl ParserState {
                     self.consume_left_paren()?;
                     let lambda = self.parse_lambda(false, false)?;
                     self.consume_right_paren()?;
+
                     DefinitionNode(Rc::new(DefNode::Function(DefFuncData { name, lambda: Rc::new(lambda) })))
                 } else {
                     let value = Rc::new(self.parse_expr_data()?);
                     DefinitionNode(Rc::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
                 }
             }
-            Literal(_) => {
+            TLiteral(_) => {
                 let value = Rc::new(self.parse_literal()?);
                 DefinitionNode(Rc::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
             }
-            Lexical(Lex::SingleQuote) => self.parse_quote()?,
-            _ => panic!() //return Err(format!("Invalid syntax in define, line: {}", self.peek().line))
+            TLexical(Lex::SingleQuote) => self.parse_quote()?,
+            _ => return Err(format!("Invalid syntax in define, line: {}", self.peek().line))
         };
-        return Ok(definition);
+        Ok(definition)
     }
 
 
     pub fn parse_instance(&mut self, name: Spur) -> Result<AstNode, String> {
-        let args = self.parse_named_args()?;
-        Ok(DefinitionNode(Rc::new(DefNode::InstanceDef(DefStructInst { name, args }))))
+        if self.previous_n(2).token_type == TLexical(LeftParen) {
+            let arguments = self.parse_func_args()?;
+            Ok(ExpressionNode(Rc::new(ExprNode::InitInst(FuncCallData { name, arguments }))))
+        } else {
+            self.consume(TLexical(Lex::LeftBracket))?; // post-fixed direct call, consume opening bracket
+            let args = self.parse_named_args()?;
+            self.consume(TLexical(Lex::RightBracket))?;
+            Ok(ExpressionNode(Rc::new(ExprNode::DirectInst(DirectInst { name, args }))))
+        }
     }
 
 
     pub fn parse_named_args(&mut self) -> Result<Option<Vec<InstArgs>>, String> {
-        self.consume(Lexical(Lex::LeftBracket))?;
-
         let mut args = Vec::<InstArgs>::new();
-        while self.peek().token_type != Lexical(Lex::RightBracket) {
-            self.consume(Syntactic(Syn::Colon))?;
+
+        while self.peek().token_type != TLexical(Lex::RightBracket) {
+            self.consume(TSyntactic(Syn::Colon))?;
 
             let name = if let Some(TokenData::String(name))
-                = &self.consume(Literal(Lit::Identifier))?.data {
+                = &self.consume(TLiteral(Lit::Identifier))?.data {
                 name.clone()
             } else { return Err("Expected name for instance call".to_string()); };
 
             let value = self.parse_expr_data()?;
             args.push(InstArgs { name, value })
         }
-
-        self.consume(Lexical(Lex::RightBracket))?;
         Ok(Some(args))
     }
 
 
     pub fn parse_quote(&mut self) -> Result<AstNode, String> {
-        self.consume(Lexical(Lex::SingleQuote))?;
-        if self.peek().token_type == Lexical(Lex::LeftParen)
-            && self.peek_n(2).token_type == Lexical(Lex::RightParen) {
+        self.consume(TLexical(Lex::SingleQuote))?;
+        if self.peek().token_type == TLexical(Lex::LeftParen)
+            && self.peek_n(2).token_type == TLexical(Lex::RightParen) {
             self.consume_left_paren()?;
             self.consume_right_paren()?;
             return Ok(AstNode::new_nil_lit());
@@ -660,9 +666,9 @@ impl ParserState {
 
 
     pub fn parse_struct_def(&mut self) -> Result<AstNode, String> {
-        self.consume(Definition(DefineStruct))?;
+        self.consume(TDefinition(DefineStruct))?;
 
-        let name = match &self.consume(Literal(Lit::Identifier))?.data {
+        let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
             Some(TokenData::String(name)) => name.clone(),
             _ => return Err("Expected name for struct".to_string())
         };
@@ -672,9 +678,9 @@ impl ParserState {
 
 
     pub fn parse_class_def(&mut self) -> Result<AstNode, String> {
-        self.consume(Definition(DefineClass))?;
+        self.consume(TDefinition(DefineClass))?;
 
-        let name = match &self.consume(Literal(Lit::Identifier))?.data {
+        let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
             Some(TokenData::String(name)) => name.clone(),
             _ => return Err("Expected name for class".to_string())
         };
@@ -682,16 +688,16 @@ impl ParserState {
         let mut class_data = DefClassData::empty_def(name);
 
 
-        while self.peek().token_type != Lexical(RightParen) {
+        while self.peek().token_type != TLexical(RightParen) {
             self.consume_left_paren()?;
-            self.consume(Syntactic(Syn::Colon))?;
+            self.consume(TSyntactic(Syn::Colon))?;
 
             match &self.peek().data {
                 Some(TokenData::String(spur)) if spur == &util::SCACHE.const_init => {
                     self.advance()?;
                     let mut init_vec = Vec::<DefLambdaData>::with_capacity(4);
 
-                    while self.peek().token_type != Lexical(RightParen) {
+                    while self.peek().token_type != TLexical(RightParen) {
                         self.consume_left_paren()?;
                         match self.parse_lambda(true, true) {
                             Ok(init) => init_vec.push(init),
@@ -703,21 +709,11 @@ impl ParserState {
                     class_data.init = if init_vec.is_empty() { None } else { Some(init_vec) }
                 }
 
-                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_param => {
-                    self.advance()?;
-                    class_data.params = self.parse_modifiers()?;
-                }
-
-                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_var => {
-                    self.advance()?;
-                    class_data.fields = self.parse_fields()?
-                }
-
                 Some(TokenData::String(spur)) if spur == &util::SCACHE.const_func => {
                     self.advance()?;
                     let mut func_vec = Vec::<DefFuncData>::with_capacity(4);
 
-                    while self.peek().token_type != Lexical(RightParen) {
+                    while self.peek().token_type != TLexical(RightParen) {
                         self.consume_left_paren()?;
                         match self.parse_func(false) {
                             Ok(func) => func_vec.push(func),
@@ -727,6 +723,16 @@ impl ParserState {
                     }
 
                     class_data.methods = if func_vec.is_empty() { None } else { Some(func_vec) }
+                }
+
+                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_param => {
+                    self.advance()?;
+                    class_data.params = self.parse_modifiers()?;
+                }
+
+                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_var => {
+                    self.advance()?;
+                    class_data.fields = self.parse_fields()?
                 }
 
                 Some(TokenData::String(spur)) if spur == &util::SCACHE.const_pre => {
@@ -754,47 +760,28 @@ impl ParserState {
 
             self.consume_right_paren()?;
         }
-
         Ok(DefinitionNode(Rc::new(ClassDef(class_data))))
     }
-
-// 
-// pub fn parse_multi<F>(&mut self, f: F) -> Result<Option<Vec<AstNode>>, String>
-//     where
-//         F: Fn() -> Result<AstNode, String>,
-// {
-//     let mut init_vec = Vec::<AstNode>::with_capacity(4);
-// 
-//     while self.peek().token_type != Lexical(RightParen) {
-//         self.consume_left_paren()?;
-//         match f() {
-//             Ok(node) => init_vec.push(node),
-//             Err(e) => return Err(e),
-//         }
-//         self.consume_right_paren()?;
-//     }
-//     Ok(if init_vec.is_empty() { None } else { Some(init_vec) })
-// }
 
 
     pub fn parse_fields(&mut self) -> Result<Option<Vec<Field>>, String> {
         let mut fields = Vec::<Field>::new();
 
-        while self.peek().token_type != Lexical(RightParen) {
+        while self.peek().token_type != TLexical(RightParen) {
             self.consume_left_paren()?;
 
-            let name = match &self.consume(Literal(Lit::Identifier))?.data {
+            let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
                 Some(TokenData::String(name)) => name.clone(),
                 _ => return Err("Expected name for struct".to_string())
             };
 
-            let modifiers = if matches!(self.peek().token_type, Modifier(_)) {
+            let modifiers = if matches!(self.peek().token_type, TModifier(_)) {
                 self.parse_modifiers()?
             } else { None };
 
             let p_type = self.parse_type_if_exists()?;
 
-            let default_value: Option<AstNode> = if self.peek().token_type == Syntactic(Syn::Bar) {
+            let default_value: Option<AstNode> = if self.peek().token_type == TSyntactic(Syn::Bar) {
                 self.advance()?;
                 Some(self.parse_expr_data()?)
             } else { None };
@@ -809,9 +796,9 @@ impl ParserState {
 
 
     pub fn parse_func(&mut self, is_defunc: bool) -> Result<DefFuncData, String> {
-        if is_defunc { self.consume(Definition(Def::DefineFunc))?; }
+        if is_defunc { self.consume(TDefinition(Def::DefineFunc))?; }
 
-        let name = match &self.consume(Literal(Lit::Identifier))?.data {
+        let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
             Some(TokenData::String(name)) => name.clone(),
             _ => return Err("Expected name for function".to_string())
         };
@@ -822,27 +809,29 @@ impl ParserState {
 
 
     pub fn parse_lambda(&mut self, is_defunc: bool, bracketed: bool) -> Result<DefLambdaData, String> {
-        if !is_defunc { self.consume(Definition(Def::Lambda))?; }
+        if !is_defunc { self.consume(TDefinition(Def::Lambda))?; }
 
-        let modifiers = if matches!(self.peek().token_type, Modifier(_)) {
+        let modifiers = if matches!(self.peek().token_type, TModifier(_)) {
             self.parse_modifiers()?
         } else { None };
 
         let parameters = self.parse_parameters(bracketed)?;
+
         let body = match self.parse_multi_expr()? {
             None => { return Err("Expected body for lambda, found none".to_string()); }
             Some(s) => s
         };
+
         let rtn_type = self.parse_type_if_exists()?;
         Ok(DefLambdaData { modifiers, parameters, body, p_type: rtn_type, c_type: None })
     }
 
 
     pub fn parse_modifiers(&mut self) -> Result<Option<Vec<Mod>>, String> {
-        if !matches!(self.peek().token_type, Modifier(_)) { return Ok(None); };
+        if !matches!(self.peek().token_type, TModifier(_)) { return Ok(None); };
 
         let mut modifiers = Vec::<Mod>::new();
-        while let Modifier(modifier) = &self.peek().token_type {
+        while let TModifier(modifier) = &self.peek().token_type {
             modifiers.push(*modifier);
             self.advance()?;
         }
@@ -858,18 +847,22 @@ impl ParserState {
         let mut at_opt = false;
 
         let mut token = self.peek().token_type;
-        while token != Lexical(Lex::RightParen) {
+        while token != TLexical(Lex::RightParen) {
             let peek = self.peek().token_type;
-            if peek == Syntactic(Syn::Colon) {
+
+            if peek == TSyntactic(Syn::Colon) {
                 self.advance()?; // consume colon
                 at_opt = true;
-                let token_data = self.consume(Literal(Lit::Identifier))?;
+
+                let token_data = self.consume(TLiteral(Lit::Identifier))?;
+
                 let name = match token_data.data {
                     Some(TokenData::String(ref s)) => *s,
                     _ => return Err("Expected a string identifier".to_string())
                 };
 
                 let value = self.parse_expr_data()?;
+
                 func_args.push(FuncArg { name: Some(name.clone()), value });
             } else {
                 if at_opt {
@@ -886,14 +879,14 @@ impl ParserState {
 
     pub fn parse_parameters(&mut self, bracketed: bool) -> Result<Option<Vec<Param>>, String> {
         if bracketed {
-            self.consume_left_bracket();
-            if self.peek().token_type == Lexical(Lex::RightBracket) {
+            self.consume_left_bracket()?;
+            if self.peek().token_type == TLexical(Lex::RightBracket) {
                 self.consume_right_bracket()?;
                 return Ok(None);
             }
         } else {
-            self.consume_left_paren();
-            if self.peek().token_type == Lexical(Lex::RightParen) {
+            self.consume_left_paren()?;
+            if self.peek().token_type == TLexical(Lex::RightParen) {
                 self.consume_right_paren()?;
                 return Ok(None);
             }
@@ -902,10 +895,7 @@ impl ParserState {
         let mut optional = false;
         let mut params = Vec::<Param>::new();
 
-        while self.peek().token_type != if bracketed {
-            Lexical(RightBracket)
-        } else { Lexical(Lex::RightParen) }
-        {
+        while self.peek().token_type != if bracketed { TLexical(RightBracket) } else { TLexical(RightParen) } {
             let mut dynamic = false;
             let mut mutable = false;
 
@@ -919,13 +909,13 @@ impl ParserState {
                 };
             };
 
-            let name = match &self.consume(Literal(Lit::Identifier))?.data {
+            let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
                 Some(TokenData::String(s)) => s.clone(),
                 _ => return Err("Expected a variable identifier".to_string())
             };
 
             let default_value: Option<AstNode> = if optional {
-                if self.peek().token_type != Syntactic(Syn::Equal) {
+                if self.peek().token_type != TSyntactic(Syn::Equal) {
                     return Err(format!(
                         "All parameters after &opt modifier need default assignments, line: {}",
                         self.peek().line)

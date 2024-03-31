@@ -3,9 +3,9 @@ use std::io;
 use std::io::Write;
 use std::time::SystemTime;
 use lasso::Rodeo;
-use rand::{Rng, thread_rng};
+use rand::thread_rng;
 use crate::eval::class_loader::ClassLoader;
-use crate::eval::environment::{Context, Environment};
+use crate::eval::environment::Environment;
 
 
 pub mod parse;
@@ -24,6 +24,7 @@ fn main() {
 
 
     loop {
+        print!("> ");
         let mut input = String::new();
         match io::stdin().read_line(&mut input) {
             Ok(n) => {

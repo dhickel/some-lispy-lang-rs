@@ -4,7 +4,7 @@ use std::str::Chars;
 use lasso::{Rodeo, Spur};
 use crate::parse::{Lex, Lit, match_single_token, Op, Syn, Token, token, TokenData, TokenType, util};
 
-use crate::parse::TokenType::{Lexical, Literal, Syntactic, Operation};
+use crate::parse::TokenType::{TLexical, TLiteral, TSyntactic, TOperation};
 use crate::parse::util::SCACHE;
 
 
@@ -95,7 +95,7 @@ pub fn process(input: String) -> Result<Vec<Token>, String> {
 
         return Err(format!("Error while lexing line {}, char {}", state.line_num, c));
     }
-    state.add_token(Lexical(Lex::EOF));
+    state.add_token(TLexical(Lex::EOF));
     Ok(state.tokens)
 }
 
@@ -108,9 +108,6 @@ fn lex_double_token(state: &mut LexicalState) -> bool {
         Some(value) => {
             state.advance();
             state.add_token(value)
-            // if matches!(value, Syntactic(Syn::DoubleColon)) {
-            //     lex_type(state)
-            // } else { state.add_token(value) }
         }
     }
 }
@@ -121,10 +118,10 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
         None => false,
         Some(value) => {
             match value {
-                Lexical(Lex::DoubleQuote) => lex_string_literal(state),
-                Syntactic(Syn::Ampersand) => lex_modifier(state),
-                Syntactic(Syn::At) => lex_instance(state),
-                Operation(Op::Minus) => {
+                TLexical(Lex::DoubleQuote) => lex_string_literal(state),
+                TSyntactic(Syn::Ampersand) => lex_modifier(state),
+                TSyntactic(Syn::At) => lex_instance(state),
+                TOperation(Op::Minus) => {
                     if state.peek().is_numeric() {
                         lex_number_token(state)
                     } else { state.add_token(value) }
@@ -139,7 +136,7 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
 fn lex_word_token(state: &mut LexicalState) -> bool {
     let string_data = read_data_to_string(state);
     match token::match_word_token(util::SCACHE.resolve(&string_data)) {
-        None => state.add_token_data(Literal(Lit::Identifier), TokenData::String(string_data)),
+        None => state.add_token_data(TLiteral(Lit::Identifier), TokenData::String(string_data)),
         Some(value) => state.add_token_data(value, TokenData::String(string_data))
     }
 }
@@ -148,7 +145,7 @@ fn lex_word_token(state: &mut LexicalState) -> bool {
 fn lex_type(state: &mut LexicalState) -> bool {
     state.advance(); // skip the extra  :
     let type_string = read_data_to_string(state);
-    state.add_token_data(Syntactic(Syn::DoubleColon), TokenData::String(type_string));
+    state.add_token_data(TSyntactic(Syn::DoubleColon), TokenData::String(type_string));
     true
 }
 
@@ -174,7 +171,7 @@ fn lex_string_literal(state: &mut LexicalState) -> bool {
 
     let spur = util::SCACHE.intern(&string_data);
     state.advance(); // Consume closing "
-    state.add_token_data(Literal(Lit::String), TokenData::String(spur));
+    state.add_token_data(TLiteral(Lit::String), TokenData::String(spur));
     true
 }
 
@@ -182,7 +179,7 @@ fn lex_string_literal(state: &mut LexicalState) -> bool {
 fn lex_instance(state: &mut LexicalState) -> bool {
     state.advance(); // skip @ symbol
     let instance_id = read_data_to_string(state);
-    state.add_token_data(Literal(Lit::Instance), TokenData::String(instance_id));
+    state.add_token_data(TLiteral(Lit::Instance), TokenData::String(instance_id));
     true
 }
 
@@ -243,13 +240,13 @@ fn lex_number_token(state: &mut LexicalState) -> bool {
     if is_float {
         let number: f64 = num_string.parse::<f64>().expect("Failed parsing number");
         state.add_token_data(
-            Literal(Lit::Float),
+            TLiteral(Lit::Float),
             TokenData::Float(if is_neg { -number } else { number }),
         )
     } else {
         let number: i64 = num_string.parse::<i64>().expect("Failed parsing number");
         state.add_token_data(
-            Literal(Lit::Int),
+            TLiteral(Lit::Int),
             TokenData::Integer(if is_neg { -number } else { number }),
         )
     }

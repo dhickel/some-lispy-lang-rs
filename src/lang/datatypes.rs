@@ -268,7 +268,7 @@ impl ClassMetaData {
                 method_map.insert(method.name, Rc::clone(&method.lambda));
             }
         } else { method_map = AHashMap::<Spur, Rc<DefLambdaData>>::with_capacity(0); }
-        
+
         Ok(ClassMetaData { data: field_map, methods: method_map, arity: arity as u8, def })
     }
 

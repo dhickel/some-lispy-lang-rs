@@ -90,7 +90,7 @@ impl Environment {
         if !matches!(value, LiteralNode(_)) {
             return Err(format!("Attempted to assign non literal value to{:?}", name));
         }
-        
+
         println!("updating: {:?}", util::SCACHE.resolve(name));
         if let Some(binding) = self.bindings.get_mut(name) {
             let mut data = binding;

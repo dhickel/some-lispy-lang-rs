@@ -2,7 +2,7 @@ use std::collections::LinkedList;
 use std::rc::Rc;
 use lasso::{Rodeo, Spur};
 use crate::parse::{Def, Expr, Lex, Lit, Mod, Op, Syn, Token, TokenData, TokenType, util};
-use crate::parse::ast_nodes::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefNode, DefStructData, DirectInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData};
+use crate::parse::ast_nodes::{Accessor, AssignData, CondBranch, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefNode, DefStructData, DirectInst, DefVarData, ExprFuncCallData, ExprNode, Field, FuncArg, FuncCallData, IfData, InstArgs, ListAccData, LitNode, ObjectAssignData, ObjectCallData, OpNode, Param, WhileData, AstNode};
 use crate::parse::ast_nodes::AstNode::{DefinitionNode, ExpressionNode, OperationNode};
 use crate::parse::ast_nodes::DefNode::ClassDef;
 use crate::parse::ast_nodes::ExprNode::{Assignment, CondExpr, ConsExpr, ExprFuncCal, FuncCall, GenRand, IfExpr, ListAccess, LiteralCall, MultiExpr, ObjectAssignment, ObjectCall, PairList, PrintExpr, WhileLoop};
@@ -79,7 +79,7 @@ impl ParserState {
     pub fn advance(&mut self) -> Result<&Token, String> {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
-        if matches!(self.peek().token_type, TLexical(Lex::LeftParen) | TLexical(Lex::RightParen)) {
+        if matches!(self.peek().token_type, TLexical(LeftParen) | TLexical(RightParen)) {
            // panic!("Parenthesis should  be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
@@ -91,12 +91,12 @@ impl ParserState {
     pub fn match_token(&mut self, tokens: &[TokenType]) -> Option<&Token> {
         self.tokens.iter().find(|token| tokens.contains(&token.token_type))
     }
-
+    
 
     pub fn consume(&mut self, token_type: TokenType) -> Result<&Token, String> {
         if !self.have_next() { return Err("Advanced past end".to_string()); }
 
-        if matches!(self.peek().token_type, TLexical(Lex::LeftParen) | TLexical(Lex::RightParen)) {
+        if matches!(self.peek().token_type, TLexical(LeftParen) | TLexical(RightParen)) {
             //panic!("Parenthesis should only be advanced via consume paren function");
             return Err("Parenthesis should only be advanced via consume paren function".to_string());
         }
@@ -111,7 +111,7 @@ impl ParserState {
     pub fn consume_left_paren(&mut self) -> Result<(), String> {
         if !self.check(&TLexical(Lex::LeftParen)) {
             //  panic!("Expected: Left Paren, Found: {:?}", self.peek());
-            return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
+            return Err(format!("Expected: Left Paren, Found: {:?}", self.peek()));
         }
         self.current += 1;
         self.depth += 1;
@@ -122,7 +122,7 @@ impl ParserState {
     pub fn consume_right_paren(&mut self) -> Result<(), String> {
         if !self.check(&TLexical(Lex::RightParen)) {
             //  panic!("Expected: Right Paren, Found: {:?}", self.peek());
-            return Err(format!("Expected: RightParen, Found: {:?}", self.peek()));
+            return Err(format!("Expected: Right Paren, Found: {:?}", self.peek()));
         }
         self.current += 1;
         self.depth -= 1;
@@ -132,10 +132,9 @@ impl ParserState {
     pub fn consume_left_bracket(&mut self) -> Result<(), String> {
         if !self.check(&TLexical(Lex::LeftBracket)) {
             // panic!("Expected: Left Bracket, Found: {:?}", self.peek());
-            return Err(format!("Expected: LeftParen, Found: {:?}", self.peek()));
+            return Err(format!("Expected: Left Bracket, Found: {:?}", self.peek()));
         }
         self.current += 1;
-        self.depth += 1;
         Ok(())
     }
 
@@ -143,10 +142,30 @@ impl ParserState {
     pub fn consume_right_bracket(&mut self) -> Result<(), String> {
         if !self.check(&TLexical(Lex::RightBracket)) {
             //   panic!("Expected: Right Bracket, Found: {:?}", self.peek());
-            return Err(format!("Expected: RightParen, Found: {:?}", self.peek()));
+            return Err(format!("Expected: Right Bracket, Found: {:?}", self.peek()));
         }
         self.current += 1;
-        self.depth -= 1;
+        Ok(())
+    }
+
+
+
+    pub fn consume_left_brace(&mut self) -> Result<(), String> {
+        if !self.check(&TLexical(Lex::LeftBrace)) {
+            // panic!("Expected: Left Bracket, Found: {:?}", self.peek());
+            return Err(format!("Expected: Left Brace, Found: {:?}", self.peek()));
+        }
+        self.current += 1;
+        Ok(())
+    }
+
+
+    pub fn consume_right_brace(&mut self) -> Result<(), String> {
+        if !self.check(&TLexical(Lex::RightBrace)) {
+            //   panic!("Expected: Right Bracket, Found: {:?}", self.peek());
+            return Err(format!("Expected: Right Brace, Found: {:?}", self.peek()));
+        }
+        self.current += 1;
         Ok(())
     }
 
@@ -154,7 +173,7 @@ impl ParserState {
     pub fn parse_expr_data(&mut self) -> Result<AstNode, String> {
         match &self.peek().token_type {
             TLexical(LeftParen) => self.parse_s_expr(),
-            TLexical(RightParen) => {
+            TLexical(RightParen) => { 
                 // Needed, this function is entered by parse_s_expr, but could be null list lit
                 if matches!(self.previous().token_type, TLexical(Lex::LeftParen)) {
                     Ok(AstNode::new_nil_lit())
@@ -171,8 +190,8 @@ impl ParserState {
             TDefinition(Def::Lambda) => {
                 Ok(DefinitionNode(Rc::new(DefNode::Lambda(Rc::new(self.parse_lambda(false, false)?)))))
             }
-            TDefinition(Def::DefineStruct) => self.parse_struct_def(),
-            TDefinition(Def::DefineClass) => self.parse_class_def(),
+            TDefinition(DefineStruct) => self.parse_struct_def(),
+            TDefinition(DefineClass) => self.parse_class_def(),
 
             TSyntactic(_) => Err(format!("Unexpected token: {:?}", &self.peek())), // TODO implement quote
             _ =>  Err(format!("Unexpected token: {:?}", &self.peek()))
@@ -334,7 +353,8 @@ impl ParserState {
                     _ => return Err("Expected a string identifier".to_string())
                 };
                 let value = self.parse_expr_data()?;
-                Ok(ExpressionNode(Rc::new(Assignment(AssignData { name, value }))))
+                let data = Rc::new(Assignment(AssignData { name, value }));
+                Ok(ExpressionNode(data))
             }
 
             TLexical(LeftParen) => {
@@ -566,6 +586,7 @@ impl ParserState {
     fn parse_method_args(&mut self) -> Result<Vec<FuncArg>, String> {
         let mut args = Vec::<FuncArg>::with_capacity(4);
 
+   
         while self.peek().token_type != TLexical(RightBracket) {
             let name = if let TLiteral(Lit::Identifier) = self.peek().token_type {
                 if let Some(TokenData::String(name)) = &self.advance()?.data {
@@ -611,11 +632,14 @@ impl ParserState {
                     DefinitionNode(Rc::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
                 }
             }
+            
             TLiteral(_) => {
                 let value = Rc::new(self.parse_literal()?);
                 DefinitionNode(Rc::new(DefNode::Variable(DefVarData { name, modifiers, value, var_type })))
             }
+            
             TLexical(Lex::SingleQuote) => self.parse_quote()?,
+            
             _ => return Err(format!("Invalid syntax in define, line: {}", self.peek().line))
         };
         Ok(definition)
@@ -637,7 +661,7 @@ impl ParserState {
 
     pub fn parse_named_args(&mut self) -> Result<Option<Vec<InstArgs>>, String> {
         let mut args = Vec::<InstArgs>::new();
-
+        
         while self.peek().token_type != TLexical(Lex::RightBracket) {
             self.consume(TSyntactic(Syn::Colon))?;
 
@@ -652,7 +676,7 @@ impl ParserState {
         Ok(Some(args))
     }
 
-
+    // FIXME
     pub fn parse_quote(&mut self) -> Result<AstNode, String> {
         self.consume(TLexical(Lex::SingleQuote))?;
         if self.peek().token_type == TLexical(Lex::LeftParen)

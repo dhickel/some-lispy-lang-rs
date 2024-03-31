@@ -15,6 +15,8 @@ pub const TRUE_LIT: LitNode = LitNode::Boolean(BoolValue(true));
 pub const FALSE_LIT: LitNode = LitNode::Boolean(BoolValue(false));
 
 
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
     DefinitionNode(Rc<DefNode>),
@@ -67,6 +69,7 @@ impl AstNode {
 }
 
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum DefNode {
     Variable(DefVarData),
@@ -87,6 +90,7 @@ pub struct DefVarData {
 }
 
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefLambdaData {
     pub modifiers: Option<Vec<Mod>>,
@@ -97,11 +101,14 @@ pub struct DefLambdaData {
 }
 
 
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefFuncData {
     pub name: Spur,
     pub lambda: Rc<DefLambdaData>,
 }
+
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +130,8 @@ pub struct DefStructData {
 }
 
 
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefClassData {
     pub name: Spur,
@@ -135,6 +144,7 @@ pub struct DefClassData {
     pub fin: Option<AstNode>,
     pub validate: Option<AstNode>,
 }
+
 
 
 impl DefClassData {
@@ -189,7 +199,7 @@ pub enum ExprNode {
     ObjectAssignment(ObjectAssignData),
     GenRand(bool, AstNode, AstNode),
     DirectInst(DirectInst),
-    InitInst(FuncCallData)
+    InitInst(FuncCallData),
 }
 
 
@@ -212,7 +222,6 @@ pub struct IfData {
     pub if_branch: CondBranch,
     pub else_branch: Option<AstNode>,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondData {

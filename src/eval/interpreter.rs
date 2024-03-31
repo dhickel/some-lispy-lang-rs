@@ -294,7 +294,7 @@ fn eval_expression<'a>(
         ExprNode::ObjectAssignment(data) => eval_object_assignment(env, loader, data),
         ExprNode::GenRand(is_float, lower, upper) => eval_rand(env, loader, *is_float, lower, upper),
         ExprNode::DirectInst(data) => eval_direct_instance(env, loader, data),
-        ExprNode::InitInst(data) => eval_instance(env, loader, data) 
+        ExprNode::InitInst(data) => eval_instance(env, loader, data)
     }
 }
 
@@ -364,7 +364,7 @@ fn eval_object_assignment<'a>(
 }
 
 
-// Unsafe: This needs mutability only in the context of setting the field. This avoids using 
+// Unsafe: This needs mutability only in the context of setting the field. This avoids using
 // a refcell since the bindings need to be also wrapped in an rc for performance reasons to avoid cloning.
 fn set_field_unsafe<'a>(
     object: Rc<LitNode>,

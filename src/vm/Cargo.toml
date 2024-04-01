@@ -1,26 +1,9 @@
 [package]
-name = "some-lispy-lang-rs"
+name = "vm"
 version = "0.1.0"
 edition = "2021"
-[workspace]
-
-members = [
-    "src/vm",
-]
-
-[[bin]]
-name = "repl"
-path = "src/repl.rs"
-
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[profile.release]
-debug = false
-opt-level = 3
-overflow-checks = false
-lto = true
-
 
 [dependencies]
 ahash = "0.8.11"
@@ -28,4 +11,3 @@ backtrace-on-stack-overflow = "0.3.0"
 lasso = "0.7.2"
 lazy_static = "1.4.0"
 rand = "0.8.5"
-vm = {path = "src/vm"}

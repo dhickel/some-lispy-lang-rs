@@ -1,7 +1,26 @@
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
 pub enum OpCode {
-    OpReturn
+    Exit,
+    Return,
+    Ldc,
+    LdcW,
+    AddI64,
+    AddF64,
+    SubI64,
+    SubF64,
+    MulI64,
+    MulF64,
+    DivI64,
+    DivF64,
+    PowI64,
+    PowF64,
+    ModI64,
+    ModF64,
+    NegI64,
+    NegF64
+
+
 }
 
 

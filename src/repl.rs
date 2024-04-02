@@ -6,7 +6,7 @@ use crate::eval::class_loader::ClassLoader;
 use crate::eval::environment::Environment;
 use vm;
 use vm::op_codes::{OpCode, SmallInst};
-use vm::op_codes::OpCode::OpReturn;
+use vm::op_codes::OpCode::{Exit, Ldc, Return};
 use vm::vm::{CompUnit, Vm};
 
 
@@ -22,13 +22,45 @@ pub mod eval;
 
 #[allow(dead_code)]
 fn main() {
+
     let mut chunk = CompUnit {
-        code: Vec::<u8>::new()
+        code: Vec::<u8>::new(),
+        constants: Vec::<u8>::new(),
     };
-    
-    chunk.code.push(OpReturn as u8);
+
+    let value1 = 1000000000_i64;
+    let value2 = 100000000_i64;
+
+    let v1_idx = chunk.add_fixed_size_const(&value1) as u8;
+    let v2_idx = chunk.add_fixed_size_const(&value2) as u8;
+    let v3_idx = chunk.add_fixed_size_const(&value2) as u8;
+    chunk.write_inst(OpCode::Ldc as u8);
+    chunk.write_inst(v1_idx);
+    chunk.write_inst(OpCode::Ldc as u8);
+    chunk.write_inst(v2_idx);
+    chunk.write_inst(OpCode::AddI64 as u8);
+    chunk.write_inst(OpCode::Ldc as u8);
+    chunk.write_inst(v2_idx);
+    chunk.write_inst(OpCode::AddI64 as u8);
+    chunk.write_inst(OpCode::Return as u8);
+    chunk.write_inst(OpCode::Exit as u8);
+
     let mut vm = Vm::new(&mut chunk);
-    vm.test();
+
+    
+
+
+    vm.run();
+
+    // let mut chunk = CompUnit {
+    //     code: Vec::<u8>::new()
+    // };
+    // 
+    // chunk.code.push(Constant as u8);
+    // chunk.code.push(Return as u8);
+    // chunk.code.push(Exit as u8);
+    // let mut vm = Vm::new(&mut chunk);
+    // vm.run();
     
     
     // let mut env = Environment::new();

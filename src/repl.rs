@@ -5,8 +5,8 @@ use lasso::Rodeo;
 use crate::eval::class_loader::ClassLoader;
 use crate::eval::environment::Environment;
 use vm;
-use vm::op_codes::{OpCode, SmallInst};
-use vm::op_codes::OpCode::{Exit, Ldc, Return};
+use vm::op_codes::{OpCode};
+use vm::op_codes::OpCode::{Exit, Ldc};
 use vm::vm::{CompUnit, Vm};
 
 
@@ -28,28 +28,27 @@ fn main() {
         constants: Vec::<u8>::new(),
     };
 
-    let value1 = 1000000000_i64;
-    let value2 = 100000000_i64;
+   
 
-    let v1_idx = chunk.add_fixed_size_const(&value1) as u8;
-    let v2_idx = chunk.add_fixed_size_const(&value2) as u8;
-    let v3_idx = chunk.add_fixed_size_const(&value2) as u8;
-    chunk.write_inst(OpCode::Ldc as u8);
-    chunk.write_inst(v1_idx);
-    chunk.write_inst(OpCode::Ldc as u8);
-    chunk.write_inst(v2_idx);
-    chunk.write_inst(OpCode::AddI64 as u8);
-    chunk.write_inst(OpCode::Ldc as u8);
-    chunk.write_inst(v2_idx);
-    chunk.write_inst(OpCode::AddI64 as u8);
-    chunk.write_inst(OpCode::Return as u8);
-    chunk.write_inst(OpCode::Exit as u8);
+    let v1_idx = chunk.push_constant(&1001_i64) as u8;
+    let v2_idx = chunk.push_constant(&1000.222234_f64) as u8;
+    let v3_idx = chunk.push_constant(&false) as u8;
+  
+    chunk.write_operand(OpCode::Ldc as u8);
+    chunk.write_operand(v2_idx);
+    chunk.write_operand(OpCode::Ldc as u8);
+    chunk.write_operand(v1_idx);
+    chunk.write_op_code(OpCode::I64ToF64);
+  //  chunk.write_op_code(OpCode::I64ToF64);
+    chunk.write_op_code(OpCode::CompF64);
+    chunk.write_op_code(OpCode::NegBool);
+    chunk.write_op_code(OpCode::RtnI64);
+    
+    
 
     let mut vm = Vm::new(&mut chunk);
 
     
-
-
     vm.run();
 
     // let mut chunk = CompUnit {

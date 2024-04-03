@@ -2,7 +2,10 @@
 #[derive(Copy, Clone, Debug)]
 pub enum OpCode {
     Exit,
-    Return,
+    RtnI64,
+    RtnF64,
+    RtnBool,
+    RtnRef,
     Ldc,
     LdcW,
     AddI64,
@@ -18,21 +21,16 @@ pub enum OpCode {
     ModI64,
     ModF64,
     NegI64,
-    NegF64
-
-
+    NegF64,
+    NegBool,
+    I64ToF64,
+    F64ToI64,
+    ConstT,
+    ConstF,
+    CompI64,
+    CompF64,
+    CompOr,
+    CompAnd,
+    CompNot,
 }
 
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct TestStruct {
-    pub op_code: OpCode,
-    pub int: i64,
-}
-
-
-#[repr(C)]
-pub struct SmallInst {
-    op_code: OpCode,
-}

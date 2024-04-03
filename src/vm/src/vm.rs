@@ -1,8 +1,15 @@
 use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Sub};
-use crate::op_codes::{OpCode, TestStruct};
-use crate::operations;
+use crate::op_codes::{OpCode};
 
+macro_rules! nano_time {
+    () => {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect()
+            .as_nanos()
+    };
+}
 
 pub enum InterpResult {
     Ok,
@@ -27,15 +34,20 @@ pub struct CompUnit {
 
 
 impl CompUnit {
-    pub fn write_inst(&mut self, val: u8) {
+    pub fn write_op_code(&mut self, op: OpCode) {
+        self.code.push(op as u8)
+    }
+
+    pub fn write_operand(&mut self, val: u8) {
         self.code.push(val);
     }
+
     pub fn write_wide_inst(&mut self, val: u16) {
         self.code.push((val & 0xFF) as u8);
         self.code.push(((val >> 8) & 0xFF) as u8);
     }
 
-    pub fn add_constant(&mut self, bytes: &[u8]) -> usize {
+    fn add_constant(&mut self, bytes: &[u8]) -> usize {
         unsafe {
             let start_index = self.constants.len();
             let additional_len = bytes.len();
@@ -52,20 +64,17 @@ impl CompUnit {
         }
     }
 
-    pub fn add_fixed_size_const<T>(&mut self, value: &T) -> usize {
+    pub fn push_constant<T>(&mut self, value: &T) -> usize {
         unsafe {
             let size = std::mem::size_of::<T>();
-
             if size > 8 { panic!("Attempted to add constant greater than 8 bytes"); }
 
             let value_ptr = value as *const T as *const u8;
             let bytes_slice = std::slice::from_raw_parts(value_ptr, size);
 
-            println!("bytes in: {:?}", bytes_slice);
-
             if size < 8 {
                 let mut padded_bytes = vec![0u8; 8];
-                padded_bytes[..size].copy_from_slice(bytes_slice);
+                padded_bytes[8 - size..].copy_from_slice(bytes_slice);
                 self.add_constant(&padded_bytes)
             } else {
                 self.add_constant(bytes_slice)
@@ -109,10 +118,10 @@ impl<'a> Vm<'a> {
         unsafe {
             let low_byte = *self.ip as u16;
             self.ip = self.ip.add(1);
-            
+
             let high_byte = *self.ip as u16;
             self.ip = self.ip.add(1);
-            
+
             (high_byte << 8) | low_byte
         }
     }
@@ -134,12 +143,51 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn push_bytes(&mut self, bytes: [u8; 8], size: usize) {
+    fn push_bytes(&mut self, bytes: [u8; 8]) {
         unsafe {
-            let new_stack_top = self.stack_top.add(size);
+            let new_stack_top = self.stack_top.add(8);
             let byte_ptr = bytes.as_ptr();
-            std::ptr::copy_nonoverlapping(byte_ptr, self.stack_top, size);
+            std::ptr::copy_nonoverlapping(byte_ptr, self.stack_top, 8);
             self.stack_top = new_stack_top;
+        }
+    }
+
+    fn push_i64(&mut self, value: i64) {
+        unsafe {
+            let bytes: [u8; 8] = std::mem::transmute(value);
+            self.push_bytes(bytes);
+        }
+    }
+
+    fn push_f64(&mut self, value: f64) {
+        unsafe {
+            let bytes: [u8; 8] = std::mem::transmute(value);
+            self.push_bytes(bytes);
+        }
+    }
+
+    fn push_bool(&mut self, value: bool) {
+        self.push_i64(if value { 1 } else { 0 })
+    }
+
+    fn replace_top_bytes(&mut self, bytes: [u8; 8]) {
+        unsafe {
+            let byte_ptr = bytes.as_ptr();
+            std::ptr::copy_nonoverlapping(byte_ptr, self.stack_top.sub(8), 8);
+        }
+    }
+
+    fn replace_top_i64(&mut self, value: i64) {
+        unsafe {
+            let bytes: [u8; 8] = std::mem::transmute(value);
+            self.replace_top_bytes(bytes);
+        }
+    }
+
+    fn replace_top_f64(&mut self, value: f64) {
+        unsafe {
+            let bytes: [u8; 8] = std::mem::transmute(value);
+            self.replace_top_bytes(bytes);
         }
     }
 
@@ -153,33 +201,49 @@ impl<'a> Vm<'a> {
     pub fn pop_f64(&mut self) -> f64 {
         unsafe {
             let bytes = self.pop_bytes(std::mem::size_of::<f64>());
-            println!("bytes out f64: {:?}", bytes);
             let value = std::ptr::read(bytes.as_ptr() as *const f64);
             value
         }
     }
 
-    // Pop bytes and transmute to i64
     pub fn pop_i64(&mut self) -> i64 {
         unsafe {
             let bytes = self.pop_bytes(std::mem::size_of::<i64>());
-            println!("bytes out i64: {:?}", bytes);
             let value = std::ptr::read(bytes.as_ptr() as *const i64);
             value
         }
     }
 
-    // fn print_stack_trace(&self) {
-    //     unsafe {
-    //         print!("          ");
-    //         let mut slot = self.stack.as_ptr() as *const Value;
-    //         while (slot as *const u8) < self.stack_top {
-    //             let value = &*slot;
-    //             println!("[ {:?} ]", value);
-    //             slot = slot.add(1);
-    //         }
-    //     }
-    // }
+    fn pop_bool(&mut self) -> bool {
+        let val = self.pop_i64();
+        val != 0
+    }
+
+    pub fn peek_bytes(&self, index: usize) -> &[u8] {
+        unsafe {
+            let ptr = self.stack_top.offset(-((index as isize + 1) * 8));
+            std::slice::from_raw_parts(ptr, 8)
+        }
+    }
+
+    pub fn peek_f64(&self, index: usize) -> f64 {
+        unsafe {
+            let ptr = self.stack_top.offset(-((index as isize + 1) * std::mem::size_of::<f64>() as isize));
+            std::ptr::read(ptr as *const f64)
+        }
+    }
+
+    pub fn peek_i64(&self, index: usize) -> i64 {
+        unsafe {
+            let ptr = self.stack_top.offset(-((index as isize + 1) * std::mem::size_of::<i64>() as isize));
+            std::ptr::read(ptr as *const i64)
+        }
+    }
+
+    pub fn peek_bool(&self, index: usize) -> bool {
+        let val = self.peek_i64(index);
+        val != 0
+    }
 
     fn print_value<T>(&self, value: &T) where T: Debug {
         println!("Value: {:?}", value)
@@ -198,17 +262,32 @@ impl<'a> Vm<'a> {
                 OpCode::Exit => {
                     break;
                 }
-                
-                OpCode::Return => {
+
+                OpCode::RtnI64 => {
                     let val = self.pop_i64();
                     self.print_value(&val);
                 }
-                
+
+                OpCode::RtnF64 => {
+                    let val = self.pop_f64();
+                    self.print_value(&val);
+                }
+
+                OpCode::RtnBool => {
+                    let val = self.pop_bool();
+                    self.print_value(&val);
+                }
+
+                OpCode::RtnRef => {
+                    let val = self.pop_bytes(8);
+                    println!("{:?}", val)
+                }
+
                 OpCode::Ldc => {
                     let index = self.read_inst() as usize;
                     self.push_constant(index, 8);
                 }
-                
+
                 OpCode::LdcW => {
                     let index = self.read_wide_inst() as usize;
                     self.push_constant(index, 8);
@@ -217,86 +296,158 @@ impl<'a> Vm<'a> {
                 OpCode::AddI64 => {
                     let val1 = self.pop_i64();
                     let val2 = self.pop_i64();
-                    self.push_bytes((val1 + val2).to_ne_bytes(), 8)
+                    self.push_i64(val1 + val2);
                 }
-                
+
                 OpCode::AddF64 => {
                     let val1 = self.pop_f64();
                     let val2 = self.pop_f64();
-                    self.push_bytes((val1 + val2).to_ne_bytes(), 8)
+                    self.push_f64(val1 + val2);
                 }
-                
+
                 OpCode::SubI64 => {
                     let val1 = self.pop_i64();
                     let val2 = self.pop_i64();
-                    self.push_bytes((val1 - val2).to_ne_bytes(), 8)
+                    self.push_i64(val1 - val2)
                 }
 
                 OpCode::SubF64 => {
                     let val1 = self.pop_f64();
                     let val2 = self.pop_f64();
-                    self.push_bytes((val1 -val2).to_ne_bytes(), 8)
+
+                    self.push_f64(val1 - val2)
                 }
 
                 OpCode::MulI64 => {
                     let val1 = self.pop_i64();
                     let val2 = self.pop_i64();
-                    self.push_bytes((val1 *val2).to_ne_bytes(), 8)
+                    self.push_i64(val1 * val2)
                 }
-                
+
                 OpCode::MulF64 => {
                     let val1 = self.pop_f64();
                     let val2 = self.pop_f64();
-                    self.push_bytes((val1 * val2).to_ne_bytes(), 8)
+                    self.push_f64(val1 * val2)
                 }
-                
+
                 OpCode::DivI64 => {
                     let val1 = self.pop_i64();
                     let val2 = self.pop_i64();
-                    self.push_bytes((val1 / val2).to_ne_bytes(), 8)
+                    self.push_i64(val1 / val2)
                 }
-                
+
                 OpCode::DivF64 => {
                     let val1 = self.pop_f64();
                     let val2 = self.pop_f64();
-                    self.push_bytes((val1 / val2).to_ne_bytes(), 8)
+                    self.push_f64(val1 / val2)
                 }
-                
+
                 OpCode::PowI64 => {
                     let val1 = self.pop_i64();
                     let val2 = self.pop_i64();
-                    self.push_bytes(val1.pow(val2 as u32).to_ne_bytes(), 8)
+                    self.push_i64(val1.pow(val2 as u32))
                 }
-                
+
                 OpCode::PowF64 => {
                     let val1 = self.pop_f64();
                     let val2 = self.pop_f64();
-                    self.push_bytes(val1.powf(val2).to_ne_bytes(), 8)
+                    self.push_f64(val1.powf(val2))
                 }
-                
+
                 OpCode::ModI64 => {
                     let val1 = self.pop_i64();
                     let val2 = self.pop_i64();
-                    self.push_bytes((val1 % val2).to_ne_bytes(), 8)
+                    self.push_i64(val1 % val2)
                 }
-                
+
                 OpCode::ModF64 => {
                     let val1 = self.pop_f64();
                     let val2 = self.pop_f64();
-                    self.push_bytes((val1 % val2).to_ne_bytes(), 8)
+                    self.push_f64(val1 % val2)
                 }
 
                 OpCode::NegI64 => {
-                    let val = self.pop_f64();
-                    self.push_bytes(val.to_ne_bytes(), 8)
-                }
-                
-                OpCode::NegF64 => {
                     let val = self.pop_i64();
-                    self.push_bytes(val.to_ne_bytes(), 8)
+                    self.push_i64(-val)
+                }
+
+                OpCode::NegF64 => {
+                    let val = self.pop_f64();
+                    self.push_f64(-val)
+                }
+
+                OpCode::NegBool => {
+                    let val = self.pop_i64();
+                    self.push_i64(if val == 0 { 1 } else { 0 })
+                }
+
+                OpCode::I64ToF64 => {
+                    let val = self.pop_i64();
+                    self.push_f64(val as f64)
+                }
+
+                OpCode::F64ToI64 => {
+                    let val = self.pop_f64();
+                    self.push_i64(val as i64)
+                }
+
+                OpCode::ConstT => {
+                    self.push_i64(1)
+                }
+
+                OpCode::ConstF => {
+                    self.push_i64(0)
+                }
+
+                OpCode::CompI64 => {
+                    let val1 = self.pop_i64();
+                    let val2 = self.pop_i64();
+                    if val1 == val2 {
+                        self.push_i64(0);
+                        continue;
+                    }
+                    if val1 > val2 {
+                        self.push_i64(1)
+                    } else { self.push_i64(-1) }
+                }
+
+                OpCode::CompF64 => {
+                    let val1 = self.pop_f64();
+                    let val2 = self.pop_f64();
+
+                    // if nan IEEE 754 specifies always false
+                    if val1.is_nan() || val2.is_nan() {
+                        self.push_i64(0);
+                        continue;
+                    }
+                    if val1 == val2 {
+                        self.push_i64(0);
+                        continue;
+                    }
+                    if val1 > val2 {
+                        self.push_i64(1)
+                    } else { self.push_i64(-1) }
+                }
+
+                OpCode::CompOr => {
+                    let val1 = self.pop_bool();
+                    let val2 = self.pop_bool();
+                    self.push_bool(val1 || val2)
+                }
+
+                OpCode::CompAnd => {
+                    let val1 = self.pop_bool();
+                    let val2 = self.pop_bool();
+                    self.push_bool(val1 && val2);
+                }
+
+                OpCode::CompNot => {
+                    let val = self.pop_bool() == false;
+                    self.push_bool(val)
                 }
             }
         }
+
         InterpResult::Ok
     }
 }
@@ -335,8 +486,8 @@ mod tests {
         let value1 = 23423423423_i64;
         let value2 = 3423.34234234_f64;
 
-        let idx1 = chunk.add_fixed_size_const(&value1);
-        let idx2 = chunk.add_fixed_size_const(&value2);
+        let idx1 = chunk.push_constant(&value1);
+        let idx2 = chunk.push_constant(&value2);
 
         let mut vm = Vm::new(&mut chunk);
 

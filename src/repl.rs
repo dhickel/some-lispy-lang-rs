@@ -10,8 +10,7 @@ use vm::op_codes::OpCode::{Exit, Ldc};
 use vm::vm::{CompUnit, Vm};
 
 
-pub mod parse;
-pub mod lang;
+pl
 pub mod eval;
 
 
@@ -28,12 +27,12 @@ fn main() {
         constants: Vec::<u8>::new(),
     };
 
-   
+
 
     let v1_idx = chunk.push_constant(&1001_i64) as u8;
     let v2_idx = chunk.push_constant(&1000.222234_f64) as u8;
     let v3_idx = chunk.push_constant(&false) as u8;
-  
+
     chunk.write_operand(OpCode::Ldc as u8);
     chunk.write_operand(v2_idx);
     chunk.write_operand(OpCode::Ldc as u8);
@@ -43,12 +42,12 @@ fn main() {
     chunk.write_op_code(OpCode::CompF64);
     chunk.write_op_code(OpCode::NegBool);
     chunk.write_op_code(OpCode::RtnI64);
-    
-    
+
+
 
     let mut vm = Vm::new(&mut chunk);
 
-    
+
     vm.run();
 
     // let mut chunk = CompUnit {
@@ -87,7 +86,7 @@ fn main() {
     //         // match parse::lexer::process(input) {
     //         //     Ok(tokens) => {
     //         //         println!("Tokens: {:?}\n", tokens);
-    //         //         let ast = parse::parser::process(tokens);
+    //         //         let ast = parse::parse::process(tokens);
     //         //         println!("\nSyntax Tree: {:?}\n", ast)
     //         //
     //         //     }

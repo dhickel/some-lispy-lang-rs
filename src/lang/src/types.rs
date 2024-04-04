@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Integer,
@@ -20,4 +19,3 @@ pub struct TypeDef {
     pub super_types: Vec<Type>,
     pub name: String,
 }
-

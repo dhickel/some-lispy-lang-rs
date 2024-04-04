@@ -1,2 +1,1 @@
-pub mod datatypes;
-pub  mod types;
+pub mod types;

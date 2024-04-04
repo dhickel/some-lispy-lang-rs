@@ -1,14 +1,12 @@
-use std::string::String;
 use lasso::Spur;
-use crate::parse2::ast_nodes::Param;
-use crate::parse2::token::Lex::*;
-use crate::parse2::token::Lit::*;
-use crate::parse2::token::Op::*;
-use crate::parse2::token::Syn::*;
-use crate::parse2::token::Expr::*;
-use crate::parse2::token::Def::*;
-use crate::parse2::token::Mod::*;
-use crate::parse2::TokenType::*;
+use crate::token::Lex::*;
+use crate::token::Syn::*;
+use crate::token::Op::*;
+use crate::token::Expr::*;
+use crate::token::Lit::*;
+use crate::token::Mod::*;
+use crate::token::Def::*;
+use crate::token::TokenType::*;
 
 
 pub fn match_single_token(input: char) -> Option<TokenType> {

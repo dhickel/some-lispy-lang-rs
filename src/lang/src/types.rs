@@ -1,21 +1,28 @@
+use lasso::Spur;
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Integer,
     Float,
     Boolean,
-    Vector,
+    Vector(Box<Type>),
     String,
     Pair,
     Nil,
     Quote,
-    Object,
-    Lambda,
-    Custom,
-    Struct,
+    Object(ObjType),
+    Lambda(FuncType)
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TypeDef {
+pub struct ObjType {
     pub super_types: Vec<Type>,
-    pub name: String,
+    pub name: Spur,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FuncType {
+    pub return_type: Box<Type>,
+    pub arg_typ: Vec<Type>
 }

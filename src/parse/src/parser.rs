@@ -1,7 +1,6 @@
 use std::collections::LinkedList;
-use std::rc::Rc;
 use lasso::Spur;
-use crate::ast::{Accessor, AssignData, AstNode, CondBranch, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefStructData, DefVarData, DirectInst, ExprFuncCallData, Field, FuncArg, FuncCallData, GenRandData, IfData, InstArgs, ListAccData, ObjectAssignData, ObjectCallData, Param, WhileData};
+use crate::ast::*;
 use crate::ast::AstNode::*;
 use crate::token::*;
 use crate::token::TokenType::*;
@@ -1088,8 +1087,7 @@ impl ParserState {
                 dynamic,
                 mutable,
                 c_type: None,
-            }
-            );
+            });
         }
         if bracketed { self.consume_right_bracket()?; } else { self.consume_right_paren()?; }
         Ok(Some(params))

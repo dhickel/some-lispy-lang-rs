@@ -86,7 +86,7 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
         "cons" => Some(TExpression(Cons)),
         "car" => Some(TExpression(Car)),
         "cdr" => Some(TExpression(Cdr)),
-        "list" => Some(TExpression(List)),
+        "list" => Some(TExpression(Expr::List)),
         "lacc" => Some(TExpression(Lacc)),
         "define" => Some(TDefinition(Define)),
         "defunc" => Some(TDefinition(DefineFunc)),
@@ -164,6 +164,7 @@ pub enum Syn {
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Op {
+    List,
     And,
     Or,
     Nor,

@@ -1,12 +1,14 @@
 use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Sub};
-use crate::op_codes::{OpCode};
+use parser::op_codes::{OpCode};
+use std::time::{SystemTime, UNIX_EPOCH};
+use parser::parser::CompUnit;
 
 macro_rules! nano_time {
     () => {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect()
+            .expect("")
             .as_nanos()
     };
 }
@@ -26,62 +28,8 @@ pub enum Value {
 }
 
 
-#[derive(Debug)]
-pub struct CompUnit {
-    pub code: Vec<u8>,
-    pub constants: Vec<u8>,
-}
 
 
-impl CompUnit {
-    pub fn write_op_code(&mut self, op: OpCode) {
-        self.code.push(op as u8)
-    }
-
-    pub fn write_operand(&mut self, val: u8) {
-        self.code.push(val);
-    }
-
-    pub fn write_wide_inst(&mut self, val: u16) {
-        self.code.push((val & 0xFF) as u8);
-        self.code.push(((val >> 8) & 0xFF) as u8);
-    }
-
-    fn add_constant(&mut self, bytes: &[u8]) -> usize {
-        unsafe {
-            let start_index = self.constants.len();
-            let additional_len = bytes.len();
-            self.constants.reserve(additional_len);
-
-            let new_len = start_index + additional_len;
-            let dst_ptr = self.constants.as_mut_ptr().add(start_index);
-            let src_ptr = bytes.as_ptr();
-
-            std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, additional_len);
-            self.constants.set_len(new_len);
-
-            start_index
-        }
-    }
-
-    pub fn push_constant<T>(&mut self, value: &T) -> usize {
-        unsafe {
-            let size = std::mem::size_of::<T>();
-            if size > 8 { panic!("Attempted to add constant greater than 8 bytes"); }
-
-            let value_ptr = value as *const T as *const u8;
-            let bytes_slice = std::slice::from_raw_parts(value_ptr, size);
-
-            if size < 8 {
-                let mut padded_bytes = vec![0u8; 8];
-                padded_bytes[8 - size..].copy_from_slice(bytes_slice);
-                self.add_constant(&padded_bytes)
-            } else {
-                self.add_constant(bytes_slice)
-            }
-        }
-    }
-}
 
 
 #[derive(Debug)]
@@ -257,6 +205,7 @@ impl<'a> Vm<'a> {
 
     //
     pub fn run(&mut self) -> InterpResult {
+        let t = nano_time!();
         loop {
             match self.read_op_code() {
                 OpCode::Exit => {

@@ -54,7 +54,6 @@ impl SCache {
     // rw lock the value is owned by the lock. As such this function transmutes
     // the pointer to static as to be able to return it. These reference are never 
     // stored externally and are just used for temporary access.
-
     pub fn resolve(&self, spur: &Spur) -> &str {
         let rodeo = self.cache.lock().unwrap();
         let string_ref: &str = rodeo.resolve(&spur);
@@ -65,3 +64,9 @@ impl SCache {
 }
 
 lazy_static! {pub static ref SCACHE : SCache = SCache::default();}
+
+
+
+pub fn get_wide_bytes(val: u16) -> (u8, u8) {
+    ((val & 0xFF) as u8, ((val >> 8) & 0xFF) as u8)
+}

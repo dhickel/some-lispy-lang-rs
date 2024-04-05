@@ -1,66 +1,96 @@
+extern crate core;
+
+
+
 use std::cell::RefCell;
-use std::io;
-use std::io::Write;
-use lasso::Rodeo;
-use crate::eval::class_loader::ClassLoader;
-use crate::eval::environment::Environment;
+use std::collections::HashMap;
+use std::hash::{BuildHasher};
+use std::time::{SystemTime, UNIX_EPOCH};
+use parser::op_codes::OpCode;
+
+use parser::parser::CompUnit;
 use vm;
-use vm::op_codes::{OpCode};
-use vm::op_codes::OpCode::{Exit, Ldc};
-use vm::vm::{CompUnit, Vm};
+
+use vm::vm::*;
 
 
-pl
-pub mod eval;
+macro_rules! nano_time {
+    () => {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("")
+            .as_nanos()
+    };
+}
 
 
-
-
-// TODO init this better
 
 
 #[allow(dead_code)]
 fn main() {
 
-    let mut chunk = CompUnit {
-        code: Vec::<u8>::new(),
-        constants: Vec::<u8>::new(),
+    let input = "(* (+ 5  5) (+ 10 10))".to_string();
+
+    let t = nano_time!();
+    let tokens =  parser::lexer::process(input).expect("Token Err");
+
+
+    let ast = parser::parser::process(tokens).expect("Parse Err");
+    let mut comp_unit = CompUnit {
+        code: vec![],
+        constants: vec![],
     };
+    parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
+    comp_unit.code.push(OpCode::RtnI64 as u8);
+    println!("Proc Time: {} ns", nano_time!() - t);
+    println!("comp unit: {:?}", comp_unit);
+    println!("Decoded: {:?}",parser::op_codes::decode(comp_unit.clone()));
 
-
-
-    let v1_idx = chunk.push_constant(&1001_i64) as u8;
-    let v2_idx = chunk.push_constant(&1000.222234_f64) as u8;
-    let v3_idx = chunk.push_constant(&false) as u8;
-
-    chunk.write_operand(OpCode::Ldc as u8);
-    chunk.write_operand(v2_idx);
-    chunk.write_operand(OpCode::Ldc as u8);
-    chunk.write_operand(v1_idx);
-    chunk.write_op_code(OpCode::I64ToF64);
-  //  chunk.write_op_code(OpCode::I64ToF64);
-    chunk.write_op_code(OpCode::CompF64);
-    chunk.write_op_code(OpCode::NegBool);
-    chunk.write_op_code(OpCode::RtnI64);
-
-
-
-    let mut vm = Vm::new(&mut chunk);
-
-
+    let mut vm = Vm::new(&mut comp_unit);
     vm.run();
 
+
+
+
+
+    // let mut chunk = CompUnit {
+    //     code: Vec::<u8>::new(),
+    //     constants: Vec::<u8>::new(),
+    // };
+    //
+    //
+    //
+    // let v1_idx = chunk.push_constant(&1001_i64) as u8;
+    // let v2_idx = chunk.push_constant(&123123123_i64) as u8;
+    // let v3_idx = chunk.push_constant(&6456_i64) as u8;
+    // let v4_idx = chunk.push_constant(&6323_i64) as u8;
+    // let v5_idx = chunk.push_constant(&1001_i64) as u8;
+    // let v6_idx = chunk.push_constant(&5645641_i64) as u8;
+    // let v7_idx = chunk.push_constant(&1001_i64) as u8;
+    // let v8_idx = chunk.push_constant(&001_i64) as u8;
+    //
+    // chunk.write_operand(OpCode::Ldc as u8);
+    // chunk.write_operand(v8_idx);
+    // chunk.write_op_code(OpCode::RtnBool);
+    //
+    //
+    //
+
+    //
+    //
+    // vm.run();
+    //
     // let mut chunk = CompUnit {
     //     code: Vec::<u8>::new()
     // };
-    // 
+    //
     // chunk.code.push(Constant as u8);
     // chunk.code.push(Return as u8);
     // chunk.code.push(Exit as u8);
     // let mut vm = Vm::new(&mut chunk);
     // vm.run();
-    
-    
+
+
     // let mut env = Environment::new();
     // let mut loader = RefCell::new(ClassLoader::default());
     // let mut string_cache = Rodeo::default();

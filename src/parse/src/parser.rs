@@ -2,9 +2,73 @@ use std::collections::LinkedList;
 use lasso::Spur;
 use crate::ast::*;
 use crate::ast::AstNode::*;
+use crate::code_gen::GenData;
+use crate::op_codes::OpCode;
 use crate::token::*;
 use crate::token::TokenType::*;
 use crate::util;
+
+
+#[derive(Debug, Clone)]
+pub struct CompUnit {
+    pub code: Vec<u8>,
+    pub constants: Vec<u8>,
+}
+
+
+impl CompUnit {
+    pub fn write_op_code(&mut self, op: OpCode) {
+        self.code.push(op as u8)
+    }
+
+    pub fn write_operand(&mut self, val: u8) {
+        self.code.push(val);
+    }
+
+    pub fn write_wide_inst(&mut self, val: u16) {
+        self.code.push((val & 0xFF) as u8);
+        self.code.push(((val >> 8) & 0xFF) as u8);
+    }
+
+    fn add_constant(&mut self, bytes: &[u8]) -> usize {
+        unsafe {
+            let start_index = self.constants.len();
+            let additional_len = bytes.len();
+            self.constants.reserve(additional_len);
+
+            let new_len = start_index + additional_len;
+            let dst_ptr = self.constants.as_mut_ptr().add(start_index);
+            let src_ptr = bytes.as_ptr();
+
+            std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, additional_len);
+            self.constants.set_len(new_len);
+
+            start_index
+        }
+    }
+
+    pub fn push_constant<T>(&mut self, value: &T) -> usize {
+        unsafe {
+            let size = std::mem::size_of::<T>();
+            if size > 8 { panic!("Attempted to add constant greater than 8 bytes"); }
+
+            let value_ptr = value as *const T as *const u8;
+            let bytes_slice = std::slice::from_raw_parts(value_ptr, size);
+
+            if size < 8 {
+                let mut padded_bytes = vec![0u8; 8];
+                padded_bytes[8 - size..].copy_from_slice(bytes_slice);
+                self.add_constant(&padded_bytes)
+            } else {
+                self.add_constant(bytes_slice)
+            }
+        }
+    }
+
+    pub fn push_code_gen(&mut self, mut other: GenData) {
+        self.code.append(&mut other.code);
+    }
+}
 
 
 struct ParserState {
@@ -235,7 +299,7 @@ impl ParserState {
             let args = self.parse_func_args()?;
             self.consume_right_paren()?;
 
-            let data = ExprFuncCallData {
+            let data = InnerFuncCallData {
                 expr: expression,
                 accessors: None,
                 arguments: args,
@@ -249,7 +313,10 @@ impl ParserState {
 
 
     pub fn parse_operation(&mut self) -> Result<AstNode, String> {
-        let operation = &self.peek().token_type.clone();
+        let operation = if let TOperation(op) = &self.peek().token_type.clone() {
+            op.clone()
+        } else { return Err("Expected operation token".to_string()); };
+
         self.advance()?;
 
         let mut operands = Vec::<AstNode>::new();
@@ -257,32 +324,8 @@ impl ParserState {
             operands.push(self.parse_expr_data()?);
         }
 
-
-        match operation {
-            TOperation(Op::And) => Ok(OpAnd(operands)),
-            TOperation(Op::Or) => Ok(OpOr(operands)),
-            TOperation(Op::Nor) => Ok(OpNor(operands)),
-            TOperation(Op::Xor) => Ok(OpXor(operands)),
-            TOperation(Op::Xnor) => Ok(OpXnor(operands)),
-            TOperation(Op::Nand) => Ok(OpNand(operands)),
-            TOperation(Op::Negate) => Ok(OpNegate(operands)),
-            TOperation(Op::Plus) => Ok(OpAddition(operands)),
-            TOperation(Op::Minus) => Ok(OpSubtraction(operands)),
-            TOperation(Op::Asterisk) => Ok(OpMultiplication(operands)),
-            TOperation(Op::Slash) => Ok(OpDivision(operands)),
-            TOperation(Op::Caret) => Ok(OpExponentiate(operands)),
-            TOperation(Op::Percent) => Ok(OpModulo(operands)),
-            TOperation(Op::PlusPlus) => Ok(OpIncrement(operands)),
-            TOperation(Op::MinusMinus) => Ok(OpDecrement(operands)),
-            TOperation(Op::Greater) => Ok(OpGreaterThan(operands)),
-            TOperation(Op::Less) => Ok(OpLessThan(operands)),
-            TOperation(Op::GreaterEqual) => Ok(OpGreaterThanEqual(operands)),
-            TOperation(Op::LessEqual) => Ok(OpLessThanEqual(operands)),
-            TOperation(Op::Equals) => Ok(OpEquality(operands)),
-            TOperation(Op::BangEquals) => Ok(OpRefNonEquality(operands)),
-            TOperation(Op::RefEqual) => Ok(OpRefEquality(operands)),
-            _ => Err(format!("Fatal, Expected Operation received {:?}", operation))
-        }
+        let data = OpData { operation, operands, typ: None, code: None };
+        Ok(Operation(data))
     }
 
 
@@ -442,7 +485,8 @@ impl ParserState {
                 let token = self.advance()?;
 
                 let name = if let (
-                    TLiteral(Lit::Identifier), Some(TokenData::String(s))) = (&token.token_type, &token.data) {
+                    TLiteral(Lit::Identifier), Some(TokenData::String(s))
+                ) = (&token.token_type, &token.data) {
                     *s
                 } else { return Err(format!("Expected object name to assign to, found: {:?}", token)); };
 
@@ -466,13 +510,13 @@ impl ParserState {
     pub fn parse_if(&mut self) -> Result<AstNode, String> {
         let condition = self.parse_expr_data()?;
         let then = self.parse_expr_data()?;
-        let if_branch = CondBranch { cond_node: condition, then_node: then };
+        let if_branch = CondBranch { cond_node: condition, then_node: then, typ: None };
 
         let else_branch = if self.peek().token_type != TLexical(Lex::RightParen) {
             Some(self.parse_expr_data()?)
         } else { None };
 
-        let data = IfData { if_branch, else_branch };
+        let data = IfData { if_branch, else_branch, else_type: None };
         Ok(ExprIf(Box::new(data)))
     }
 
@@ -497,7 +541,7 @@ impl ParserState {
         if cond_branches.is_empty() {
             Err(format!("Cond expression must have at least one branch, line: {}", self.peek().line))
         } else {
-            let data = CondData { cond_branches, else_branch };
+            let data = CondData { cond_branches, else_branch, else_type: None };
             Ok(ExprCond(Box::new(data)))
         }
     }
@@ -510,7 +554,7 @@ impl ParserState {
         let then_node = self.parse_expr_data()?;
 
         self.consume_right_paren()?;
-        Ok(CondBranch { cond_node, then_node })
+        Ok(CondBranch { cond_node, then_node, typ: None })
     }
 
 
@@ -545,7 +589,8 @@ impl ParserState {
         if elements.is_empty() {
             Ok(LitNil)
         } else {
-            Ok(ExprPairList(elements))
+            let data = OpData { operation: Op::List, operands: elements, typ: None, code: None };
+            Ok(ExprPairList(data))
         }
     }
 
@@ -746,14 +791,14 @@ impl ParserState {
                     DefFunction(Box::new(data))
                 } else {
                     let value = self.parse_expr_data()?;
-                    let data = DefVarData { name, modifiers, value, var_type };
+                    let data = DefVarData { name, modifiers, value, d_type: var_type };
                     DefVariable(Box::new(data))
                 }
             }
 
             TLiteral(_) => {
                 let value = self.parse_literal()?;
-                let data = DefVarData { name, modifiers, value, var_type };
+                let data = DefVarData { name, modifiers, value, d_type: var_type };
                 DefVariable(Box::new(data))
             }
 
@@ -976,7 +1021,7 @@ impl ParserState {
         };
 
         let rtn_type = self.parse_type_if_exists()?;
-        Ok(DefLambdaData { modifiers, parameters, body, p_type: rtn_type, c_type: None })
+        Ok(DefLambdaData { modifiers, parameters, body, d_type: rtn_type, typ: None })
     }
 
 
@@ -1081,7 +1126,7 @@ impl ParserState {
             let p_type = self.parse_type_if_exists()?;
             params.push(Param {
                 name,
-                p_type,
+                d_type: p_type,
                 optional,
                 default_value,
                 dynamic,

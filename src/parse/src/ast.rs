@@ -1,7 +1,8 @@
 use std::collections::LinkedList;
+use std::io::Bytes;
 use lasso::Spur;
 use lang::types::Type;
-use crate::token::Mod;
+use crate::token::{Mod, Op};
 
 
 // Nodes
@@ -15,7 +16,7 @@ pub enum AstNode {
     DefFunction(Box<DefFuncData>),
     DefStruct(Box<DefStructData>),
     DefClass(Box<DefClassData>),
-    
+
     // Expressions
     ExprAssignment(Box<AssignData>),
     ExprMulti(Vec<AstNode>),
@@ -24,41 +25,20 @@ pub enum AstNode {
     ExprCond(Box<CondData>),
     ExprWhileLoop(Box<WhileData>),
     ExprCons(Box<ConsData>),
-    ExprPairList(Vec<AstNode>),
+    ExprPairList(OpData),
     ExprListAccess(Box<ListAccData>),
     ExprFuncCall(Box<FuncCallData>),
-    ExprFuncCalInner(Box<ExprFuncCallData>),
+    ExprFuncCalInner(Box<InnerFuncCallData>),
     ExprObjectCall(Box<ObjectCallData>),
     ExprLiteralCall(Spur),
     ExprObjectAssignment(Box<ObjectAssignData>),
     ExprGenRand(Box<GenRandData>),
     ExprDirectInst(Box<DirectInst>),
     ExprInitInst(Box<FuncCallData>),
-    
+
     // Operations
-    OpAddition(Vec<AstNode>),
-    OpSubtraction(Vec<AstNode>),
-    OpMultiplication(Vec<AstNode>),
-    OpDivision(Vec<AstNode>),
-    OpModulo(Vec<AstNode>),
-    OpExponentiate(Vec<AstNode>),
-    OpIncrement(Vec<AstNode>),
-    OpDecrement(Vec<AstNode>),
-    OpOr(Vec<AstNode>),
-    OpAnd(Vec<AstNode>),
-    OpXor(Vec<AstNode>),
-    OpNor(Vec<AstNode>),
-    OpXnor(Vec<AstNode>),
-    OpNand(Vec<AstNode>),
-    OpNegate(Vec<AstNode>),
-    OpGreaterThan(Vec<AstNode>),
-    OpGreaterThanEqual(Vec<AstNode>),
-    OpLessThan(Vec<AstNode>),
-    OpLessThanEqual(Vec<AstNode>),
-    OpEquality(Vec<AstNode>),
-    OpRefEquality(Vec<AstNode>),
-    OpRefNonEquality(Vec<AstNode>),
-    
+    Operation(OpData),
+
     // Literals
     LitInteger(i64),
     LitFloat(f64),
@@ -74,6 +54,11 @@ pub enum AstNode {
 
 }
 
+trait CodeGen {
+    fn is_rectified(&self) -> bool;
+    fn get_code(&self, byte_code: &mut Vec<u8>) -> &Vec<u8>;
+}
+
 
 // Definition Data
 
@@ -82,7 +67,7 @@ pub struct DefVarData {
     pub name: Spur,
     pub modifiers: Option<Vec<Mod>>,
     pub value: AstNode,
-    pub var_type: Option<Spur>,
+    pub d_type: Option<Spur>,
 }
 
 
@@ -91,8 +76,8 @@ pub struct DefLambdaData {
     pub modifiers: Option<Vec<Mod>>,
     pub parameters: Option<Vec<Param>>,
     pub body: AstNode,
-    pub p_type: Option<Spur>,
-    pub c_type: Option<Type>,
+    pub d_type: Option<Spur>,
+    pub typ: Option<Type>,
 }
 
 
@@ -106,11 +91,11 @@ pub struct DefFuncData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: Spur,
-    pub p_type: Option<Spur>,
     pub optional: bool,
     pub default_value: Option<AstNode>,
     pub dynamic: bool,
     pub mutable: bool,
+    pub d_type: Option<Spur>,
     pub c_type: Option<Type>,
 }
 
@@ -170,12 +155,24 @@ pub struct Field {
 }
 
 
+// Operation Data
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpData {
+    pub operation: Op,
+    pub operands: Vec<AstNode>,
+    pub typ: Option<Type>,
+    pub code: Option<Vec<u8>>
+}
+
+
+
 // Expression Data
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBranch {
     pub cond_node: AstNode,
     pub then_node: AstNode,
+    pub typ: Option<Type>
 }
 
 
@@ -190,6 +187,7 @@ pub struct AssignData {
 pub struct IfData {
     pub if_branch: CondBranch,
     pub else_branch: Option<AstNode>,
+    pub else_type: Option<Type>
 }
 
 
@@ -197,6 +195,7 @@ pub struct IfData {
 pub struct CondData {
     pub cond_branches: Vec<CondBranch>,
     pub else_branch: Option<AstNode>,
+    pub else_type: Option<Type>
 }
 
 
@@ -245,7 +244,7 @@ pub struct ObjectAssignData {
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ExprFuncCallData {
+pub struct InnerFuncCallData {
     pub expr: AstNode,
     pub accessors: Option<Vec<Accessor>>,
     pub arguments: Option<Vec<FuncArg>>,
@@ -273,9 +272,10 @@ pub struct InstArgs {
     pub value: AstNode,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenRandData {
     pub is_float: bool,
     pub lower: AstNode,
-    pub upper: AstNode
+    pub upper: AstNode,
 }

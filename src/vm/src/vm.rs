@@ -28,10 +28,6 @@ pub enum Value {
 }
 
 
-
-
-
-
 #[derive(Debug)]
 pub struct Vm<'a> {
     comp_unit: &'a CompUnit,
@@ -263,7 +259,6 @@ impl<'a> Vm<'a> {
                 OpCode::SubF64 => {
                     let val1 = self.pop_f64();
                     let val2 = self.pop_f64();
-
                     self.push_f64(val1 - val2)
                 }
 

@@ -1,11 +1,12 @@
 use std::cmp::PartialEq;
 use lang::types::Type;
 
+
 use crate::ast::{AstNode, OpData};
+use crate::environment::Context;
 use crate::op_codes::OpCode;
 use crate::parser::CompUnit;
 use crate::token::Op;
-use crate::token::TokenData::Integer;
 use crate::util;
 
 
@@ -30,31 +31,79 @@ impl GenData {
 }
 
 
-pub fn resolved_types(program_nodes: Vec<AstNode>) -> bool {
-    let mut fully_resolved = false;
-    for i in 0..2 {
-        fully_resolved = true;
-        for node in &program_nodes {
-            if !resolve(node) { fully_resolved = false; }
+pub fn resolve_types(mut program_nodes: &mut Vec<AstNode>, mut context: Context) -> bool {
+    let mut fully_resolved = true;
+    for _ in 0..2 {
+        for node in program_nodes.iter_mut() {
+            if resolve(node, &mut context) == Ok(Type::Unresolved) {
+                fully_resolved = false;
+            }
         }
     }
     fully_resolved
 }
 
 
-fn resolve(node: &AstNode) -> bool {
-    return true;
+fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
     match node {
-        AstNode::DefVariable(data) => todo!(),
+        AstNode::DefVariable(data) => {
+            let resolved_type = resolve(&mut data.value, context)?;
+            if resolved_type == Type::Unresolved { return Ok(Type::Unresolved); }
+
+            if let Some(d_type) = data.d_type {
+                let resolved_d_type = context.validate_type(d_type);
+                if resolved_type == Type::Unresolved {
+                    Ok(Type::Unresolved)
+                } else {
+                    Ok(resolved_d_type)
+                }
+            } else { Ok(resolved_type) }
+        }
+
         AstNode::DefLambda(_) => todo!(),
         AstNode::DefFunction(_) => todo!(),
         AstNode::DefStruct(_) => todo!(),
         AstNode::DefClass(_) => todo!(),
-        AstNode::ExprAssignment(_) => todo!(),
-        AstNode::ExprMulti(_) => todo!(),
-        AstNode::ExprPrint(_) => todo!(),
-        AstNode::ExprIf(_) => todo!(),
-        AstNode::ExprCond(_) => todo!(),
+        AstNode::ExprAssignment(data) => {
+            let resolved_type = resolve(&mut data.value, context)?;
+            if resolved_type == Type::Unresolved {
+                return Ok(Type::Unresolved);
+            } else {
+                Ok(context.get_symbol_type(data.name))
+            }
+        }
+
+        AstNode::ExprMulti(data) => {
+            context.pushScope();
+            let mut resolved_type = Type::Unresolved;
+            for expr in data.expressions.iter_mut() {
+                resolved_type = resolve(expr, context)?;
+            }
+            context.popScope();
+            Ok(resolved_type)
+        }
+
+        AstNode::ExprPrint(data) => {
+            resolve(data, context)
+        }
+
+        AstNode::ExprIf(data) => {
+            // TODO handle resolution when used as assignment or as argument ( multi branches)
+            context.pushScope();
+            let if_type = resolve(&mut data.if_branch.then_node, context)?;
+            context.popScope();
+
+            if let Some(mut els) = data.else_branch {
+                context.pushScope();
+                resolve(&mut els, context)?;
+                context.popScope();
+                Ok(Type::Unresolved) // FIXME
+            } else {
+                Ok(Type::Unresolved) // FIXME
+            }
+        }
+        
+        AstNode::ExprCond(data) => todo!(),
         AstNode::ExprWhileLoop(_) => todo!(),
         AstNode::ExprCons(_) => todo!(),
         AstNode::ExprPairList(_) => todo!(),
@@ -67,15 +116,30 @@ fn resolve(node: &AstNode) -> bool {
         AstNode::ExprGenRand(_) => todo!(),
         AstNode::ExprDirectInst(_) => todo!(),
         AstNode::ExprInitInst(_) => todo!(),
-        AstNode::Operation(_) => todo!(),
-        AstNode::LitInteger(_) => todo!(),
-        AstNode::LitFloat(_) => todo!(),
-        AstNode::LitBoolean(_) => todo!(),
-        AstNode::LitString(_) => todo!(),
+
+        AstNode::Operation(ref mut data) => {
+            let mut typ = Type::Integer;
+            for op in data.operands.iter_mut() {
+                let op_typ = resolve(op, context)?;
+                match op_typ {
+                    Type::Float => typ = Type::Float,
+                    Type::Integer | Type::Boolean => continue,
+                    Type::Unresolved => return Ok(Type::Unresolved),
+                    _ => return Err("Invalid type in operation expression".to_string()),
+                }
+            }
+            data.typ = typ.clone();
+            Ok(typ)
+        }
+
+        AstNode::LitInteger(_) => Ok(Type::Integer),
+        AstNode::LitFloat(_) => Ok(Type::Float),
+        AstNode::LitBoolean(_) => Ok(Type::Boolean),
+        AstNode::LitString(_) => Ok(Type::String),
         AstNode::LitQuote => todo!(),
         AstNode::LitObject => todo!(),
         AstNode::LitStruct() => todo!(),
-        AstNode::LitNil => todo!(),
+        AstNode::LitNil => Ok(Type::Nil),
         AstNode::LitVector => todo!(),
         AstNode::LitPair => todo!(),
         AstNode::LitLambda => todo!(),
@@ -118,34 +182,28 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::ExprInitInst(_) => todo!(),
         AstNode::Operation(op_data) => gen_operation(op_data, comp_unit),
 
-        AstNode::LitInteger(value) => {
-            let index = comp_unit.push_constant(&value);
-            let code = if index > u8::MAX as usize {
-                let bytes = util::get_wide_bytes(index as u16);
+        AstNode::LitInteger(_) | AstNode::LitFloat(_) | AstNode::LitBoolean(_) => {
+            let value = match node {
+                AstNode::LitInteger(value) => (comp_unit.push_constant(&value), Type::Integer),
+                AstNode::LitFloat(value) => (comp_unit.push_constant(&value), Type::Float),
+                AstNode::LitBoolean(value) => (comp_unit.push_constant(&value), Type::Boolean),
+                _ => return Err("Fatal: Invalid literal in gen_node".to_string())
+            };
+
+            let code = if value.0 > u8::MAX as usize {
+                let bytes = util::get_wide_bytes(value.0 as u16);
                 vec![OpCode::LdcW as u8, bytes.0, bytes.1]
-            } else { vec![OpCode::Ldc as u8, index as u8] };
+            } else {
+                vec![OpCode::Ldc as u8, value.0 as u8]
+            };
 
             let data = GenData {
                 code,
-                typ: Type::Integer,
+                typ: value.1,
             };
             Ok(data)
         }
 
-        AstNode::LitFloat(value) => {
-            let index = comp_unit.push_constant(&value);
-            let code = if index > u8::MAX as usize {
-                let bytes = util::get_wide_bytes(index as u16);
-                vec![OpCode::LdcW as u8, bytes.0, bytes.1]
-            } else { vec![OpCode::Ldc as u8, index as u8] };
-
-            let data = GenData {
-                code,
-                typ: Type::Float,
-            };
-            Ok(data)
-        }
-        AstNode::LitBoolean(_) => todo!(),
         AstNode::LitString(_) => todo!(),
         AstNode::LitQuote => todo!(),
         AstNode::LitObject => todo!(),
@@ -174,12 +232,12 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         if is_float && operand.typ != Type::Float {
             if matches!(operand.typ, Type::Integer | Type::Boolean) {
                 operand.append_op_code(OpCode::I64ToF64)
-            } else { return { Err(format!("Unexpected node type for operation: {:?}", operand.typ).to_string()) }; }
+            } else { return Err(format!("Unexpected node type for operation: {:?}", operand.typ).to_string()); }
         }
     }
 
     let capacity = (operands.len() as f32 * 1.5) as usize;
-    
+
     let mut code = GenData {
         code: Vec::<u8>::with_capacity(capacity),
         typ: if is_float { Type::Float } else { Type::Integer },
@@ -196,33 +254,20 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         Op::Nand => todo!(),
         Op::Negate => todo!(),
         Op::Plus | Op::Minus | Op::Asterisk | Op::Slash | Op::Caret | Op::Percent => {
-            let op_code = get_arithmetic_op(data.operation, is_float)?;
-
             if operands.len() < 2 {
                 return Err("Expected at least 2 operands for arithmetic operation".to_string());
             }
-            
-            let size = operands.len() - 1;
-            
-          
- 
-            // 
-            // code.append_gen_data(operands.pop().unwrap());
-            // code.append_gen_data(operands.pop().unwrap());
-            // code.append_op_code(op_code);
-            // 
-            // 
 
-            for i in 0..operands.len() {
-                code.append_gen_data(operands.pop().unwrap());
+            let op_code = get_arithmetic_op(data.operation, is_float)?;
+            let size = operands.len() - 1;
+
+            while let Some(operand) = operands.pop() {
+                code.append_gen_data(operand);
             }
-            
-            println!("Length: {}", operands.len());
-            for i in 0.. size {
+
+            for i in 0..size {
                 code.append_op_code(op_code);
             }
-            
-           // code.append_op_code(if is_float { OpCode::RtnF64 } else { OpCode::RtnI64 });
             Ok(code)
         }
         Op::PlusPlus => todo!(),

@@ -15,6 +15,11 @@ pub struct SCache {
     pub const_post: Spur,
     pub const_final: Spur,
     pub const_validate: Spur,
+    pub const_int: Spur,
+    pub const_float: Spur,
+    pub const_bool: Spur,
+    pub const_string: Spur,
+    pub const_nil: Spur,
 }
 
 
@@ -29,6 +34,11 @@ impl Default for SCache {
         let const_post = cache.get_or_intern_static("post");
         let const_final = cache.get_or_intern_static("final");
         let const_validate = cache.get_or_intern_static("validate");
+        let const_int = cache.get_or_intern_static("int");
+        let const_float = cache.get_or_intern_static("float");
+        let const_bool = cache.get_or_intern_static("bool");
+        let const_string = cache.get_or_intern_static("string");
+        let const_nil = cache.get_or_intern_static("nil");
 
         SCache {
             cache: Mutex::new(cache),
@@ -40,6 +50,12 @@ impl Default for SCache {
             const_post,
             const_final,
             const_validate,
+            const_int,
+            const_float,
+            const_bool,
+            const_string,
+            const_nil
+            
         }
     }
 }

@@ -1,5 +1,4 @@
 use std::collections::LinkedList;
-use std::io::Bytes;
 use lasso::Spur;
 use lang::types::Type;
 use crate::token::{Mod, Op};
@@ -19,7 +18,7 @@ pub enum AstNode {
 
     // Expressions
     ExprAssignment(Box<AssignData>),
-    ExprMulti(Vec<AstNode>),
+    ExprMulti(MultiExprData),
     ExprPrint(Box<AstNode>),
     ExprIf(Box<IfData>),
     ExprCond(Box<CondData>),
@@ -77,7 +76,7 @@ pub struct DefLambdaData {
     pub parameters: Option<Vec<Param>>,
     pub body: AstNode,
     pub d_type: Option<Spur>,
-    pub typ: Option<Type>,
+    pub typ: Type,
 }
 
 
@@ -96,7 +95,7 @@ pub struct Param {
     pub dynamic: bool,
     pub mutable: bool,
     pub d_type: Option<Spur>,
-    pub c_type: Option<Type>,
+    pub c_type: Type,
 }
 
 
@@ -151,7 +150,7 @@ pub struct Field {
     pub modifiers: Option<Vec<Mod>>,
     pub p_type: Option<Spur>,
     pub default_value: Option<AstNode>,
-    pub c_type: Option<Type>,
+    pub c_type: Type,
 }
 
 
@@ -160,19 +159,21 @@ pub struct Field {
 pub struct OpData {
     pub operation: Op,
     pub operands: Vec<AstNode>,
-    pub typ: Option<Type>,
-    pub code: Option<Vec<u8>>
+    pub typ: Type,
 }
-
 
 
 // Expression Data
 
+pub struct MultiExprData{
+    pub expressions : Vec<AstNode>,
+    pub typ: Type
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBranch {
     pub cond_node: AstNode,
     pub then_node: AstNode,
-    pub typ: Option<Type>
+    pub typ: Type
 }
 
 
@@ -187,7 +188,7 @@ pub struct AssignData {
 pub struct IfData {
     pub if_branch: CondBranch,
     pub else_branch: Option<AstNode>,
-    pub else_type: Option<Type>
+    pub else_type: Type
 }
 
 
@@ -195,7 +196,7 @@ pub struct IfData {
 pub struct CondData {
     pub cond_branches: Vec<CondBranch>,
     pub else_branch: Option<AstNode>,
-    pub else_type: Option<Type>
+    pub else_type: Type
 }
 
 

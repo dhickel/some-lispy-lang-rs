@@ -28,18 +28,19 @@ macro_rules! nano_time {
 
 #[allow(dead_code)]
 fn main() {
-
+    let mut comp_unit = CompUnit {
+        code: vec![],
+        constants: vec![],
+    };
     let input = "(* (+ 5  5) (+ 10 10))".to_string();
 
     let t = nano_time!();
     let tokens =  parser::lexer::process(input).expect("Token Err");
 
+    let mut ast = parser::parser::process(tokens).expect("Parse Err");
 
-    let ast = parser::parser::process(tokens).expect("Parse Err");
-    let mut comp_unit = CompUnit {
-        code: vec![],
-        constants: vec![],
-    };
+   let resolved =  parser::code_gen::resolve_types(&mut ast);
+    //println!("Resolved: {}", resolved);
     parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
     comp_unit.code.push(OpCode::RtnI64 as u8);
     println!("Proc Time: {} ns", nano_time!() - t);

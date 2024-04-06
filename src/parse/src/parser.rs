@@ -1,8 +1,11 @@
 use std::collections::LinkedList;
+use intmap::IntMap;
 use lasso::Spur;
+use lang::types::Type;
 use crate::ast::*;
 use crate::ast::AstNode::*;
 use crate::code_gen::GenData;
+use crate::environment::{Binding, Context};
 use crate::op_codes::OpCode;
 use crate::token::*;
 use crate::token::TokenType::*;
@@ -76,6 +79,8 @@ struct ParserState {
     pub current: usize,
     pub end: usize,
     pub depth: i32,
+    pub globals: IntMap<Binding>,
+    pub context: Context,
     pub warnings: Vec<String>,
 }
 
@@ -88,6 +93,8 @@ impl ParserState {
             current: 0,
             end: len,
             depth: 0,
+            globals: IntMap::<Binding>::with_capacity(50),
+            context: Context::default(),
             warnings: Vec::<String>::new(),
         }
     }
@@ -324,7 +331,7 @@ impl ParserState {
             operands.push(self.parse_expr_data()?);
         }
 
-        let data = OpData { operation, operands, typ: None, code: None };
+        let data = OpData { operation, operands, typ: Type::Unresolved };
         Ok(Operation(data))
     }
 
@@ -510,13 +517,13 @@ impl ParserState {
     pub fn parse_if(&mut self) -> Result<AstNode, String> {
         let condition = self.parse_expr_data()?;
         let then = self.parse_expr_data()?;
-        let if_branch = CondBranch { cond_node: condition, then_node: then, typ: None };
+        let if_branch = CondBranch { cond_node: condition, then_node: then, typ: Type::Unresolved };
 
         let else_branch = if self.peek().token_type != TLexical(Lex::RightParen) {
             Some(self.parse_expr_data()?)
         } else { None };
 
-        let data = IfData { if_branch, else_branch, else_type: None };
+        let data = IfData { if_branch, else_branch, else_type: Type::Unresolved };
         Ok(ExprIf(Box::new(data)))
     }
 
@@ -541,7 +548,7 @@ impl ParserState {
         if cond_branches.is_empty() {
             Err(format!("Cond expression must have at least one branch, line: {}", self.peek().line))
         } else {
-            let data = CondData { cond_branches, else_branch, else_type: None };
+            let data = CondData { cond_branches, else_branch, else_type: Type::Unresolved };
             Ok(ExprCond(Box::new(data)))
         }
     }
@@ -554,7 +561,7 @@ impl ParserState {
         let then_node = self.parse_expr_data()?;
 
         self.consume_right_paren()?;
-        Ok(CondBranch { cond_node, then_node, typ: None })
+        Ok(CondBranch { cond_node, then_node, typ: Type::Unresolved })
     }
 
 
@@ -569,7 +576,8 @@ impl ParserState {
         } else if expressions.len() == 1 {
             Ok(Some(expressions.pop().unwrap()))
         } else {
-            Ok(Some(ExprMulti(expressions)))
+            let data = MultiExprData { expressions, typ: Type::Unresolved };
+            Ok(Some(ExprMulti(data)))
         }
     }
 
@@ -589,7 +597,7 @@ impl ParserState {
         if elements.is_empty() {
             Ok(LitNil)
         } else {
-            let data = OpData { operation: Op::List, operands: elements, typ: None, code: None };
+            let data = OpData { operation: Op::List, operands: elements, typ: Type::Unresolved };
             Ok(ExprPairList(data))
         }
     }
@@ -675,7 +683,7 @@ impl ParserState {
             } else { return Err(format!("Expected type identifier, found: {:?}", next)); }
         } else { None };
 
-        //  if typ.is_some() { self.advance()?; }
+        //if typ.is_some() { self.advance()?; } FIXME? Remember to comment why you comment out ...
         Ok(typ)
     }
 
@@ -848,8 +856,9 @@ impl ParserState {
     // FIXME
     pub fn parse_quote(&mut self) -> Result<AstNode, String> {
         self.consume(TLexical(Lex::SingleQuote))?;
-        if self.peek().token_type == TLexical(Lex::LeftParen)
-            && self.peek_n(2).token_type == TLexical(Lex::RightParen) {
+        if self.peek().token_type == TLexical(Lex::LeftParen) 
+            && self.peek_n(2).token_type == TLexical(Lex::RightParen)
+        {
             self.consume_left_paren()?;
             self.consume_right_paren()?;
             return Ok(LitNil);
@@ -985,7 +994,7 @@ impl ParserState {
             } else { None };
 
             self.consume_right_paren()?;
-            fields.push(Field { name, modifiers, p_type, default_value, c_type: None })
+            fields.push(Field { name, modifiers, p_type, default_value, c_type: Type::Unresolved })
         }
         if fields.is_empty() {
             Ok(None)
@@ -1021,7 +1030,7 @@ impl ParserState {
         };
 
         let rtn_type = self.parse_type_if_exists()?;
-        Ok(DefLambdaData { modifiers, parameters, body, d_type: rtn_type, typ: None })
+        Ok(DefLambdaData { modifiers, parameters, body, d_type: rtn_type, typ: Type::Unresolved })
     }
 
 
@@ -1131,7 +1140,7 @@ impl ParserState {
                 default_value,
                 dynamic,
                 mutable,
-                c_type: None,
+                c_type: Type::Unresolved,
             });
         }
         if bracketed { self.consume_right_bracket()?; } else { self.consume_right_paren()?; }

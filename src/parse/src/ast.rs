@@ -164,18 +164,11 @@ pub struct OpData {
 
 
 // Expression Data
-
+#[derive(Debug, Clone, PartialEq)]
 pub struct MultiExprData{
     pub expressions : Vec<AstNode>,
     pub typ: Type
 }
-#[derive(Debug, Clone, PartialEq)]
-pub struct CondBranch {
-    pub cond_node: AstNode,
-    pub then_node: AstNode,
-    pub typ: Type
-}
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignData {
@@ -183,6 +176,12 @@ pub struct AssignData {
     pub value: AstNode,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct CondBranch {
+    pub cond_node: AstNode,
+    pub then_node: AstNode,
+    pub typ: Type
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfData {
@@ -191,12 +190,29 @@ pub struct IfData {
     pub else_type: Type
 }
 
+impl IfData {
+    pub fn all_types_same(&self) -> bool {
+        self.if_branch.typ == self.else_type
+    }
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondData {
     pub cond_branches: Vec<CondBranch>,
     pub else_branch: Option<AstNode>,
     pub else_type: Type
+}
+
+impl CondData { //todo ignore void for method call branching when implemented
+    pub fn all_types_same(&self) -> bool {
+        for branch in &self.cond_branches {
+            if branch.typ != self.else_type {
+                return false
+            }
+        }
+        true
+    }
 }
 
 

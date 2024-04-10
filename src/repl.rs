@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{BuildHasher};
 use std::time::{SystemTime, UNIX_EPOCH};
+use parser::environment::Context;
 use parser::op_codes::OpCode;
 
 use parser::parser::CompUnit;
@@ -32,23 +33,30 @@ fn main() {
         code: vec![],
         constants: vec![],
     };
-    let input = "(* (+ 5  5) (+ 10 10))".to_string();
+    
+    let mut context = Context::default();
+    let input = "(> 3 2)".to_string();
 
     let t = nano_time!();
     let tokens =  parser::lexer::process(input).expect("Token Err");
 
     let mut ast = parser::parser::process(tokens).expect("Parse Err");
 
-   let resolved =  parser::code_gen::resolve_types(&mut ast);
-    //println!("Resolved: {}", resolved);
+   let resolved =  parser::code_gen::resolve_types(&mut ast, context);
+    println!("Resolved: {}", resolved);
     parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
-    comp_unit.code.push(OpCode::RtnI64 as u8);
+    comp_unit.write_op_code(OpCode::RtnBool);
+
+    //comp_unit.write_op_code(OpCode::Exit);
     println!("Proc Time: {} ns", nano_time!() - t);
     println!("comp unit: {:?}", comp_unit);
     println!("Decoded: {:?}",parser::op_codes::decode(comp_unit.clone()));
+    
 
     let mut vm = Vm::new(&mut comp_unit);
     vm.run();
+    //vm.print_stack(100)
+   
 
 
 

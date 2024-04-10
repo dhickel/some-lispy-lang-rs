@@ -8,10 +8,11 @@ use crate::op_codes::OpCode;
 use crate::parser::CompUnit;
 use crate::token::Op;
 use crate::util;
+use crate::util::SCACHE;
 
 
 pub struct GenData {
-    pub(crate) code: Vec<u8>,
+    pub code: Vec<u8>,
     typ: Type,
 }
 
@@ -60,7 +61,15 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
             } else { Ok(resolved_type) }
         }
 
-        AstNode::DefLambda(_) => todo!(),
+        AstNode::DefLambda(data) => {
+            let resolved_type = resolve(&mut data.body, context)?;
+            if let Some(d_type) = data.d_type {
+                if resolved_type != context.validate_type(d_type) {
+                    return Err("Declared type does not match actual type for lambda".to_string());
+                }
+            }
+            Ok(resolved_type)
+        }
         AstNode::DefFunction(_) => todo!(),
         AstNode::DefStruct(_) => todo!(),
         AstNode::DefClass(_) => todo!(),
@@ -69,7 +78,37 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
             if resolved_type == Type::Unresolved {
                 return Ok(Type::Unresolved);
             } else {
-                Ok(context.get_symbol_type(data.name))
+                match &data.value {
+                    AstNode::ExprIf(expr) => {
+                        if !expr.all_types_same() {
+                            Err("All branches in assignment must have same type".to_string())
+                        } else {
+                            let var_type = context.get_symbol_type(data.name);
+                            if var_type == &resolved_type {
+                                Ok(resolved_type)
+                            } else {
+                                Err(format!(
+                                    "Attempted to assign incorrect type for var: {}",
+                                    SCACHE.resolve(&data.name)))
+                            }
+                        }
+                    }
+                    AstNode::ExprCond(expr) => {
+                        if !expr.all_types_same() {
+                            Err("All branches in assignment must have same type".to_string())
+                        } else {
+                            let var_type = context.get_symbol_type(data.name);
+                            if var_type == &resolved_type {
+                                Ok(resolved_type)
+                            } else {
+                                Err(format!(
+                                    "Attempted to assign incorrect type for var: {}",
+                                    SCACHE.resolve(&data.name)))
+                            }
+                        }
+                    }
+                    _ => Ok(context.get_symbol_type(data.name).clone())
+                }
             }
         }
 
@@ -88,34 +127,74 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
         }
 
         AstNode::ExprIf(data) => {
-            // TODO handle resolution when used as assignment or as argument ( multi branches)
             context.pushScope();
             let if_type = resolve(&mut data.if_branch.then_node, context)?;
+            if if_type != Type::Unresolved {
+                data.if_branch.typ = if_type.clone();
+            }
             context.popScope();
 
-            if let Some(mut els) = data.else_branch {
+            if let Some(ref mut els) = data.else_branch {
                 context.pushScope();
-                resolve(&mut els, context)?;
+                let else_type = resolve(els, context)?;
+                if else_type != Type::Unresolved {
+                    data.else_type = else_type.clone();
+                }
                 context.popScope();
-                Ok(Type::Unresolved) // FIXME
+
+                if if_type != Type::Unresolved && else_type != Type::Unresolved {
+                    Ok(else_type) // Fixme, find a better way to represent conditional types as they vary
+                } else { Ok(Type::Unresolved) }
+            } else { Ok(if_type) }
+        }
+
+        AstNode::ExprCond(data) => {
+            let mut unresolved = false;
+            let mut cond_type = Type::Unresolved;
+            for branch in data.cond_branches.iter_mut() {
+                context.pushScope();
+                let branch_type = resolve(&mut branch.then_node, context)?;
+
+                if branch_type != Type::Unresolved {
+                    branch.typ = branch_type.clone();
+                } else { unresolved = true; }
+
+                cond_type = branch_type;
+                context.popScope();
+            }
+
+            if let Some(ref mut els) = data.else_branch {
+                context.pushScope();
+                let else_type = resolve(els, context)?;
+                if else_type != Type::Unresolved {
+                    data.else_type = else_type.clone();
+                }
+                context.popScope();
+
+                if !unresolved && else_type != Type::Unresolved {
+                    Ok(else_type) // Fixme, find a better way to represent conditional types as they vary
+                } else {
+                    Ok(Type::Unresolved)
+                }
+            } else if unresolved {
+                Ok(Type::Unresolved)
             } else {
-                Ok(Type::Unresolved) // FIXME
+                Ok(cond_type)
             }
         }
-        
-        AstNode::ExprCond(data) => todo!(),
-        AstNode::ExprWhileLoop(_) => todo!(),
-        AstNode::ExprCons(_) => todo!(),
-        AstNode::ExprPairList(_) => todo!(),
-        AstNode::ExprListAccess(_) => todo!(),
-        AstNode::ExprFuncCall(_) => todo!(),
-        AstNode::ExprFuncCalInner(_) => todo!(),
-        AstNode::ExprObjectCall(_) => todo!(),
-        AstNode::ExprLiteralCall(_) => todo!(),
-        AstNode::ExprObjectAssignment(_) => todo!(),
-        AstNode::ExprGenRand(_) => todo!(),
-        AstNode::ExprDirectInst(_) => todo!(),
-        AstNode::ExprInitInst(_) => todo!(),
+
+        AstNode::ExprWhileLoop(_) => Ok(Type::Boolean), //TODO handle return assignment
+        AstNode::ExprCons(_) => Ok(Type::Pair),
+        AstNode::ExprPairList(_) => Ok(Type::Pair),
+        AstNode::ExprListAccess(data) => Ok(Type::Pair), // TODO this will need to be runtime checked
+        AstNode::ExprFuncCall(data) => Ok(context.get_symbol_type(data.name).clone()),
+        AstNode::ExprFuncCalInner(data) => Ok(resolve(&mut data.expr, context)?),
+        AstNode::ExprObjectCall(data) => todo!(), // TODO will need to resolve accessor to their type
+        AstNode::ExprLiteralCall(_) => todo!(), // TODO will need to resolve accessor to their type
+        AstNode::ExprObjectAssignment(_) => todo!(), // TODO will need to resolve accessor to their type
+        AstNode::ExprGenRand(data) => if data.is_float { Ok(Type::Float) } else { Ok(Type::Integer) },
+        AstNode::ExprDirectInst(data) => Ok(context.get_symbol_type(data.name).clone()),
+        AstNode::ExprInitInst(data) => Ok(context.get_symbol_type(data.name).clone()),
 
         AstNode::Operation(ref mut data) => {
             let mut typ = Type::Integer;
@@ -220,6 +299,7 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
     let mut operands = Vec::<GenData>::with_capacity(data.operands.len());
     let mut is_float = false;
 
+    
     for operand in data.operands {
         let gen_data = gen_node(operand, comp_unit)?;
         if gen_data.typ == Type::Float {
@@ -227,6 +307,8 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         }
         operands.push(gen_data)
     }
+    
+  
 
     for mut operand in &mut operands {
         if is_float && operand.typ != Type::Float {
@@ -272,13 +354,41 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         }
         Op::PlusPlus => todo!(),
         Op::MinusMinus => todo!(),
-        Op::Greater => todo!(),
-        Op::Less => todo!(),
-        Op::GreaterEqual => todo!(),
-        Op::LessEqual => todo!(),
-        Op::Equals => todo!(),
-        Op::BangEquals => todo!(),
-        Op::RefEqual => todo!(),
+        
+        Op::Greater | Op::Less | Op::GreaterEqual | Op::LessEqual
+        | Op::Equals | Op::BangEquals | Op::RefEqual => {
+            if operands.len() < 2 {
+                return Err("Expected at least 2 operands for comparison operation".to_string());
+            }
+            if operands.len() > 256 {
+                return Err("Unsupported operand amount (> 256)".to_string());
+            }
+
+            let size = operands.len() as u8;
+
+            while let Some(operand) = operands.pop() {
+                code.append_gen_data(operand);
+            }
+
+            if is_float {
+                if size > 2 {
+                    code.append_op_code(OpCode::CompF64N);
+                    code.append_operand(size);
+                } else {
+                    code.append_op_code(OpCode::CompF64);
+                }
+            } else if size > 2 {
+                code.append_op_code(OpCode::CompI64N);
+                code.append_operand(size);
+            } else {
+                code.append_op_code(OpCode::CompI64);
+            }
+            
+            // TODO make this work for other comparisons
+            code.append_op_code(OpCode::CompGrtrN);
+            code.append_operand(size);
+            Ok(code)
+        }
     }
 }
 
@@ -293,4 +403,24 @@ fn get_arithmetic_op(op: Op, is_float: bool) -> Result<OpCode, String> {
         Op::Percent => if is_float { Ok(OpCode::ModF64) } else { Ok(OpCode::ModI64) }
         _ => Err("Fatal: Invalid call to get_arithmetic_op".to_string())
     }
+}
+
+
+fn emit_jump_inst(op_code: OpCode, comp_unit: &mut CompUnit) -> usize {
+    comp_unit.write_op_code(op_code);
+    comp_unit.write_operand(0xff);
+    comp_unit.write_operand(0xff);
+    comp_unit.code.len() - 2
+}
+
+
+fn patch_jump(offset: usize, comp_unit: &mut CompUnit) {
+    let jump = comp_unit.code.len() - 2;
+
+    if jump > u16::MAX as usize {
+        panic!("Too large of jump encountered (> 65,535 instructions)")
+    }
+
+    comp_unit.code[offset] = (jump >> 8 & 0xff) as u8;
+    comp_unit.code[offset + 1] = (jump & 0xff) as u8;
 }

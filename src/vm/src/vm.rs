@@ -34,20 +34,24 @@ pub struct Vm<'a> {
     ip: *mut u8,
     stack: [u8; 1048576],
     stack_top: *mut u8,
+    int_cache: [i64; 256],
+    float_cache: [f64; 256],
+    byte_cache: [u8; 2048],
 }
 
 
 impl<'a> Vm<'a> {
     pub fn new(chunk: &'a mut CompUnit) -> Self {
         let ip = chunk.code.as_mut_ptr();
-        let mut vm = Vm {
+        Vm {
             comp_unit: chunk,
             ip,
             stack: [0; 1048576],
             stack_top: std::ptr::null_mut(),
-        };
-        vm.stack_top = vm.stack.as_mut_ptr();
-        vm
+            int_cache: [0; 256],
+            float_cache: [0.0; 256],
+            byte_cache: [0; 2048],
+        }
     }
 
     fn read_op_code(&mut self) -> OpCode {
@@ -57,6 +61,7 @@ impl<'a> Vm<'a> {
             std::mem::transmute(code)
         }
     }
+
 
     pub fn read_wide_inst(&mut self) -> u16 {
         unsafe {
@@ -69,6 +74,7 @@ impl<'a> Vm<'a> {
             (high_byte << 8) | low_byte
         }
     }
+
 
     pub fn read_inst(&mut self) -> u8 {
         unsafe {
@@ -142,6 +148,13 @@ impl<'a> Vm<'a> {
         }
     }
 
+    // fn print_stack_location(&self) {
+    //     let start_ptr = self.stack.as_ptr();
+    //     let end_ptr = unsafe { start_ptr.add(self.stack.len()) };
+    //     println!("Array starts at: {:p}", start_ptr);
+    //     println!("Array ends at: {:p}", end_ptr);
+    // }
+
     pub fn pop_f64(&mut self) -> f64 {
         unsafe {
             let bytes = self.pop_bytes(std::mem::size_of::<f64>());
@@ -158,9 +171,19 @@ impl<'a> Vm<'a> {
         }
     }
 
+
     fn pop_bool(&mut self) -> bool {
         let val = self.pop_i64();
         val != 0
+    }
+
+    fn discard_n_words(&mut self, n: u8) {
+        if n > self.stack_top_index() as u8 {
+            panic!("Popped more than stack size") // FIXME debug, remove on release
+        }
+        unsafe {
+            self.stack_top = self.stack_top.offset(-((n * 8) as isize));
+        }
     }
 
     pub fn peek_bytes(&self, index: usize) -> &[u8] {
@@ -189,6 +212,19 @@ impl<'a> Vm<'a> {
         val != 0
     }
 
+    pub fn print_stack(&self) {
+        for i in (0..self.stack_top_index()).step_by(8) {
+            println!("Stack[{}]: {:?}", i, &self.stack[i..i + 8])
+        }
+        println!()
+    }
+
+    pub fn stack_top_index(&self) -> usize {
+        unsafe {
+            self.stack_top.offset_from(self.stack.as_ptr()) as usize
+        }
+    }
+
     fn print_value<T>(&self, value: &T) where T: Debug {
         println!("Value: {:?}", value)
     }
@@ -201,8 +237,10 @@ impl<'a> Vm<'a> {
 
     //
     pub fn run(&mut self) -> InterpResult {
+        self.stack_top = self.stack.as_mut_ptr();
+
         let t = nano_time!();
-        loop {
+        'outer: loop {
             match self.read_op_code() {
                 OpCode::Exit => {
                     break;
@@ -355,6 +393,26 @@ impl<'a> Vm<'a> {
                     } else { self.push_i64(-1) }
                 }
 
+                OpCode::CompI64N => {
+                    let n = self.read_inst();
+                    for i in 1..n as usize {
+                        let l = self.peek_i64(i - 1);
+                        let r = self.peek_i64(i);
+
+                        if l == r {
+                            self.int_cache[i - 1] = 0;
+                        } else {
+                            self.int_cache[i - 1] = if l > r { 1 } else { -1 }
+                        }
+                    }
+
+                    self.discard_n_words(n);
+                    for i in 0..(n - 1) as usize {
+                        self.push_i64(self.int_cache[i])
+                    }
+                    self.print_stack()
+                }
+
                 OpCode::CompF64 => {
                     let val1 = self.pop_f64();
                     let val2 = self.pop_f64();
@@ -373,6 +431,24 @@ impl<'a> Vm<'a> {
                     } else { self.push_i64(-1) }
                 }
 
+                OpCode::CompF64N => {
+                    let n = self.read_inst();
+                    for i in 1..n as usize {
+                        let l = self.peek_i64(i - 1);
+                        let r = self.peek_i64(i);
+
+                        if l == r {
+                            self.int_cache[i - 1] = 0;
+                        } else {
+                            self.int_cache[i - 1] = if l > r { 1 } else { 0 }
+                        }
+                    }
+                    self.discard_n_words(n);
+                    for i in 0..n as usize {
+                        self.push_i64(self.int_cache[i])
+                    }
+                }
+
                 OpCode::CompOr => {
                     let val1 = self.pop_bool();
                     let val2 = self.pop_bool();
@@ -386,8 +462,32 @@ impl<'a> Vm<'a> {
                 }
 
                 OpCode::CompNot => {
-                    let val = self.pop_bool() == false;
+                    let val = !self.pop_bool();
                     self.push_bool(val)
+                }
+
+                OpCode::CompGrtrN => {
+                    let n = self.read_inst();
+                    self.print_stack();
+                    for i in 0..n - 1 {
+                        if self.pop_i64() != 1 {
+                            self.discard_n_words(n - 2 - i);
+                            self.push_bool(false);
+                            println!("Instruction Pointer{:?}", self.comp_unit.code.as_ptr());
+                            println!("Instruction Pointer{:?}", self.ip);
+                            continue 'outer;
+                        }
+                    }
+                    self.push_bool(true)
+                }
+
+                OpCode::JumpTrue => {}
+
+                OpCode::JumpFalse => {
+                    let offset = self.read_wide_inst();
+                    if self.peek_bool(0) == false {
+                        unsafe { self.ip.add(offset as usize); }
+                    }
                 }
             }
         }

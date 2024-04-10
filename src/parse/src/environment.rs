@@ -1,3 +1,4 @@
+use ahash::{AHashMap, HashMap};
 use intmap::IntMap;
 use lasso::{Key, Spur};
 use lang::types::{ObjType, Type};
@@ -35,9 +36,11 @@ pub struct SymbolCtx {
 pub struct Context {
     curr_scope: u32,
     curr_depth: u32,
-    symbols: IntMap<Vec<SymbolCtx>>,
-    globals: IntMap<Vec<SymbolCtx>>
+    active_scopes: Vec<u32>,
+    symbols: AHashMap<u32, IntMap<SymbolCtx>>,
+    globals: IntMap<SymbolCtx>,
     types: IntMap<Type>,
+    unresolved: Type
 }
 
 
@@ -49,15 +52,16 @@ impl Default for Context {
         types.insert(SCACHE.const_bool.into_usize() as u64, Type::Boolean);
         types.insert(SCACHE.const_string.into_usize() as u64, Type::String);
         types.insert(SCACHE.const_nil.into_usize() as u64, Type::Nil);
-
+        
         Context {
             curr_scope: 0,
             curr_depth: 0,
-            symbols: IntMap::<Vec<SymbolCtx>>::with_capacity(50),
-            globals: IntMap::<Vec<SymbolCtx>>::with_capacity(50),
+            active_scopes: Vec::<u32>::new(),
+            symbols: AHashMap::<u32, IntMap<SymbolCtx>>::with_capacity(50),
+            globals: IntMap::<SymbolCtx>::with_capacity(50),
             types,
+            unresolved: Type::Unresolved
         }
-        
     }
 }
 
@@ -67,39 +71,40 @@ impl Context {
         let s_int = symbol.into_usize() as u64;
         let data = SymbolCtx { scope: self.curr_scope, depth: self.curr_depth, typ };
 
-        match self.symbols.get_mut(s_int) {
-            None => {
-                let mut symbol_vec = Vec::with_capacity(4);
-                symbol_vec.push(data);
-                self.symbols.insert(s_int, symbol_vec);
-                Ok(())
-            }
-            Some(mut existing) => {
-                let collision = existing.iter()
-                    .find(|ctx| ctx.scope == self.curr_scope && ctx.depth == self.curr_depth);
+        if self.curr_depth == 0 {
+            self.globals.insert(s_int, data);
+            return Ok(());
+        }
 
-                match collision {
-                    None => Ok(existing.push(data)),
-                    Some(_) => Err(format!("Existing binding found for: {}", SCACHE.resolve(&symbol)))
+        if let Some(existing) = self.symbols.get_mut(&self.curr_scope) {
+            return match existing.insert_checked(s_int, data) {
+                true => Ok(()),
+                false => Err(format!("Redefinition of existing binding: {}", SCACHE.resolve(&symbol)))
+            }
+        }
+
+        let mut scope_table = IntMap::<SymbolCtx>::new();
+        scope_table.insert(s_int, data);
+        self.symbols.insert(self.curr_scope, scope_table);
+        Ok(())
+    }
+
+    pub fn get_symbol_type(&self, symbol: Spur) -> &Type {
+        let s_int = symbol.into_usize() as u64;
+
+        for &scope_id in self.active_scopes.iter().rev() {
+            if let Some(scope_symbols) = self.symbols.get(&scope_id) {
+                if let Some(symbol_ctx) = scope_symbols.get(s_int) {
+                    return &symbol_ctx.typ;
                 }
             }
         }
-    }
-
-    pub fn get_symbol_type(&self, symbol: Spur) -> Type {
-        let found = self.symbols.get(symbol.into_usize() as u64);
-
-        if let Some(entries) = found {
-            let mut filtered: Vec<&SymbolCtx> = entries.iter()
-                .filter(|ctx| ctx.scope == self.curr_scope && ctx.depth <= self.curr_depth)
-                .collect();
-
-            filtered.sort_by_key(|ctx| std::cmp::Reverse(ctx.depth));
-            
-            if !filtered.is_empty() {
-                filtered[0].typ.clone()
-            } else { Type::Unresolved }
-        } else { Type::Unresolved }
+        
+        if let Some(global_symbol) = self.globals.get(s_int) {
+            return &global_symbol.typ;
+        }
+        
+        &self.unresolved
     }
 
     pub fn validate_type(&self, spur: Spur) -> Type {
@@ -127,15 +132,15 @@ impl Context {
     }
 
     pub fn pushScope(&mut self) {
-        self.curr_depth += 1
+        self.curr_scope += 1;
+        self.curr_depth += 1;
+        self.active_scopes.push(self.curr_scope)
     }
 
 
     pub fn popScope(&mut self) {
-        self.curr_depth += 1;
-        if self.curr_depth == 0 {
-            self.curr_scope += 1;
-        }
+        self.curr_depth -= 1;
+        self.active_scopes.pop().expect("Fatal: Popped global scope");
     }
 
     pub fn get_scope_tup(&self) -> (u32, u32) {

@@ -32,10 +32,15 @@ pub enum OpCode {
     ConstT,
     ConstF,
     CompI64,
+    CompI64N,
     CompF64,
+    CompF64N,
     CompOr,
     CompAnd,
     CompNot,
+    CompGrtrN,
+    JumpFalse,
+    JumpTrue,
 }
 
 
@@ -62,12 +67,12 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
             OpCode::Ldc => {
                 let index = iter.next().unwrap();
                 decoded.push(format!("Ldc: {}", index))
-            },
+            }
             OpCode::LdcW => {
                 // TODO decode wide operands
                 let index = iter.next().unwrap().to_string();
                 decoded.push(format!("LdcW: {}", index))
-            },
+            }
             OpCode::AddI64 => decoded.push("AddI64".to_string()),
             OpCode::AddF64 => decoded.push("AddF64".to_string()),
             OpCode::SubI64 => decoded.push("SubI64".to_string()),
@@ -88,10 +93,25 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
             OpCode::ConstT => decoded.push("ConstT".to_string()),
             OpCode::ConstF => decoded.push("ConstF".to_string()),
             OpCode::CompI64 => decoded.push("CompI64".to_string()),
+            OpCode::CompI64N => {
+                let n = iter.next().unwrap();
+                decoded.push(format!("CompI64N: {}", n))
+            },
+            OpCode::CompF64N => {
+                let n = iter.next().unwrap();
+                decoded.push(format!("CompF64N: {}", n))
+            },
             OpCode::CompF64 => decoded.push("CompF64".to_string()),
             OpCode::CompOr => decoded.push("CompOr".to_string()),
             OpCode::CompAnd => decoded.push("CompAnd".to_string()),
             OpCode::CompNot => decoded.push("CompNot".to_string()),
+            OpCode::CompGrtrN => {
+                let n = iter.next().unwrap();
+                decoded.push(format!("CompI64N: {}", n))
+            }
+            
+            OpCode::JumpTrue => decoded.push("JumpTrue".to_string()),
+            OpCode::JumpFalse => decoded.push("JumpFalse".to_string()),
         }
     }
     decoded

@@ -38,7 +38,16 @@ pub enum OpCode {
     CompOr,
     CompAnd,
     CompNot,
-    CompGrtrN,
+    CompGt,
+    CompGtN,
+    CompGtEq,
+    CompGtEqN,
+    CompEq,
+    CompEqN,
+    CompLt,
+    CompLtN,
+    CompLtEq,
+    CompLtEqN,
     JumpFalse,
     JumpTrue,
 }
@@ -96,20 +105,40 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
             OpCode::CompI64N => {
                 let n = iter.next().unwrap();
                 decoded.push(format!("CompI64N: {}", n))
-            },
+            }
             OpCode::CompF64N => {
                 let n = iter.next().unwrap();
                 decoded.push(format!("CompF64N: {}", n))
-            },
+            }
             OpCode::CompF64 => decoded.push("CompF64".to_string()),
             OpCode::CompOr => decoded.push("CompOr".to_string()),
             OpCode::CompAnd => decoded.push("CompAnd".to_string()),
             OpCode::CompNot => decoded.push("CompNot".to_string()),
-            OpCode::CompGrtrN => {
+            OpCode::CompGt => decoded.push("CompGrtr".to_string()),
+            OpCode::CompGtN => {
                 let n = iter.next().unwrap();
                 decoded.push(format!("CompI64N: {}", n))
             }
-            
+            OpCode::CompGtEq => decoded.push("CompGtEq".to_string()),
+            OpCode::CompGtEqN => {
+                let n = iter.next().unwrap();
+                decoded.push(format!("CompGtEqN: {}", n))
+            }
+            OpCode::CompEq => decoded.push("CompEq".to_string()),
+            OpCode::CompEqN => {
+                let n = iter.next().unwrap();
+                decoded.push(format!("CompEqN: {}", n))
+            }
+            OpCode::CompLt => decoded.push("CompLt".to_string()),
+            OpCode::CompLtN => {
+                let n = iter.next().unwrap();
+                decoded.push(format!("CompLtN: {}", n))
+            }
+            OpCode::CompLtEq => decoded.push("CompLtEq".to_string()),
+            OpCode::CompLtEqN => {
+                let n = iter.next().unwrap();
+                decoded.push(format!("CompLtEqN: {}", n))
+            }
             OpCode::JumpTrue => decoded.push("JumpTrue".to_string()),
             OpCode::JumpFalse => decoded.push("JumpFalse".to_string()),
         }

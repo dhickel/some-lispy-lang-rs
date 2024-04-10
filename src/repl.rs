@@ -33,9 +33,9 @@ fn main() {
         code: vec![],
         constants: vec![],
     };
-    
+
     let mut context = Context::default();
-    let input = "(> 3 2)".to_string();
+    let input = "(> 10 9)".to_string();
 
     let t = nano_time!();
     let tokens =  parser::lexer::process(input).expect("Token Err");
@@ -45,18 +45,21 @@ fn main() {
    let resolved =  parser::code_gen::resolve_types(&mut ast, context);
     println!("Resolved: {}", resolved);
     parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
-    comp_unit.write_op_code(OpCode::RtnBool);
+  
 
+    //comp_unit.write_op_code(OpCode::RtnBool);
+    comp_unit.write_op_code(OpCode::Exit);
+    
     //comp_unit.write_op_code(OpCode::Exit);
     println!("Proc Time: {} ns", nano_time!() - t);
     println!("comp unit: {:?}", comp_unit);
     println!("Decoded: {:?}",parser::op_codes::decode(comp_unit.clone()));
-    
+
 
     let mut vm = Vm::new(&mut comp_unit);
     vm.run();
     //vm.print_stack(100)
-   
+
 
 
 

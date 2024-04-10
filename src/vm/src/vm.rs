@@ -62,7 +62,6 @@ impl<'a> Vm<'a> {
         }
     }
 
-
     pub fn read_wide_inst(&mut self) -> u16 {
         unsafe {
             let low_byte = *self.ip as u16;
@@ -74,7 +73,6 @@ impl<'a> Vm<'a> {
             (high_byte << 8) | low_byte
         }
     }
-
 
     pub fn read_inst(&mut self) -> u8 {
         unsafe {
@@ -238,11 +236,12 @@ impl<'a> Vm<'a> {
     //
     pub fn run(&mut self) -> InterpResult {
         self.stack_top = self.stack.as_mut_ptr();
-
         let t = nano_time!();
+
         'outer: loop {
             match self.read_op_code() {
                 OpCode::Exit => {
+                    println!("Exec Time: {}ns", nano_time!() - t);
                     break;
                 }
 
@@ -395,22 +394,21 @@ impl<'a> Vm<'a> {
 
                 OpCode::CompI64N => {
                     let n = self.read_inst();
-                    for i in 1..n as usize {
-                        let l = self.peek_i64(i - 1);
-                        let r = self.peek_i64(i);
+                    let mut val1 = self.pop_i64();
 
-                        if l == r {
+                    for i in 1..n as usize {
+                        let val2 = self.pop_i64();
+                        if val1 == val2 {
                             self.int_cache[i - 1] = 0;
                         } else {
-                            self.int_cache[i - 1] = if l > r { 1 } else { -1 }
+                            self.int_cache[i - 1] = if val1 > val2 { 1 } else { -1 }
                         }
+                        val1 = val2;
                     }
 
-                    self.discard_n_words(n);
                     for i in 0..(n - 1) as usize {
                         self.push_i64(self.int_cache[i])
                     }
-                    self.print_stack()
                 }
 
                 OpCode::CompF64 => {
@@ -433,18 +431,24 @@ impl<'a> Vm<'a> {
 
                 OpCode::CompF64N => {
                     let n = self.read_inst();
-                    for i in 1..n as usize {
-                        let l = self.peek_i64(i - 1);
-                        let r = self.peek_i64(i);
+                    let mut val1 = self.pop_f64();
 
-                        if l == r {
+                    for i in 1..n as usize {
+                        let val2 = self.pop_f64();
+
+                        if val1.is_nan() || val2.is_nan() {
+                            self.push_i64(0);
+                            continue;
+                        }
+                        if val1 == val2 {
                             self.int_cache[i - 1] = 0;
                         } else {
-                            self.int_cache[i - 1] = if l > r { 1 } else { 0 }
+                            self.int_cache[i - 1] = if val1 > val2 { 1 } else { -1 }
                         }
+                        val1 = val2;
                     }
-                    self.discard_n_words(n);
-                    for i in 0..n as usize {
+
+                    for i in 0..(n - 1) as usize {
                         self.push_i64(self.int_cache[i])
                     }
                 }
@@ -466,15 +470,79 @@ impl<'a> Vm<'a> {
                     self.push_bool(val)
                 }
 
-                OpCode::CompGrtrN => {
+                OpCode::CompGt => {
+                    let val = self.pop_i64() == 1;
+                    self.push_bool(val);
+                }
+
+                OpCode::CompGtN => {
                     let n = self.read_inst();
-                    self.print_stack();
                     for i in 0..n - 1 {
                         if self.pop_i64() != 1 {
                             self.discard_n_words(n - 2 - i);
                             self.push_bool(false);
-                            println!("Instruction Pointer{:?}", self.comp_unit.code.as_ptr());
-                            println!("Instruction Pointer{:?}", self.ip);
+                            continue 'outer;
+                        }
+                    }
+                    self.push_bool(true)
+                }
+
+                OpCode::CompGtEq => {
+                    let val = self.pop_i64() >= 0;
+                    self.push_bool(val);
+                }
+
+                OpCode::CompGtEqN => {
+                    let n = self.read_inst();
+                    for i in 0..n - 1 {
+                        if self.pop_i64() < 0 {
+                            self.discard_n_words(n - 2 - i);
+                            self.push_bool(false);
+                            continue 'outer;
+                        }
+                    }
+                    self.push_bool(true)
+                }
+                OpCode::CompEq => {
+                    let val = self.pop_i64() == 0;
+                    self.push_bool(val);
+                }
+                OpCode::CompEqN => {
+                    let n = self.read_inst();
+                    for i in 0..n - 1 {
+                        if self.pop_i64() != 0 {
+                            self.discard_n_words(n - 2 - i);
+                            self.push_bool(false);
+                            continue 'outer;
+                        }
+                    }
+                    self.push_bool(true)
+                }
+                OpCode::CompLt => {
+                    let val = self.pop_i64() == -1;
+                    self.push_bool(val);
+                }
+                OpCode::CompLtN => {
+                    let n = self.read_inst();
+                    for i in 0..n - 1 {
+                        if self.pop_i64() != -1 {
+                            self.discard_n_words(n - 2 - i);
+                            self.push_bool(false);
+                            continue 'outer;
+                        }
+                    }
+                    self.push_bool(true)
+                }
+                OpCode::CompLtEq => {
+                    let val = self.pop_i64() <= 0;
+                    self.push_bool(val);
+                }
+                OpCode::CompLtEqN => {
+                    let n = self.read_inst();
+                    for i in 0..n - 1 {
+                        if self.pop_i64() > 0 {
+                            self.discard_n_words(n - 2 - i);
+                            self.push_bool(false);
                             continue 'outer;
                         }
                     }

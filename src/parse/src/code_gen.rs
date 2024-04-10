@@ -385,8 +385,8 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
             }
             
             // TODO make this work for other comparisons
-            code.append_op_code(OpCode::CompGrtrN);
-            code.append_operand(size);
+            code.append_op_code(OpCode::CompGt);
+           // code.append_operand(size);
             Ok(code)
         }
     }

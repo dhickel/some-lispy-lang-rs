@@ -30,7 +30,7 @@ pub enum Value {
 
 #[derive(Debug)]
 pub struct Vm<'a> {
-    comp_unit: &'a CompUnit,
+    comp_unit: &'a mut CompUnit,
     ip: *mut u8,
     stack: [u8; 1048576],
     stack_top: *mut u8,
@@ -42,10 +42,9 @@ pub struct Vm<'a> {
 
 impl<'a> Vm<'a> {
     pub fn new(chunk: &'a mut CompUnit) -> Self {
-        let ip = chunk.code.as_mut_ptr();
         Vm {
             comp_unit: chunk,
-            ip,
+            ip: std::ptr::null_mut(),
             stack: [0; 1048576],
             stack_top: std::ptr::null_mut(),
             int_cache: [0; 256],
@@ -58,7 +57,9 @@ impl<'a> Vm<'a> {
         unsafe {
             let code = *self.ip;
             self.ip = self.ip.add(1);
-            std::mem::transmute(code)
+            let code: OpCode = std::mem::transmute(code);
+            println!("At Inst: {:?}", code);
+            code
         }
     }
 
@@ -236,6 +237,7 @@ impl<'a> Vm<'a> {
     //
     pub fn run(&mut self) -> InterpResult {
         self.stack_top = self.stack.as_mut_ptr();
+        self.ip = self.comp_unit.code.as_mut_ptr();
         let t = nano_time!();
 
         'outer: loop {
@@ -414,7 +416,6 @@ impl<'a> Vm<'a> {
                 OpCode::CompF64 => {
                     let val1 = self.pop_f64();
                     let val2 = self.pop_f64();
-
                     // if nan IEEE 754 specifies always false
                     if val1.is_nan() || val2.is_nan() {
                         self.push_i64(0);
@@ -503,10 +504,12 @@ impl<'a> Vm<'a> {
                     }
                     self.push_bool(true)
                 }
+
                 OpCode::CompEq => {
                     let val = self.pop_i64() == 0;
                     self.push_bool(val);
                 }
+
                 OpCode::CompEqN => {
                     let n = self.read_inst();
                     for i in 0..n - 1 {
@@ -518,10 +521,12 @@ impl<'a> Vm<'a> {
                     }
                     self.push_bool(true)
                 }
+
                 OpCode::CompLt => {
                     let val = self.pop_i64() == -1;
                     self.push_bool(val);
                 }
+
                 OpCode::CompLtN => {
                     let n = self.read_inst();
                     for i in 0..n - 1 {
@@ -533,10 +538,12 @@ impl<'a> Vm<'a> {
                     }
                     self.push_bool(true)
                 }
+
                 OpCode::CompLtEq => {
                     let val = self.pop_i64() <= 0;
                     self.push_bool(val);
                 }
+
                 OpCode::CompLtEqN => {
                     let n = self.read_inst();
                     for i in 0..n - 1 {
@@ -554,9 +561,39 @@ impl<'a> Vm<'a> {
                 OpCode::JumpFalse => {
                     let offset = self.read_wide_inst();
                     if self.peek_bool(0) == false {
-                        unsafe { self.ip.add(offset as usize); }
+                        println!("jumpfalse");
+
+                        unsafe {
+                            self.ip = self.ip.add(offset as usize);
+                        }
                     }
                 }
+
+                OpCode::JumpFWd => {
+                    println!("jumpfwd");
+                    self.print_stack();
+                    let offset = self.read_wide_inst();
+                    println!("offset: {} ", offset);
+                    unsafe {
+                        self.ip = self.ip.add(offset as usize);
+                    }
+                }
+
+                OpCode::JumpBack => {
+                    let offset = self.read_wide_inst();
+                    unsafe {
+                        self.ip = self.ip.sub(offset as usize);
+                    }
+                }
+
+                OpCode::IConstM1 => self.push_i64(-1),
+                OpCode::IConst0 => self.push_i64(0),
+                OpCode::IConst1 => self.push_i64(1),
+                OpCode::IConst2 => self.push_i64(2),
+                OpCode::IConst3 => self.push_i64(3),
+                OpCode::IConst4 => self.push_i64(4),
+                OpCode::IConst5 => self.push_i64(5),
+                OpCode::Pop => { self.pop_bytes(8); }
             }
         }
 

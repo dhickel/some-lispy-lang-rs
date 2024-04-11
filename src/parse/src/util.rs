@@ -86,3 +86,9 @@ lazy_static! {pub static ref SCACHE : SCache = SCache::default();}
 pub fn get_wide_bytes(val: u16) -> (u8, u8) {
     ((val & 0xFF) as u8, ((val >> 8) & 0xFF) as u8)
 }
+
+pub fn read_wide_bytes(val1: u8, val2:u8) -> u16 {
+    let low_byte = val1 as u16;
+    let high_byte = val2 as u16;
+    (high_byte << 8) | low_byte
+}

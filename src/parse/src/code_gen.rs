@@ -2,6 +2,7 @@
 
 
 use std::cmp::PartialEq;
+use std::fmt::format;
 use lang::types::Type;
 
 
@@ -10,7 +11,7 @@ use crate::environment::Context;
 use crate::op_codes::OpCode;
 use crate::parser::CompUnit;
 use crate::token::Op;
-use crate::util;
+use crate::{op_codes, util};
 use crate::util::SCACHE;
 
 
@@ -31,6 +32,23 @@ impl GenData {
 
     fn append_gen_data(&mut self, mut other: GenData) {
         self.code.append(&mut other.code);
+    }
+
+    pub fn append_wide_inst(&mut self, val: u16) {
+        self.code.push((val & 0xFF) as u8);
+        self.code.push(((val >> 8) & 0xFF) as u8);
+    }
+
+    pub fn patch_wide_inst(&mut self, offset: usize, val: u16) {
+        self.code[offset] = (val & 0xFF) as u8;
+        self.code[offset + 1] = ((val >> 8) & 0xFF) as u8;
+    }
+    
+    fn empty() -> GenData {
+        GenData {
+            code: Vec::<u8>::with_capacity(0),
+            typ: Type::Unresolved
+        }
     }
 }
 
@@ -131,6 +149,12 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
 
         AstNode::ExprIf(data) => {
             context.pushScope();
+
+            // let cond_type = resolve(&mut data.if_branch.cond_node, context)?;
+            // if cond_type != Type::Unresolved {
+            //     
+            // }
+
             let if_type = resolve(&mut data.if_branch.then_node, context)?;
             if if_type != Type::Unresolved {
                 data.if_branch.typ = if_type.clone();
@@ -248,7 +272,41 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::ExprAssignment(_) => todo!(),
         AstNode::ExprMulti(_) => todo!(),
         AstNode::ExprPrint(_) => todo!(),
-        AstNode::ExprIf(_) => todo!(),
+        AstNode::ExprIf(data) => {
+     
+            let mut code = GenData::empty();
+            code.typ = data.if_branch.typ;
+            
+            let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
+            // if cond_data.typ != Type::Boolean {
+            //     return Err(format!(
+            //         "Condition for if expression must evaluate to boolean, found: {:?}",
+            //         cond_data.typ));
+            // }
+
+            code.append_gen_data(cond_data);
+
+            let then_jump = emit_jump_inst(OpCode::JumpFalse, &mut code);
+            code.append_op_code(OpCode::Pop);
+            
+            let then_data = gen_node(data.if_branch.then_node, comp_unit)?;
+            code.append_gen_data(then_data);
+            
+            let else_jump = emit_jump_inst(OpCode::JumpFWd, &mut code);
+            patch_jump(then_jump, &mut code);
+            code.append_op_code(OpCode::Pop);
+
+
+       
+            patch_jump(then_jump, &mut code);
+
+            if let Some(els) = data.else_branch {
+                let else_data = gen_node(els, comp_unit)?;
+                code.append_gen_data(else_data);
+                patch_jump(else_jump, &mut code);
+            }
+            Ok(code)
+        }
         AstNode::ExprCond(_) => todo!(),
         AstNode::ExprWhileLoop(_) => todo!(),
         AstNode::ExprCons(_) => todo!(),
@@ -302,7 +360,6 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
     let mut operands = Vec::<GenData>::with_capacity(data.operands.len());
     let mut is_float = false;
 
-
     for operand in data.operands {
         let gen_data = gen_node(operand, comp_unit)?;
         if gen_data.typ == Type::Float {
@@ -310,7 +367,6 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         }
         operands.push(gen_data)
     }
-
 
     for operand in &mut operands {
         if is_float && operand.typ != Type::Float {
@@ -320,7 +376,7 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         }
     }
 
-    let capacity = (operands.len() as f32 * 1.5) as usize;
+    let capacity = operands.len() * 2;
 
     let mut code = GenData {
         code: Vec::<u8>::with_capacity(capacity),
@@ -349,13 +405,25 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
                 code.append_gen_data(operand);
             }
 
-            for i in 0..size {
+            for _ in 0..size {
                 code.append_op_code(op_code);
             }
             Ok(code)
         }
-        Op::PlusPlus => todo!(),
-        Op::MinusMinus => todo!(),
+
+        Op::PlusPlus | Op::MinusMinus => {
+            if operands.len() != 1 {
+                return Err("Inc/Dec is a unary operation".to_string());
+            }
+
+            if let Some(operand) = operands.pop() {
+                code.append_gen_data(operand);
+            }
+
+            code.append_op_code(if data.operation == Op::PlusPlus { OpCode::IConst1 } else { OpCode::IConstM1 });
+            code.append_op_code(if is_float { OpCode::AddF64 } else { OpCode::AddI64 });
+            Ok(code)
+        }
 
         Op::Greater | Op::Less | Op::GreaterEqual | Op::LessEqual | Op::Equals => {
             if operands.len() < 2 {
@@ -397,6 +465,7 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
             if size > 2 { code.append_operand(size) }
             Ok(code)
         }
+
         Op::BangEquals | Op::RefEqual => todo!()
     }
 }
@@ -415,21 +484,19 @@ fn get_arithmetic_op(op: Op, is_float: bool) -> Result<OpCode, String> {
 }
 
 
-fn emit_jump_inst(op_code: OpCode, comp_unit: &mut CompUnit) -> usize {
-    comp_unit.write_op_code(op_code);
-    comp_unit.write_operand(0xff);
-    comp_unit.write_operand(0xff);
-    comp_unit.code.len() - 2
+fn emit_jump_inst(op_code: OpCode, gen_data:&mut GenData) -> usize {
+    gen_data.append_op_code(op_code);
+    gen_data.append_wide_inst(0);
+    gen_data.code.len() - 2
 }
 
 
-fn patch_jump(offset: usize, comp_unit: &mut CompUnit) {
-    let jump = comp_unit.code.len() - 2;
+fn patch_jump(offset: usize, gen_data: &mut GenData) {
+    let jump = gen_data.code.len() - offset - 2;
 
     if jump > u16::MAX as usize {
         panic!("Too large of jump encountered (> 65,535 instructions)")
     }
-
-    comp_unit.code[offset] = (jump >> 8 & 0xff) as u8;
-    comp_unit.code[offset + 1] = (jump & 0xff) as u8;
+    gen_data.patch_wide_inst(offset, jump as u16);
+    
 }

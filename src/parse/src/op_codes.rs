@@ -1,5 +1,6 @@
 use std::mem;
 use crate::parser::CompUnit;
+use crate::util;
 
 
 #[repr(u8)]
@@ -50,6 +51,16 @@ pub enum OpCode {
     CompLtEqN,
     JumpFalse,
     JumpTrue,
+    JumpFWd,
+    JumpBack,
+    IConstM1,
+    IConst0,
+    IConst1,
+    IConst2,
+    IConst3,
+    IConst4,
+    IConst5,
+    Pop
 }
 
 
@@ -140,7 +151,32 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
                 decoded.push(format!("CompLtEqN: {}", n))
             }
             OpCode::JumpTrue => decoded.push("JumpTrue".to_string()),
-            OpCode::JumpFalse => decoded.push("JumpFalse".to_string()),
+            OpCode::JumpFalse =>  {
+                let val1 = iter.next().unwrap();
+                let val2 = iter.next().unwrap();
+                decoded.push(format!("JumpFalse: {}", util::read_wide_bytes(*val1, *val2)))
+            }
+            OpCode::JumpFWd => {
+                let val1 = iter.next().unwrap();
+                let val2 = iter.next().unwrap();
+                decoded.push(format!("JumpFWd: {}", util::read_wide_bytes(*val1, *val2)))
+            }
+            OpCode::JumpBack => {
+                let val1 = iter.next().unwrap();
+                let val2 = iter.next().unwrap();
+                decoded.push(format!("JumpBack: {}", util::read_wide_bytes(*val1, *val2)))
+            }
+
+            OpCode::IConstM1 => decoded.push("IConstM1".to_string()),
+            OpCode::IConst0 => decoded.push("IConst0".to_string()),
+            OpCode::IConst1 => decoded.push("IConst1".to_string()),
+            OpCode::IConst2 => decoded.push("IConst2".to_string()),
+            OpCode::IConst3 => decoded.push("IConst3".to_string()),
+            OpCode::IConst4 => decoded.push("IConst4".to_string()),
+            OpCode::IConst5 => decoded.push("IConst5".to_string()),
+            OpCode::Pop => decoded.push("Pop".to_string()),
+
+         
         }
     }
     decoded

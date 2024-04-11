@@ -1,10 +1,6 @@
 extern crate core;
 
 
-
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::hash::{BuildHasher};
 use std::time::{SystemTime, UNIX_EPOCH};
 use parser::environment::Context;
 use parser::op_codes::OpCode;
@@ -34,35 +30,34 @@ fn main() {
         constants: vec![],
     };
 
-    let mut context = Context::default();
-    let input = "(>= 9 8 8 8 7 )".to_string();
+    let context = Context::default();
+    let input = "(if (< 10 9) (* 10 10) (if (< 10 9) (+ 2 2) (+ 6 6)))".to_string();
 
     let t = nano_time!();
-    let tokens =  parser::lexer::process(input).expect("Token Err");
+    let tokens = parser::lexer::process(input).expect("Token Err");
 
     let mut ast = parser::parser::process(tokens).expect("Parse Err");
 
-   let resolved =  parser::code_gen::resolve_types(&mut ast, context);
+    let resolved = parser::code_gen::resolve_types(&mut ast, context);
     println!("Resolved: {}", resolved);
     parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
-  
 
-   //' comp_unit.write_op_code(OpCode::RtnBool);
-    comp_unit.write_op_code(OpCode::Exit);
+
+    comp_unit.write_op_code(OpCode::RtnI64);
+    //comp_unit.write_op_code(OpCode::RtnI64);
+   // comp_unit.write_op_code(OpCode::Exit);
     
+  //  comp_unit.write_op_code(OpCode::Exit);
+
     //comp_unit.write_op_code(OpCode::Exit);
     println!("Proc Time: {} ns", nano_time!() - t);
     println!("comp unit: {:?}", comp_unit);
-    println!("Decoded: {:?}",parser::op_codes::decode(comp_unit.clone()));
+    println!("Decoded: {:?}", parser::op_codes::decode(comp_unit.clone()));
 
 
     let mut vm = Vm::new(&mut comp_unit);
     vm.run();
-    //vm.print_stack(100)
-
-
-
-
+    vm.print_stack();
 
 
     // let mut chunk = CompUnit {

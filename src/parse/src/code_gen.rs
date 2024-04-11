@@ -1,3 +1,6 @@
+#![allow(E0004)]
+
+
 use std::cmp::PartialEq;
 use lang::types::Type;
 
@@ -299,7 +302,7 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
     let mut operands = Vec::<GenData>::with_capacity(data.operands.len());
     let mut is_float = false;
 
-    
+
     for operand in data.operands {
         let gen_data = gen_node(operand, comp_unit)?;
         if gen_data.typ == Type::Float {
@@ -307,10 +310,9 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         }
         operands.push(gen_data)
     }
-    
-  
 
-    for mut operand in &mut operands {
+
+    for operand in &mut operands {
         if is_float && operand.typ != Type::Float {
             if matches!(operand.typ, Type::Integer | Type::Boolean) {
                 operand.append_op_code(OpCode::I64ToF64)
@@ -326,7 +328,7 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
     };
 
 
-    match data.operation {
+    match &data.operation {
         Op::List => todo!(),
         Op::And => todo!(),
         Op::Or => todo!(),
@@ -354,9 +356,8 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         }
         Op::PlusPlus => todo!(),
         Op::MinusMinus => todo!(),
-        
-        Op::Greater | Op::Less | Op::GreaterEqual | Op::LessEqual
-        | Op::Equals | Op::BangEquals | Op::RefEqual => {
+
+        Op::Greater | Op::Less | Op::GreaterEqual | Op::LessEqual | Op::Equals => {
             if operands.len() < 2 {
                 return Err("Expected at least 2 operands for comparison operation".to_string());
             }
@@ -365,7 +366,6 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
             }
 
             let size = operands.len() as u8;
-
             while let Some(operand) = operands.pop() {
                 code.append_gen_data(operand);
             }
@@ -383,12 +383,21 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
             } else {
                 code.append_op_code(OpCode::CompI64);
             }
-            
-            // TODO make this work for other comparisons
-            code.append_op_code(OpCode::CompGt);
-           // code.append_operand(size);
+
+            let comp_op = match &data.operation {
+                Op::Greater => if size > 2 { OpCode::CompGtN } else { OpCode::CompGt }
+                Op::Less => if size > 2 { OpCode::CompLtN } else { OpCode::CompLt }
+                Op::GreaterEqual => if size > 2 { OpCode::CompGtEqN } else { OpCode::CompGtEq }
+                Op::LessEqual => if size > 2 { OpCode::CompLtEqN } else { OpCode::CompLtEq }
+                Op::Equals => if size > 2 { OpCode::CompEqN } else { OpCode::CompEq }
+                _ => panic!("Fatal: Wrong comparison operation")
+            };
+
+            code.append_op_code(comp_op);
+            if size > 2 { code.append_operand(size) }
             Ok(code)
         }
+        Op::BangEquals | Op::RefEqual => todo!()
     }
 }
 

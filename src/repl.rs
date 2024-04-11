@@ -35,7 +35,7 @@ fn main() {
     };
 
     let mut context = Context::default();
-    let input = "(> 10 9)".to_string();
+    let input = "(>= 9 8 8 8 7 )".to_string();
 
     let t = nano_time!();
     let tokens =  parser::lexer::process(input).expect("Token Err");
@@ -47,7 +47,7 @@ fn main() {
     parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
   
 
-    //comp_unit.write_op_code(OpCode::RtnBool);
+   //' comp_unit.write_op_code(OpCode::RtnBool);
     comp_unit.write_op_code(OpCode::Exit);
     
     //comp_unit.write_op_code(OpCode::Exit);

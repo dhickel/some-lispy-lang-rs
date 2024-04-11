@@ -287,14 +287,12 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
             code.append_gen_data(cond_data);
 
             let then_jump = emit_jump_inst(OpCode::JumpFalse, &mut code);
-            code.append_op_code(OpCode::Pop);
             
             let then_data = gen_node(data.if_branch.then_node, comp_unit)?;
             code.append_gen_data(then_data);
             
             let else_jump = emit_jump_inst(OpCode::JumpFWd, &mut code);
             patch_jump(then_jump, &mut code);
-            code.append_op_code(OpCode::Pop);
 
 
        

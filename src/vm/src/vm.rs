@@ -142,6 +142,9 @@ impl<'a> Vm<'a> {
 
     fn pop_bytes(&mut self, n: usize) -> &[u8] {
         unsafe {
+            if self.stack_top.sub(n) < self.stack.as_mut_ptr() {
+                panic!("Attempted to pop stack less than start index")
+            }
             self.stack_top = self.stack_top.offset(-(n as isize));
             std::slice::from_raw_parts(self.stack_top, n)
         }
@@ -560,7 +563,7 @@ impl<'a> Vm<'a> {
 
                 OpCode::JumpFalse => {
                     let offset = self.read_wide_inst();
-                    if self.peek_bool(0) == false {
+                    if self.pop_bool() == false {
                         println!("jumpfalse");
 
                         unsafe {

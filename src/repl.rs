@@ -31,7 +31,7 @@ fn main() {
     };
 
     let context = Context::default();
-    let input = "(if (< 10 9) (* 10 10) (if (< 10 9) (+ 2 2) (+ 6 6)))".to_string();
+    let input = "(if (< 10 9) (* 2 2))".to_string();
 
     let t = nano_time!();
     let tokens = parser::lexer::process(input).expect("Token Err");

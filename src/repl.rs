@@ -31,7 +31,7 @@ fn main() {
     };
 
     let context = Context::default();
-    let input = "(if (< 10 9) (* 2 2))".to_string();
+    let input = "(if (> 12 11) #t #f)".to_string();
 
     let t = nano_time!();
     let tokens = parser::lexer::process(input).expect("Token Err");
@@ -43,7 +43,7 @@ fn main() {
     parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
 
 
-    comp_unit.write_op_code(OpCode::RtnI64);
+    comp_unit.write_op_code(OpCode::RtnBool);
     //comp_unit.write_op_code(OpCode::RtnI64);
    // comp_unit.write_op_code(OpCode::Exit);
     

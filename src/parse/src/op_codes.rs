@@ -36,9 +36,10 @@ pub enum OpCode {
     CompI64N,
     CompF64,
     CompF64N,
-    CompOr,
-    CompAnd,
-    CompNot,
+    LogicOr,
+    LogicAnd,
+    LogicXor,
+    LogicNegate,
     CompGt,
     CompGtN,
     CompGtEq,
@@ -60,7 +61,7 @@ pub enum OpCode {
     IConst3,
     IConst4,
     IConst5,
-    Pop
+    Pop,
 }
 
 
@@ -122,9 +123,21 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
                 decoded.push(format!("CompF64N: {}", n))
             }
             OpCode::CompF64 => decoded.push("CompF64".to_string()),
-            OpCode::CompOr => decoded.push("CompOr".to_string()),
-            OpCode::CompAnd => decoded.push("CompAnd".to_string()),
-            OpCode::CompNot => decoded.push("CompNot".to_string()),
+            OpCode::LogicOr => {
+                let n = iter.next().unwrap();
+                decoded.push(format!("LogicOr: {}", n))
+            }
+            OpCode::LogicAnd =>  {
+                let n = iter.next().unwrap();
+                decoded.push(format!("LogicAnd: {}", n))
+            }
+            
+            OpCode::LogicXor => {
+                let n = iter.next().unwrap();
+                decoded.push(format!("LogicXor: {}", n))
+            }
+  
+            OpCode::LogicNegate => decoded.push("LogicNegate".to_string()),
             OpCode::CompGt => decoded.push("CompGrtr".to_string()),
             OpCode::CompGtN => {
                 let n = iter.next().unwrap();
@@ -151,7 +164,7 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
                 decoded.push(format!("CompLtEqN: {}", n))
             }
             OpCode::JumpTrue => decoded.push("JumpTrue".to_string()),
-            OpCode::JumpFalse =>  {
+            OpCode::JumpFalse => {
                 let val1 = iter.next().unwrap();
                 let val2 = iter.next().unwrap();
                 decoded.push(format!("JumpFalse: {}", util::read_wide_bytes(*val1, *val2)))
@@ -176,7 +189,6 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
             OpCode::IConst5 => decoded.push("IConst5".to_string()),
             OpCode::Pop => decoded.push("Pop".to_string()),
 
-         
         }
     }
     decoded

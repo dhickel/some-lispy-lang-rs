@@ -43,11 +43,11 @@ impl GenData {
         self.code[offset] = (val & 0xFF) as u8;
         self.code[offset + 1] = ((val >> 8) & 0xFF) as u8;
     }
-    
+
     fn empty() -> GenData {
         GenData {
             code: Vec::<u8>::with_capacity(0),
-            typ: Type::Unresolved
+            typ: Type::Unresolved,
         }
     }
 }
@@ -150,10 +150,10 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
         AstNode::ExprIf(data) => {
             context.pushScope();
 
-            // let cond_type = resolve(&mut data.if_branch.cond_node, context)?;
-            // if cond_type != Type::Unresolved {
-            //     
-            // }
+            let cond_type = resolve(&mut data.if_branch.cond_node, context)?;
+            if cond_type == Type::Unresolved {
+                return Ok(Type::Unresolved);
+            }
 
             let if_type = resolve(&mut data.if_branch.then_node, context)?;
             if if_type != Type::Unresolved {
@@ -273,29 +273,23 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::ExprMulti(_) => todo!(),
         AstNode::ExprPrint(_) => todo!(),
         AstNode::ExprIf(data) => {
-     
             let mut code = GenData::empty();
             code.typ = data.if_branch.typ;
-            
+
             let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
-            // if cond_data.typ != Type::Boolean {
-            //     return Err(format!(
-            //         "Condition for if expression must evaluate to boolean, found: {:?}",
-            //         cond_data.typ));
-            // }
+
 
             code.append_gen_data(cond_data);
 
             let then_jump = emit_jump_inst(OpCode::JumpFalse, &mut code);
-            
+
             let then_data = gen_node(data.if_branch.then_node, comp_unit)?;
             code.append_gen_data(then_data);
-            
+
             let else_jump = emit_jump_inst(OpCode::JumpFWd, &mut code);
             patch_jump(then_jump, &mut code);
 
 
-       
             patch_jump(then_jump, &mut code);
 
             if let Some(els) = data.else_branch {
@@ -384,88 +378,83 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 
     match &data.operation {
         Op::List => todo!(),
-        Op::And => todo!(),
-        Op::Or => todo!(),
-        Op::Nor => todo!(),
-        Op::Xor => todo!(),
-        Op::Xnor => todo!(),
-        Op::Nand => todo!(),
-        Op::Negate => todo!(),
+        Op::And | Op::Or | Op::Nor | Op::Xor | Op::Nand | Op::Xnor => {
+            gen_boolean_logic(data.operation, operands, code)
+        }
+
+        Op::Negate => {
+            gen_boolean_negate(operands, code)
+        }
+
         Op::Plus | Op::Minus | Op::Asterisk | Op::Slash | Op::Caret | Op::Percent => {
-            if operands.len() < 2 {
-                return Err("Expected at least 2 operands for arithmetic operation".to_string());
-            }
-
-            let op_code = get_arithmetic_op(data.operation, is_float)?;
-            let size = operands.len() - 1;
-
-            while let Some(operand) = operands.pop() {
-                code.append_gen_data(operand);
-            }
-
-            for _ in 0..size {
-                code.append_op_code(op_code);
-            }
-            Ok(code)
+            gen_arithmetic(data.operation, operands, code, is_float)
         }
 
         Op::PlusPlus | Op::MinusMinus => {
-            if operands.len() != 1 {
-                return Err("Inc/Dec is a unary operation".to_string());
-            }
-
-            if let Some(operand) = operands.pop() {
-                code.append_gen_data(operand);
-            }
-
-            code.append_op_code(if data.operation == Op::PlusPlus { OpCode::IConst1 } else { OpCode::IConstM1 });
-            code.append_op_code(if is_float { OpCode::AddF64 } else { OpCode::AddI64 });
-            Ok(code)
+            gen_inc_dec(data.operation, operands, code, is_float)
         }
 
         Op::Greater | Op::Less | Op::GreaterEqual | Op::LessEqual | Op::Equals => {
-            if operands.len() < 2 {
-                return Err("Expected at least 2 operands for comparison operation".to_string());
-            }
-            if operands.len() > 256 {
-                return Err("Unsupported operand amount (> 256)".to_string());
-            }
-
-            let size = operands.len() as u8;
-            while let Some(operand) = operands.pop() {
-                code.append_gen_data(operand);
-            }
-
-            if is_float {
-                if size > 2 {
-                    code.append_op_code(OpCode::CompF64N);
-                    code.append_operand(size);
-                } else {
-                    code.append_op_code(OpCode::CompF64);
-                }
-            } else if size > 2 {
-                code.append_op_code(OpCode::CompI64N);
-                code.append_operand(size);
-            } else {
-                code.append_op_code(OpCode::CompI64);
-            }
-
-            let comp_op = match &data.operation {
-                Op::Greater => if size > 2 { OpCode::CompGtN } else { OpCode::CompGt }
-                Op::Less => if size > 2 { OpCode::CompLtN } else { OpCode::CompLt }
-                Op::GreaterEqual => if size > 2 { OpCode::CompGtEqN } else { OpCode::CompGtEq }
-                Op::LessEqual => if size > 2 { OpCode::CompLtEqN } else { OpCode::CompLtEq }
-                Op::Equals => if size > 2 { OpCode::CompEqN } else { OpCode::CompEq }
-                _ => panic!("Fatal: Wrong comparison operation")
-            };
-
-            code.append_op_code(comp_op);
-            if size > 2 { code.append_operand(size) }
-            Ok(code)
+            gen_comparison(data.operation, operands, code, is_float)
         }
 
         Op::BangEquals | Op::RefEqual => todo!()
     }
+}
+
+
+fn gen_boolean_logic(operation: Op, mut operands: Vec<GenData>, mut code: GenData,
+) -> Result<GenData, String> {
+    if operands.len() > 255 { return Err("Unsupported operand amount (> 255)".to_string()); }
+
+    // This reverses the operands for proper order on stack removal
+    let size = operands.len();
+    while let Some(operand) = operands.pop() {
+        code.append_gen_data(operand);
+    }
+
+    match operation {
+        Op::And | Op::Nand => code.append_op_code(OpCode::LogicAnd),
+        Op::Or | Op::Nor => code.append_op_code(OpCode::LogicOr),
+        Op::Xor | Op::Xnor => code.append_op_code(OpCode::LogicOr),
+        _ => panic!("Fatal: Wrong logic operation")
+    };
+    code.append_operand(size as u8);
+
+    if operation == Op::Nand || operation == Op::Nor || operation == Op::Xnor {
+        code.append_op_code(OpCode::LogicNegate);
+    }
+    Ok(code)
+}
+
+
+fn gen_boolean_negate(mut operands: Vec<GenData>, mut code: GenData,
+) -> Result<GenData, String> {
+    if operands.len() != 1 { return Err("Negation is a unary operation".to_string()); }
+
+    if let Some(operand) = operands.pop() {
+        code.append_gen_data(operand);
+    }
+    code.append_op_code(OpCode::LogicNegate);
+    Ok(code)
+}
+
+
+fn gen_arithmetic(operation: Op, mut operands: Vec<GenData>, mut code: GenData, is_float: bool,
+) -> Result<GenData, String> {
+    if operands.len() < 2 { return Err("Expected at least 2 operands for arithmetic operation".to_string()); }
+
+    let op_code = get_arithmetic_op(operation, is_float)?;
+    let size = operands.len() - 1;
+
+    while let Some(operand) = operands.pop() {
+        code.append_gen_data(operand);
+    }
+
+    for _ in 0..size {
+        code.append_op_code(op_code);
+    }
+    Ok(code)
 }
 
 
@@ -482,7 +471,61 @@ fn get_arithmetic_op(op: Op, is_float: bool) -> Result<OpCode, String> {
 }
 
 
-fn emit_jump_inst(op_code: OpCode, gen_data:&mut GenData) -> usize {
+fn gen_inc_dec(operation: Op, mut operands: Vec<GenData>, mut code: GenData, is_float: bool,
+) -> Result<GenData, String> {
+    if operands.len() != 1 { return Err("Inc/Dec is a unary operation".to_string()); }
+
+    if let Some(operand) = operands.pop() {
+        code.append_gen_data(operand);
+    }
+
+    code.append_op_code(if operation == Op::PlusPlus { OpCode::IConst1 } else { OpCode::IConstM1 });
+    code.append_op_code(if is_float { OpCode::AddF64 } else { OpCode::AddI64 });
+    Ok(code)
+}
+
+
+fn gen_comparison(operation: Op, mut operands: Vec<GenData>, mut code: GenData, is_float: bool,
+) -> Result<GenData, String> {
+    if operands.len() < 2 { return Err("Expected at least 2 operands for comparison operation".to_string()); }
+    if operands.len() > 255 { return Err("Unsupported operand amount (> 255)".to_string()); }
+
+    let size = operands.len() as u8;
+    // This reverses the operands to proper order on stack
+    while let Some(operand) = operands.pop() {
+        code.append_gen_data(operand);
+    }
+
+    if is_float {
+        if size > 2 {
+            code.append_op_code(OpCode::CompF64N);
+            code.append_operand(size);
+        } else {
+            code.append_op_code(OpCode::CompF64);
+        }
+    } else if size > 2 {
+        code.append_op_code(OpCode::CompI64N);
+        code.append_operand(size);
+    } else {
+        code.append_op_code(OpCode::CompI64);
+    }
+
+    let comp_op = match &operation {
+        Op::Greater => if size > 2 { OpCode::CompGtN } else { OpCode::CompGt }
+        Op::Less => if size > 2 { OpCode::CompLtN } else { OpCode::CompLt }
+        Op::GreaterEqual => if size > 2 { OpCode::CompGtEqN } else { OpCode::CompGtEq }
+        Op::LessEqual => if size > 2 { OpCode::CompLtEqN } else { OpCode::CompLtEq }
+        Op::Equals => if size > 2 { OpCode::CompEqN } else { OpCode::CompEq }
+        _ => panic!("Fatal: Wrong comparison operation")
+    };
+
+    code.append_op_code(comp_op);
+    if size > 2 { code.append_operand(size) }
+    Ok(code)
+}
+
+
+fn emit_jump_inst(op_code: OpCode, gen_data: &mut GenData) -> usize {
     gen_data.append_op_code(op_code);
     gen_data.append_wide_inst(0);
     gen_data.code.len() - 2
@@ -496,5 +539,4 @@ fn patch_jump(offset: usize, gen_data: &mut GenData) {
         panic!("Too large of jump encountered (> 65,535 instructions)")
     }
     gen_data.patch_wide_inst(offset, jump as u16);
-    
 }

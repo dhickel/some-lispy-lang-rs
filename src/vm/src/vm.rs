@@ -457,19 +457,44 @@ impl<'a> Vm<'a> {
                     }
                 }
 
-                OpCode::CompOr => {
-                    let val1 = self.pop_bool();
-                    let val2 = self.pop_bool();
-                    self.push_bool(val1 || val2)
+                OpCode::LogicOr => {
+                    let n = self.read_inst();
+                    for i in 0..n {
+                        if self.pop_bool() {
+                            self.discard_n_words(n - 1 - i);
+                            println!("stack after discard: ");
+                            self.print_stack();
+                            self.push_bool(true);
+                            continue 'outer;
+                        }
+                    }
+                    self.push_bool(false)
                 }
 
-                OpCode::CompAnd => {
-                    let val1 = self.pop_bool();
-                    let val2 = self.pop_bool();
-                    self.push_bool(val1 && val2);
+                OpCode::LogicAnd => {
+                    let n = self.read_inst();
+                    for i in 0..n {
+                        if !self.pop_bool() {
+                            self.discard_n_words(n - 1 - i);
+                            self.push_bool(false);
+                            continue 'outer;
+                        }
+                    }
+                    self.push_bool(true)
+                }
+                OpCode::LogicXor => {
+                    let mut truths = 0;
+                    let n = self.read_inst();
+                    for i in 0..n {
+                        if self.pop_bool() {
+                           
+                            truths += 1;
+                        }
+                    }
+                    self.push_bool(truths % 2 == 1)
                 }
 
-                OpCode::CompNot => {
+                OpCode::LogicNegate => {
                     let val = !self.pop_bool();
                     self.push_bool(val)
                 }

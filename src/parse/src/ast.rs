@@ -1,6 +1,7 @@
 use std::collections::LinkedList;
 use lasso::Spur;
 use lang::types::Type;
+use crate::environment::{ScopeCtx, SymbolCtx};
 use crate::token::{Mod, Op};
 
 
@@ -29,7 +30,7 @@ pub enum AstNode {
     ExprFuncCall(Box<FuncCallData>),
     ExprFuncCalInner(Box<InnerFuncCallData>),
     ExprObjectCall(Box<ObjectCallData>),
-    ExprLiteralCall(Spur),
+    ExprLiteralCall(LiteralCallData),
     ExprObjectAssignment(Box<ObjectAssignData>),
     ExprGenRand(Box<GenRandData>),
     ExprDirectInst(Box<DirectInst>),
@@ -67,6 +68,7 @@ pub struct DefVarData {
     pub modifiers: Option<Vec<Mod>>,
     pub value: AstNode,
     pub d_type: Option<Spur>,
+    pub ctx: Option<SymbolCtx>
 }
 
 
@@ -77,6 +79,7 @@ pub struct DefLambdaData {
     pub body: AstNode,
     pub d_type: Option<Spur>,
     pub typ: Type,
+    pub ctx: Option<SymbolCtx>
 }
 
 
@@ -103,6 +106,7 @@ pub struct Param {
 pub struct DefStructData {
     pub name: Spur,
     pub fields: Option<Vec<Field>>,
+    pub ctx: Option<SymbolCtx>
 }
 
 
@@ -117,6 +121,7 @@ pub struct DefClassData {
     pub post_init: Option<AstNode>,
     pub fin: Option<AstNode>,
     pub validate: Option<AstNode>,
+    pub ctx: Option<SymbolCtx>
 }
 
 
@@ -132,6 +137,7 @@ impl DefClassData {
             post_init: None,
             fin: None,
             validate: None,
+            ctx: None
         }
     }
 }
@@ -141,6 +147,7 @@ impl DefClassData {
 pub struct DirectInst {
     pub name: Spur,
     pub args: Option<Vec<InstArgs>>,
+    pub ctx: Option<ScopeCtx>
 }
 
 
@@ -160,6 +167,7 @@ pub struct OpData {
     pub operation: Op,
     pub operands: Vec<AstNode>,
     pub typ: Type,
+    
 }
 
 
@@ -174,6 +182,7 @@ pub struct MultiExprData{
 pub struct AssignData {
     pub name: Spur,
     pub value: AstNode,
+    pub ctx: Option<ScopeCtx>
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -243,6 +252,7 @@ pub struct ListAccData {
 pub struct FuncCallData {
     pub name: Spur,
     pub arguments: Option<Vec<FuncArg>>,
+    pub ctx: Option<ScopeCtx>
 }
 
 
@@ -250,13 +260,22 @@ pub struct FuncCallData {
 pub struct ObjectCallData {
     pub name: Spur,
     pub accessors: LinkedList<Accessor>,
+    pub ctx: Option<ScopeCtx>
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiteralCallData {
+    pub name: Spur,
+    pub ctx: Option<ScopeCtx>
+}
+
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectAssignData {
     pub access: ObjectCallData,
     pub value: AstNode,
+    pub ctx: Option<SymbolCtx>
 }
 
 
@@ -265,6 +284,8 @@ pub struct InnerFuncCallData {
     pub expr: AstNode,
     pub accessors: Option<Vec<Accessor>>,
     pub arguments: Option<Vec<FuncArg>>,
+    pub ctx: Option<ScopeCtx>
+    
 }
 
 

@@ -1,6 +1,8 @@
 use std::mem;
-use crate::parser::CompUnit;
+use std::process::id;
+use lasso::Key;
 use crate::util;
+use crate::util::{CompUnit, SCache, SCACHE};
 
 
 #[repr(u8)]
@@ -11,8 +13,8 @@ pub enum OpCode {
     RtnF64,
     RtnBool,
     RtnRef,
-    Ldc,
-    LdcW,
+    LoadConst,
+    LoadConstW,
     AddI64,
     AddF64,
     SubI64,
@@ -62,6 +64,9 @@ pub enum OpCode {
     IConst4,
     IConst5,
     Pop,
+    AssignGlobal,
+    DefGlobal,
+    LoadGlobal,
 }
 
 
@@ -85,11 +90,11 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
             OpCode::RtnF64 => decoded.push("RtnF64".to_string()),
             OpCode::RtnBool => decoded.push("RtnBool".to_string()),
             OpCode::RtnRef => decoded.push("RtnRef".to_string()),
-            OpCode::Ldc => {
+            OpCode::LoadConst => {
                 let index = iter.next().unwrap();
                 decoded.push(format!("Ldc: {}", index))
             }
-            OpCode::LdcW => {
+            OpCode::LoadConstW => {
                 // TODO decode wide operands
                 let index = iter.next().unwrap().to_string();
                 decoded.push(format!("LdcW: {}", index))
@@ -127,16 +132,16 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
                 let n = iter.next().unwrap();
                 decoded.push(format!("LogicOr: {}", n))
             }
-            OpCode::LogicAnd =>  {
+            OpCode::LogicAnd => {
                 let n = iter.next().unwrap();
                 decoded.push(format!("LogicAnd: {}", n))
             }
-            
+
             OpCode::LogicXor => {
                 let n = iter.next().unwrap();
                 decoded.push(format!("LogicXor: {}", n))
             }
-  
+
             OpCode::LogicNegate => decoded.push("LogicNegate".to_string()),
             OpCode::CompGt => decoded.push("CompGrtr".to_string()),
             OpCode::CompGtN => {
@@ -179,7 +184,6 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
                 let val2 = iter.next().unwrap();
                 decoded.push(format!("JumpBack: {}", util::read_wide_bytes(*val1, *val2)))
             }
-
             OpCode::IConstM1 => decoded.push("IConstM1".to_string()),
             OpCode::IConst0 => decoded.push("IConst0".to_string()),
             OpCode::IConst1 => decoded.push("IConst1".to_string()),
@@ -188,7 +192,13 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
             OpCode::IConst4 => decoded.push("IConst4".to_string()),
             OpCode::IConst5 => decoded.push("IConst5".to_string()),
             OpCode::Pop => decoded.push("Pop".to_string()),
-
+            OpCode::AssignGlobal => decoded.push("AssignGlobal".to_string()),
+            OpCode::DefGlobal => {
+                let val1 = iter.next().unwrap();
+                let val2 = iter.next().unwrap();
+                decoded.push(format!("DefGlobal | Type: {}", util::read_wide_bytes(*val1, *val2)))
+            }
+            OpCode::LoadGlobal => decoded.push("LoadGlobal".to_string()),
         }
     }
     decoded

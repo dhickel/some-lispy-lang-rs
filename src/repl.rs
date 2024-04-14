@@ -2,10 +2,12 @@ extern crate core;
 
 
 use std::time::{SystemTime, UNIX_EPOCH};
+use ahash::AHashMap;
+use lasso::Spur;
 use parser::environment::Context;
 use parser::op_codes::OpCode;
 
-use parser::parser::CompUnit;
+use parser::util::CompUnit;
 use vm;
 
 use vm::vm::*;
@@ -27,23 +29,24 @@ macro_rules! nano_time {
 fn main() {
     let mut comp_unit = CompUnit {
         code: vec![],
-        constants: vec![],
+        constants: Vec::<[u8; 8]>::with_capacity(100),
+        existing_spurs: AHashMap::<Spur, u16>::with_capacity(50)
     };
 
     let context = Context::default();
-    let input = "(if (> 12 11) #t #f)".to_string();
+    let input = "(+ 2 30 40 (+ 20 20))".to_string();
 
     let t = nano_time!();
     let tokens = parser::lexer::process(input).expect("Token Err");
 
     let mut ast = parser::parser::process(tokens).expect("Parse Err");
 
-    let resolved = parser::code_gen::resolve_types(&mut ast, context);
+    let resolved = parser::resolution::resolve_types(&mut ast, context);
     println!("Resolved: {}", resolved);
     parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
 
 
-    comp_unit.write_op_code(OpCode::RtnBool);
+    comp_unit.write_op_code(OpCode::RtnI64);
     //comp_unit.write_op_code(OpCode::RtnI64);
    // comp_unit.write_op_code(OpCode::Exit);
     

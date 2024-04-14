@@ -1,8 +1,12 @@
+use std::alloc::{alloc, Layout};
 use std::cell::{RefCell, UnsafeCell};
 use std::ops::Deref;
 use std::sync::{Mutex, RwLock, RwLockReadGuard};
+use ahash::AHashMap;
 use lasso::{Rodeo, Spur};
 use lazy_static::lazy_static;
+use crate::code_gen::GenData;
+use crate::op_codes::OpCode;
 
 
 pub struct SCache {
@@ -54,8 +58,7 @@ impl Default for SCache {
             const_float,
             const_bool,
             const_string,
-            const_nil
-            
+            const_nil,
         }
     }
 }
@@ -87,8 +90,88 @@ pub fn get_wide_bytes(val: u16) -> (u8, u8) {
     ((val & 0xFF) as u8, ((val >> 8) & 0xFF) as u8)
 }
 
-pub fn read_wide_bytes(val1: u8, val2:u8) -> u16 {
+
+pub fn read_wide_bytes(val1: u8, val2: u8) -> u16 {
     let low_byte = val1 as u16;
     let high_byte = val2 as u16;
     (high_byte << 8) | low_byte
 }
+
+
+pub fn get_byte_array(size: usize) -> *mut u8 {
+    unsafe {
+        let layout = Layout::array::<u8>(size).unwrap();
+        let ptr = alloc(layout);
+        if ptr.is_null() { panic!("Failed to allocate memory"); }
+        ptr
+    }
+}
+
+pub enum ConstValue{
+    Integer,
+    Float,
+    String
+}
+
+
+
+
+#[derive(Debug, Clone)]
+pub struct CompUnit {
+    pub code: Vec<u8>,
+    pub constants: Vec<[u8; 8]>,
+    pub existing_spurs: AHashMap<Spur, u16>,
+}
+
+
+impl CompUnit {
+    pub fn write_op_code(&mut self, op: OpCode) {
+        self.code.push(op as u8)
+    }
+
+    pub fn write_operand(&mut self, val: u8) {
+        self.code.push(val);
+    }
+
+    pub fn write_wide_inst(&mut self, val: u16) {
+        self.code.push((val & 0xFF) as u8);
+        self.code.push(((val >> 8) & 0xFF) as u8);
+    }
+
+    fn add_constant(&mut self, bytes: [u8; 8]) -> usize {
+        unsafe {
+            let curr_index = self.constants.len();
+            if curr_index >= u16::MAX as usize {
+                panic!("Exceeded size of constant pool")
+            }
+           self.constants.push(bytes);
+            curr_index
+        }
+    }
+
+    pub fn push_constant<T>(&mut self, value: &T) -> usize {
+        unsafe {
+            let size = std::mem::size_of::<T>();
+            if size > 8 {
+                panic!("Attempted to add constant of more than 8 bytes");
+            }
+
+            let value_ptr = value as *const T as *const u8;
+            let bytes_slice = std::slice::from_raw_parts(value_ptr, size);
+
+            let mut padded_bytes = [0u8; 8]; 
+            if size < 8 {
+                padded_bytes[8 - size..].copy_from_slice(bytes_slice);
+            } else {
+                padded_bytes.copy_from_slice(bytes_slice);
+            }
+
+            self.add_constant(padded_bytes)
+        }
+    }
+    pub fn push_code_gen(&mut self, mut other: GenData) {
+        self.code.append(&mut other.code);
+    }
+}
+
+

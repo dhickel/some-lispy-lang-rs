@@ -6,15 +6,15 @@ use std::fmt::format;
 use lang::types::Type;
 
 
-use crate::ast::{AstNode, OpData};
+use crate::ast::{AstNode, DefVarData, IfData, OpData, WhileData};
 use crate::environment::Context;
 use crate::op_codes::OpCode;
-use crate::parser::CompUnit;
 use crate::token::Op;
 use crate::{op_codes, util};
-use crate::util::SCACHE;
+use crate::util::{CompUnit, SCACHE};
 
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct GenData {
     pub code: Vec<u8>,
     typ: Type,
@@ -53,206 +53,6 @@ impl GenData {
 }
 
 
-pub fn resolve_types(mut program_nodes: &mut Vec<AstNode>, mut context: Context) -> bool {
-    let mut fully_resolved = true;
-    for _ in 0..2 {
-        for node in program_nodes.iter_mut() {
-            if resolve(node, &mut context) == Ok(Type::Unresolved) {
-                fully_resolved = false;
-            }
-        }
-    }
-    fully_resolved
-}
-
-
-fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
-    match node {
-        AstNode::DefVariable(data) => {
-            let resolved_type = resolve(&mut data.value, context)?;
-            if resolved_type == Type::Unresolved { return Ok(Type::Unresolved); }
-
-            if let Some(d_type) = data.d_type {
-                let resolved_d_type = context.validate_type(d_type);
-                if resolved_type == Type::Unresolved {
-                    Ok(Type::Unresolved)
-                } else {
-                    Ok(resolved_d_type)
-                }
-            } else { Ok(resolved_type) }
-        }
-
-        AstNode::DefLambda(data) => {
-            let resolved_type = resolve(&mut data.body, context)?;
-            if let Some(d_type) = data.d_type {
-                if resolved_type != context.validate_type(d_type) {
-                    return Err("Declared type does not match actual type for lambda".to_string());
-                }
-            }
-            Ok(resolved_type)
-        }
-        AstNode::DefFunction(_) => todo!(),
-        AstNode::DefStruct(_) => todo!(),
-        AstNode::DefClass(_) => todo!(),
-        AstNode::ExprAssignment(data) => {
-            let resolved_type = resolve(&mut data.value, context)?;
-            if resolved_type == Type::Unresolved {
-                return Ok(Type::Unresolved);
-            } else {
-                match &data.value {
-                    AstNode::ExprIf(expr) => {
-                        if !expr.all_types_same() {
-                            Err("All branches in assignment must have same type".to_string())
-                        } else {
-                            let var_type = context.get_symbol_type(data.name);
-                            if var_type == &resolved_type {
-                                Ok(resolved_type)
-                            } else {
-                                Err(format!(
-                                    "Attempted to assign incorrect type for var: {}",
-                                    SCACHE.resolve(&data.name)))
-                            }
-                        }
-                    }
-                    AstNode::ExprCond(expr) => {
-                        if !expr.all_types_same() {
-                            Err("All branches in assignment must have same type".to_string())
-                        } else {
-                            let var_type = context.get_symbol_type(data.name);
-                            if var_type == &resolved_type {
-                                Ok(resolved_type)
-                            } else {
-                                Err(format!(
-                                    "Attempted to assign incorrect type for var: {}",
-                                    SCACHE.resolve(&data.name)))
-                            }
-                        }
-                    }
-                    _ => Ok(context.get_symbol_type(data.name).clone())
-                }
-            }
-        }
-
-        AstNode::ExprMulti(data) => {
-            context.pushScope();
-            let mut resolved_type = Type::Unresolved;
-            for expr in data.expressions.iter_mut() {
-                resolved_type = resolve(expr, context)?;
-            }
-            context.popScope();
-            Ok(resolved_type)
-        }
-
-        AstNode::ExprPrint(data) => {
-            resolve(data, context)
-        }
-
-        AstNode::ExprIf(data) => {
-            context.pushScope();
-
-            let cond_type = resolve(&mut data.if_branch.cond_node, context)?;
-            if cond_type == Type::Unresolved {
-                return Ok(Type::Unresolved);
-            }
-
-            let if_type = resolve(&mut data.if_branch.then_node, context)?;
-            if if_type != Type::Unresolved {
-                data.if_branch.typ = if_type.clone();
-            }
-            context.popScope();
-
-            if let Some(ref mut els) = data.else_branch {
-                context.pushScope();
-                let else_type = resolve(els, context)?;
-                if else_type != Type::Unresolved {
-                    data.else_type = else_type.clone();
-                }
-                context.popScope();
-
-                if if_type != Type::Unresolved && else_type != Type::Unresolved {
-                    Ok(else_type) // Fixme, find a better way to represent conditional types as they vary
-                } else { Ok(Type::Unresolved) }
-            } else { Ok(if_type) }
-        }
-
-        AstNode::ExprCond(data) => {
-            let mut unresolved = false;
-            let mut cond_type = Type::Unresolved;
-            for branch in data.cond_branches.iter_mut() {
-                context.pushScope();
-                let branch_type = resolve(&mut branch.then_node, context)?;
-
-                if branch_type != Type::Unresolved {
-                    branch.typ = branch_type.clone();
-                } else { unresolved = true; }
-
-                cond_type = branch_type;
-                context.popScope();
-            }
-
-            if let Some(ref mut els) = data.else_branch {
-                context.pushScope();
-                let else_type = resolve(els, context)?;
-                if else_type != Type::Unresolved {
-                    data.else_type = else_type.clone();
-                }
-                context.popScope();
-
-                if !unresolved && else_type != Type::Unresolved {
-                    Ok(else_type) // Fixme, find a better way to represent conditional types as they vary
-                } else {
-                    Ok(Type::Unresolved)
-                }
-            } else if unresolved {
-                Ok(Type::Unresolved)
-            } else {
-                Ok(cond_type)
-            }
-        }
-
-        AstNode::ExprWhileLoop(_) => Ok(Type::Boolean), //TODO handle return assignment
-        AstNode::ExprCons(_) => Ok(Type::Pair),
-        AstNode::ExprPairList(_) => Ok(Type::Pair),
-        AstNode::ExprListAccess(data) => Ok(Type::Pair), // TODO this will need to be runtime checked
-        AstNode::ExprFuncCall(data) => Ok(context.get_symbol_type(data.name).clone()),
-        AstNode::ExprFuncCalInner(data) => Ok(resolve(&mut data.expr, context)?),
-        AstNode::ExprObjectCall(data) => todo!(), // TODO will need to resolve accessor to their type
-        AstNode::ExprLiteralCall(_) => todo!(), // TODO will need to resolve accessor to their type
-        AstNode::ExprObjectAssignment(_) => todo!(), // TODO will need to resolve accessor to their type
-        AstNode::ExprGenRand(data) => if data.is_float { Ok(Type::Float) } else { Ok(Type::Integer) },
-        AstNode::ExprDirectInst(data) => Ok(context.get_symbol_type(data.name).clone()),
-        AstNode::ExprInitInst(data) => Ok(context.get_symbol_type(data.name).clone()),
-
-        AstNode::Operation(ref mut data) => {
-            let mut typ = Type::Integer;
-            for op in data.operands.iter_mut() {
-                let op_typ = resolve(op, context)?;
-                match op_typ {
-                    Type::Float => typ = Type::Float,
-                    Type::Integer | Type::Boolean => continue,
-                    Type::Unresolved => return Ok(Type::Unresolved),
-                    _ => return Err("Invalid type in operation expression".to_string()),
-                }
-            }
-            data.typ = typ.clone();
-            Ok(typ)
-        }
-
-        AstNode::LitInteger(_) => Ok(Type::Integer),
-        AstNode::LitFloat(_) => Ok(Type::Float),
-        AstNode::LitBoolean(_) => Ok(Type::Boolean),
-        AstNode::LitString(_) => Ok(Type::String),
-        AstNode::LitQuote => todo!(),
-        AstNode::LitObject => todo!(),
-        AstNode::LitStruct() => todo!(),
-        AstNode::LitNil => Ok(Type::Nil),
-        AstNode::LitVector => todo!(),
-        AstNode::LitPair => todo!(),
-        AstNode::LitLambda => todo!(),
-    }
-}
-
-
 pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result<(), String> {
     for node in program_nodes {
         let code = gen_node(node, comp_unit)?;
@@ -264,7 +64,7 @@ pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result
 
 fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, String> {
     match node {
-        AstNode::DefVariable(_) => todo!(),
+        AstNode::DefVariable(data) => todo!(),
         AstNode::DefLambda(_) => todo!(),
         AstNode::DefFunction(_) => todo!(),
         AstNode::DefStruct(_) => todo!(),
@@ -273,34 +73,12 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::ExprMulti(_) => todo!(),
         AstNode::ExprPrint(_) => todo!(),
         AstNode::ExprIf(data) => {
-            let mut code = GenData::empty();
-            code.typ = data.if_branch.typ;
-
-            let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
-
-
-            code.append_gen_data(cond_data);
-
-            let then_jump = emit_jump_inst(OpCode::JumpFalse, &mut code);
-
-            let then_data = gen_node(data.if_branch.then_node, comp_unit)?;
-            code.append_gen_data(then_data);
-
-            let else_jump = emit_jump_inst(OpCode::JumpFWd, &mut code);
-            patch_jump(then_jump, &mut code);
-
-
-            patch_jump(then_jump, &mut code);
-
-            if let Some(els) = data.else_branch {
-                let else_data = gen_node(els, comp_unit)?;
-                code.append_gen_data(else_data);
-                patch_jump(else_jump, &mut code);
-            }
-            Ok(code)
+            gen_if_expr(data, comp_unit)
         }
         AstNode::ExprCond(_) => todo!(),
-        AstNode::ExprWhileLoop(_) => todo!(),
+        AstNode::ExprWhileLoop(data) => {
+            gen_while_loop(data, comp_unit)
+        }
         AstNode::ExprCons(_) => todo!(),
         AstNode::ExprPairList(_) => todo!(),
         AstNode::ExprListAccess(_) => todo!(),
@@ -312,30 +90,12 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::ExprGenRand(_) => todo!(),
         AstNode::ExprDirectInst(_) => todo!(),
         AstNode::ExprInitInst(_) => todo!(),
-        AstNode::Operation(op_data) => gen_operation(op_data, comp_unit),
-
-        AstNode::LitInteger(_) | AstNode::LitFloat(_) | AstNode::LitBoolean(_) => {
-            let value = match node {
-                AstNode::LitInteger(value) => (comp_unit.push_constant(&value), Type::Integer),
-                AstNode::LitFloat(value) => (comp_unit.push_constant(&value), Type::Float),
-                AstNode::LitBoolean(value) => (comp_unit.push_constant(&value), Type::Boolean),
-                _ => return Err("Fatal: Invalid literal in gen_node".to_string())
-            };
-
-            let code = if value.0 > u8::MAX as usize {
-                let bytes = util::get_wide_bytes(value.0 as u16);
-                vec![OpCode::LdcW as u8, bytes.0, bytes.1]
-            } else {
-                vec![OpCode::Ldc as u8, value.0 as u8]
-            };
-
-            let data = GenData {
-                code,
-                typ: value.1,
-            };
-            Ok(data)
+        AstNode::Operation(op_data) => {
+            gen_operation(op_data, comp_unit)
         }
-
+        AstNode::LitInteger(_) | AstNode::LitFloat(_) | AstNode::LitBoolean(_) => {
+            gen_numerical_lit(node, comp_unit)
+        }
         AstNode::LitString(_) => todo!(),
         AstNode::LitQuote => todo!(),
         AstNode::LitObject => todo!(),
@@ -345,6 +105,89 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::LitPair => todo!(),
         AstNode::LitLambda => todo!(),
     }
+}
+
+
+fn gen_define_variable(data: Box<DefVarData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let ctx = data.ctx.unwrap();
+    
+    todo!()
+    // // Is Global
+    // if ctx.scope == 0 {
+    //     let name_index = if let Some(spur) = comp_unit.existing_spurs.get(data.name) {
+    //         *spur
+    //     } else{
+    //         comp_unit.push_constant(data.name)
+    //     };
+    // }
+    // Err()
+}
+
+
+fn gen_if_expr(data: Box<IfData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let mut code = GenData::empty();
+    code.typ = data.if_branch.typ;
+
+    let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
+    code.append_gen_data(cond_data);
+
+    let then_jump = emit_jump_empty(OpCode::JumpFalse, &mut code);
+    let then_data = gen_node(data.if_branch.then_node, comp_unit)?;
+    code.append_gen_data(then_data);
+
+    let else_jump = emit_jump_empty(OpCode::JumpFWd, &mut code);
+    patch_jump(then_jump, &mut code);
+
+    if let Some(els) = data.else_branch {
+        let else_data = gen_node(els, comp_unit)?;
+        code.append_gen_data(else_data);
+        patch_jump(else_jump, &mut code);
+    }
+    Ok(code)
+}
+
+
+fn gen_while_loop(data: Box<WhileData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let mut code = GenData::empty();
+    code.typ = Type::Boolean;
+
+    let body = gen_node(data.body, comp_unit)?;
+    if data.is_do {
+        code.append_gen_data(body.clone());
+    }
+    let loop_start = code.code.len();
+
+    let loop_cond = gen_node(data.condition, comp_unit)?;
+    code.append_gen_data(loop_cond);
+    let jump_index = emit_jump_empty(OpCode::JumpFalse, &mut code);
+
+    code.append_gen_data(body);
+    emit_jump(OpCode::JumpBack, comp_unit.code.len() - loop_start, &mut code);
+    patch_jump(jump_index, &mut code);
+    Ok(code)
+}
+
+
+fn gen_numerical_lit(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let value = match node {
+        AstNode::LitInteger(value) => (comp_unit.push_constant(&value), Type::Integer),
+        AstNode::LitFloat(value) => (comp_unit.push_constant(&value), Type::Float),
+        AstNode::LitBoolean(value) => (comp_unit.push_constant(&value), Type::Boolean),
+        _ => return Err("Fatal: Invalid literal in gen_node".to_string())
+    };
+
+    let code = if value.0 > u8::MAX as usize {
+        let bytes = util::get_wide_bytes(value.0 as u16);
+        vec![OpCode::LoadConstW as u8, bytes.0, bytes.1]
+    } else {
+        vec![OpCode::LoadConst as u8, value.0 as u8]
+    };
+
+    let data = GenData {
+        code,
+        typ: value.1,
+    };
+    Ok(data)
 }
 
 
@@ -370,7 +213,7 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 
     let capacity = operands.len() * 2;
 
-    let mut code = GenData {
+    let code = GenData {
         code: Vec::<u8>::with_capacity(capacity),
         typ: if is_float { Type::Float } else { Type::Integer },
     };
@@ -525,16 +368,24 @@ fn gen_comparison(operation: Op, mut operands: Vec<GenData>, mut code: GenData, 
 }
 
 
-fn emit_jump_inst(op_code: OpCode, gen_data: &mut GenData) -> usize {
+fn emit_jump_empty(op_code: OpCode, gen_data: &mut GenData) -> usize {
     gen_data.append_op_code(op_code);
     gen_data.append_wide_inst(0);
     gen_data.code.len() - 2
 }
 
 
+fn emit_jump(op_code: OpCode, offset: usize, gen_data: &mut GenData) {
+    gen_data.append_op_code(op_code);
+    if offset > u16::MAX as usize {
+        panic!("Too large of jump encountered (> 65,535 instructions)")
+    }
+    gen_data.append_wide_inst(offset as u16);
+}
+
+
 fn patch_jump(offset: usize, gen_data: &mut GenData) {
     let jump = gen_data.code.len() - offset - 2;
-
     if jump > u16::MAX as usize {
         panic!("Too large of jump encountered (> 65,535 instructions)")
     }

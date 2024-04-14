@@ -7,3 +7,4 @@ pub mod util;
 pub mod code_gen;
 pub mod environment;
 pub mod op_codes;
+pub mod resolution;

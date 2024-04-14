@@ -1,4 +1,5 @@
 use std::collections::LinkedList;
+use ahash::AHashMap;
 use intmap::IntMap;
 use lasso::Spur;
 use lang::types::Type;
@@ -12,66 +13,9 @@ use crate::token::TokenType::*;
 use crate::util;
 
 
-#[derive(Debug, Clone)]
-pub struct CompUnit {
-    pub code: Vec<u8>,
-    pub constants: Vec<u8>,
-}
 
 
-impl CompUnit {
-    pub fn write_op_code(&mut self, op: OpCode) {
-        self.code.push(op as u8)
-    }
 
-    pub fn write_operand(&mut self, val: u8) {
-        self.code.push(val);
-    }
-
-    pub fn write_wide_inst(&mut self, val: u16) {
-        self.code.push((val & 0xFF) as u8);
-        self.code.push(((val >> 8) & 0xFF) as u8);
-    }
-
-    fn add_constant(&mut self, bytes: &[u8]) -> usize {
-        unsafe {
-            let start_index = self.constants.len();
-            let additional_len = bytes.len();
-            self.constants.reserve(additional_len);
-
-            let new_len = start_index + additional_len;
-            let dst_ptr = self.constants.as_mut_ptr().add(start_index);
-            let src_ptr = bytes.as_ptr();
-
-            std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, additional_len);
-            self.constants.set_len(new_len);
-
-            start_index
-        }
-    }
-
-    pub fn push_constant<T>(&mut self, value: &T) -> usize {
-        unsafe {
-            let size = std::mem::size_of::<T>();
-            if size > 8 { panic!("Attempted to add constant greater than 8 bytes"); }
-
-            let value_ptr = value as *const T as *const u8;
-            let bytes_slice = std::slice::from_raw_parts(value_ptr, size);
-
-            if size < 8 {
-                let mut padded_bytes = vec![0u8; 8];
-                padded_bytes[8 - size..].copy_from_slice(bytes_slice);
-                self.add_constant(&padded_bytes)
-            } else {
-                self.add_constant(bytes_slice)
-            }
-        }
-    }
-
-    pub fn push_code_gen(&mut self, mut other: GenData) {
-        self.code.append(&mut other.code);
-    }
-}
 
 
 struct ParserState {
@@ -310,6 +254,7 @@ impl ParserState {
                 expr: expression,
                 accessors: None,
                 arguments: args,
+                ctx: None,
             };
             return Ok(ExprFuncCalInner(Box::new(data)));
         }
@@ -483,7 +428,7 @@ impl ParserState {
                     _ => return Err("Expected a string identifier".to_string())
                 };
                 let value = self.parse_expr_data()?;
-                let data = AssignData { name, value };
+                let data = AssignData { name, value, ctx: None };
                 Ok(ExprAssignment(Box::new(data)))
             }
 
@@ -501,8 +446,8 @@ impl ParserState {
                 self.consume_right_paren()?;
                 let value = self.parse_expr_data()?;
 
-                let access = ObjectCallData { name, accessors };
-                let assign_data = ObjectAssignData { access, value };
+                let access = ObjectCallData { name, accessors, ctx: None };
+                let assign_data = ObjectAssignData { access, value, ctx: None };
                 Ok(ExprObjectAssignment(Box::new(assign_data)))
             }
 
@@ -708,10 +653,10 @@ impl ParserState {
             }
 
             if let Some(accessors) = accessors {
-                let data = ObjectCallData { name, accessors };
+                let data = ObjectCallData { name, accessors, ctx: None };
                 Ok(ExprObjectCall(Box::new(data)))
             } else {
-                let data = FuncCallData { name, arguments };
+                let data = FuncCallData { name, arguments, ctx: None };
                 Ok(ExprFuncCall(Box::new(data)))
             }
         } else {
@@ -719,7 +664,7 @@ impl ParserState {
                 return Err("All object access must be contained inside an expression,\
                 Ex: (<Object>:.field) not <Object>:.field".to_string());
             }
-            Ok(ExprLiteralCall(name))
+            Ok(ExprLiteralCall(LiteralCallData { name, ctx: None }))
         }
     }
 
@@ -799,14 +744,14 @@ impl ParserState {
                     DefFunction(Box::new(data))
                 } else {
                     let value = self.parse_expr_data()?;
-                    let data = DefVarData { name, modifiers, value, d_type: var_type };
+                    let data = DefVarData { name, modifiers, value, d_type: var_type, ctx: None };
                     DefVariable(Box::new(data))
                 }
             }
 
             TLiteral(_) => {
                 let value = self.parse_literal()?;
-                let data = DefVarData { name, modifiers, value, d_type: var_type };
+                let data = DefVarData { name, modifiers, value, d_type: var_type, ctx: None };
                 DefVariable(Box::new(data))
             }
 
@@ -823,14 +768,14 @@ impl ParserState {
     pub fn parse_instance(&mut self, name: Spur) -> Result<AstNode, String> {
         if self.previous_n(2).token_type == TLexical(Lex::LeftParen) {
             let arguments = self.parse_func_args()?;
-            let data = FuncCallData { name, arguments };
+            let data = FuncCallData { name, arguments, ctx: None };
             Ok(ExprInitInst(Box::new(data)))
         } else {
             self.consume(TLexical(Lex::LeftBracket))?; // post-fixed direct call, consume opening bracket
             let args = self.parse_named_args()?;
             self.consume(TLexical(Lex::RightBracket))?;
 
-            let data = DirectInst { name, args };
+            let data = DirectInst { name, args, ctx: None };
             Ok(ExprDirectInst(Box::new(data)))
         }
     }
@@ -856,7 +801,7 @@ impl ParserState {
     // FIXME
     pub fn parse_quote(&mut self) -> Result<AstNode, String> {
         self.consume(TLexical(Lex::SingleQuote))?;
-        if self.peek().token_type == TLexical(Lex::LeftParen) 
+        if self.peek().token_type == TLexical(Lex::LeftParen)
             && self.peek_n(2).token_type == TLexical(Lex::RightParen)
         {
             self.consume_left_paren()?;
@@ -876,7 +821,7 @@ impl ParserState {
         };
 
         let fields = self.parse_fields()?;
-        let data = DefStructData { name, fields };
+        let data = DefStructData { name, fields, ctx: None };
         Ok(DefStruct(Box::new(data)))
     }
 
@@ -1030,7 +975,7 @@ impl ParserState {
         };
 
         let rtn_type = self.parse_type_if_exists()?;
-        Ok(DefLambdaData { modifiers, parameters, body, d_type: rtn_type, typ: Type::Unresolved })
+        Ok(DefLambdaData { modifiers, parameters, body, d_type: rtn_type, typ: Type::Unresolved, ctx: None })
     }
 
 

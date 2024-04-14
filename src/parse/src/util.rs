@@ -1,48 +1,101 @@
 use std::alloc::{alloc, Layout};
 use std::cell::{RefCell, UnsafeCell};
 use std::ops::Deref;
+use std::ptr::NonNull;
 use std::sync::{Mutex, RwLock, RwLockReadGuard};
 use ahash::AHashMap;
-use lasso::{Rodeo, Spur};
+use intmap::IntMap;
 use lazy_static::lazy_static;
 use crate::code_gen::GenData;
 use crate::op_codes::OpCode;
 
 
+pub struct Interner {
+    map: AHashMap<NonNull<str>, u64>,
+    list: Vec<NonNull<str>>,
+    next_index: u64,
+}
+
+// FIXME, this all should just me moved out of a singleton and passed through the the vm
+unsafe impl Send for Interner {}
+unsafe impl Sync for Interner {}
+
+
+impl Default for Interner {
+    fn default() -> Self {
+        let list: Vec<NonNull<str>> = Vec::with_capacity(100);
+        Interner {
+            map: AHashMap::<NonNull<str>, u64>::with_capacity(100),
+            list,
+            next_index: 0,
+        }
+    }
+}
+
+
+impl Interner {
+    pub fn intern(&mut self, string: &str) -> u64 {
+        unsafe {
+            if let Some(&id) = self.map.get(&NonNull::new_unchecked(string as *const str as *mut str)) {
+                return id;
+            }
+
+            let layout = Layout::array::<u8>(string.len()).unwrap();
+            let ptr = alloc(layout);
+
+            std::ptr::copy_nonoverlapping(string.as_ptr(), ptr, string.len());
+
+            let slice = std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, string.len()));
+            let non_null_ptr = NonNull::new_unchecked(slice as *const str as *mut str);
+
+            self.list.push(non_null_ptr);
+            self.map.insert(non_null_ptr, self.list.len() as u64 - 1);
+            self.list.len() as u64 - 1
+        }
+    }
+
+    pub fn resolve(&self, id: u64) -> &str {
+        unsafe {
+            self.list.get(id as usize).map(|&ptr| &*ptr.as_ptr()).unwrap()
+        }
+    }
+}
+
+
 pub struct SCache {
-    pub cache: Mutex<Rodeo>,
-    pub const_init: Spur,
-    pub const_param: Spur,
-    pub const_var: Spur,
-    pub const_func: Spur,
-    pub const_pre: Spur,
-    pub const_post: Spur,
-    pub const_final: Spur,
-    pub const_validate: Spur,
-    pub const_int: Spur,
-    pub const_float: Spur,
-    pub const_bool: Spur,
-    pub const_string: Spur,
-    pub const_nil: Spur,
+    pub cache: Mutex<Interner>,
+    pub const_init: u64,
+    pub const_param: u64,
+    pub const_var: u64,
+    pub const_func: u64,
+    pub const_pre: u64,
+    pub const_post: u64,
+    pub const_final: u64,
+    pub const_validate: u64,
+    pub const_int: u64,
+    pub const_float: u64,
+    pub const_bool: u64,
+    pub const_string: u64,
+    pub const_nil: u64,
 }
 
 
 impl Default for SCache {
     fn default() -> Self {
-        let mut cache = Rodeo::new();
-        let const_init = cache.get_or_intern_static("init");
-        let const_param = cache.get_or_intern_static("param");
-        let const_var = cache.get_or_intern_static("var");
-        let const_func = cache.get_or_intern_static("func");
-        let const_pre = cache.get_or_intern_static("pre");
-        let const_post = cache.get_or_intern_static("post");
-        let const_final = cache.get_or_intern_static("final");
-        let const_validate = cache.get_or_intern_static("validate");
-        let const_int = cache.get_or_intern_static("int");
-        let const_float = cache.get_or_intern_static("float");
-        let const_bool = cache.get_or_intern_static("bool");
-        let const_string = cache.get_or_intern_static("string");
-        let const_nil = cache.get_or_intern_static("nil");
+        let mut cache = Interner::default();
+        let const_init = cache.intern("init");
+        let const_param = cache.intern("param");
+        let const_var = cache.intern("var");
+        let const_func = cache.intern("func");
+        let const_pre = cache.intern("pre");
+        let const_post = cache.intern("post");
+        let const_final = cache.intern("final");
+        let const_validate = cache.intern("validate");
+        let const_int = cache.intern("int");
+        let const_float = cache.intern("float");
+        let const_bool = cache.intern("bool");
+        let const_string = cache.intern("string");
+        let const_nil = cache.intern("nil");
 
         SCache {
             cache: Mutex::new(cache),
@@ -65,17 +118,17 @@ impl Default for SCache {
 
 
 impl SCache {
-    pub fn intern(&self, s: &str) -> Spur {
-        self.cache.lock().unwrap().get_or_intern(s)
+    pub fn intern(&self, s: &str) -> u64 {
+        self.cache.lock().unwrap().intern(s)
     }
 
-    // Unsafe: values are never dropped from the cache, due to the need for a 
+    // Unsafe: values are never dropped from the cache, due to the need for a
     // rw lock the value is owned by the lock. As such this function transmutes
-    // the pointer to static as to be able to return it. These reference are never 
+    // the pointer to static as to be able to return it. These reference are never
     // stored externally and are just used for temporary access.
-    pub fn resolve(&self, spur: &Spur) -> &str {
-        let rodeo = self.cache.lock().unwrap();
-        let string_ref: &str = rodeo.resolve(&spur);
+    pub fn resolve(&self, id: u64) -> &str {
+        let interner = self.cache.lock().unwrap();
+        let string_ref: &str = interner.resolve(id);
         unsafe {
             std::mem::transmute::<&str, &'static str>(string_ref)
         }
@@ -107,20 +160,19 @@ pub fn get_byte_array(size: usize) -> *mut u8 {
     }
 }
 
-pub enum ConstValue{
+
+pub enum ConstValue {
     Integer,
     Float,
-    String
+    String,
 }
-
-
 
 
 #[derive(Debug, Clone)]
 pub struct CompUnit {
     pub code: Vec<u8>,
     pub constants: Vec<[u8; 8]>,
-    pub existing_spurs: AHashMap<Spur, u16>,
+    pub existing_u64s: AHashMap<u64, u16>,
 }
 
 
@@ -144,7 +196,7 @@ impl CompUnit {
             if curr_index >= u16::MAX as usize {
                 panic!("Exceeded size of constant pool")
             }
-           self.constants.push(bytes);
+            self.constants.push(bytes);
             curr_index
         }
     }
@@ -159,7 +211,7 @@ impl CompUnit {
             let value_ptr = value as *const T as *const u8;
             let bytes_slice = std::slice::from_raw_parts(value_ptr, size);
 
-            let mut padded_bytes = [0u8; 8]; 
+            let mut padded_bytes = [0u8; 8];
             if size < 8 {
                 padded_bytes[8 - size..].copy_from_slice(bytes_slice);
             } else {

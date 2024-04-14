@@ -1,6 +1,5 @@
 use std::iter::Peekable;
 use std::str::Chars;
-use lasso::{ Spur};
 use crate::token::{Lex, Lit, Op, Syn, Token, TokenData, TokenType};
 use crate::token::TokenType::{TLexical, TLiteral, TOperation, TSyntactic};
 use crate::{token, util};
@@ -130,7 +129,7 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
 
 fn lex_word_token(state: &mut LexicalState) -> bool {
     let string_data = read_data_to_string(state);
-    match token::match_word_token(util::SCACHE.resolve(&string_data)) {
+    match token::match_word_token(util::SCACHE.resolve(string_data)) {
         None => state.add_token_data(TLiteral(Lit::Identifier), TokenData::String(string_data)),
         Some(value) => state.add_token_data(value, TokenData::String(string_data))
     }
@@ -145,7 +144,7 @@ fn lex_type(state: &mut LexicalState) -> bool {
 
 fn lex_modifier(state: &mut LexicalState) -> bool {
     let mod_string = read_data_to_string(state);
-    match token::match_modifier_token(SCACHE.resolve(&mod_string)) {
+    match token::match_modifier_token(SCACHE.resolve(mod_string)) {
         None => false,
         Some(value) => {
             state.add_token(value)
@@ -161,9 +160,9 @@ fn lex_string_literal(state: &mut LexicalState) -> bool {
         string_data.push(state.advance());
     }
 
-    let spur = util::SCACHE.intern(&string_data);
+    let u64 = util::SCACHE.intern(&string_data);
     state.advance(); // Consume closing "
-    state.add_token_data(TLiteral(Lit::String), TokenData::String(spur));
+    state.add_token_data(TLiteral(Lit::String), TokenData::String(u64));
     true
 }
 
@@ -191,7 +190,7 @@ fn lex_instance(state: &mut LexicalState) -> bool {
 //     state.add_token_data(Literal(Lit::Quote), TokenData::String(data));
 // }
 
-fn read_data_to_string(state: &mut LexicalState) -> Spur {
+fn read_data_to_string(state: &mut LexicalState) -> u64 {
     let mut string_data = String::new();
     string_data.push(state.curr_char);
 

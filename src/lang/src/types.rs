@@ -1,5 +1,5 @@
 use std::collections::{BTreeSet, HashSet};
-use lasso::Spur;
+
 
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,7 +21,7 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjType {
     pub super_types: Vec<Type>,
-    pub name: Spur,
+    pub name: u64,
 }
 
 

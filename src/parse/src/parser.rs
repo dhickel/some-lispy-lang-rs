@@ -1,7 +1,6 @@
 use std::collections::LinkedList;
 use ahash::AHashMap;
 use intmap::IntMap;
-use lasso::Spur;
 use lang::types::Type;
 use crate::ast::*;
 use crate::ast::AstNode::*;
@@ -298,7 +297,7 @@ impl ParserState {
 
                     Lit::String => {
                         if let Some(TokenData::String(value)) = data {
-                            let string = util::SCACHE.resolve(value).to_string();
+                            let string = util::SCACHE.resolve(*value).to_string();
                             Ok(LitString(string))
                         } else { Err(format!("Invalid data for string literal: {:?}", &self.peek().data)) }
                     }
@@ -618,7 +617,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_type_if_exists(&mut self) -> Result<Option<Spur>, String> {
+    pub fn parse_type_if_exists(&mut self) -> Result<Option<u64>, String> {
         let typ = if let TSyntactic(Syn::DoubleColon) = &self.peek().token_type {
             self.advance()?;
             let next = self.advance()?;
@@ -633,7 +632,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_identifier(&mut self, identifier: Spur) -> Result<AstNode, String> {
+    pub fn parse_identifier(&mut self, identifier: u64) -> Result<AstNode, String> {
         let name = identifier;
         let mut accessors = None;
 
@@ -733,7 +732,7 @@ impl ParserState {
                     if var_type != None {
                         self.push_warning(format!(
                             "Type specifier: {}, is unused for function definition, line: {}",
-                            util::SCACHE.resolve(&var_type.unwrap()), self.peek().line))
+                            util::SCACHE.resolve(var_type.unwrap()), self.peek().line))
                     }
 
                     self.consume_left_paren()?;
@@ -765,7 +764,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_instance(&mut self, name: Spur) -> Result<AstNode, String> {
+    pub fn parse_instance(&mut self, name: u64) -> Result<AstNode, String> {
         if self.previous_n(2).token_type == TLexical(Lex::LeftParen) {
             let arguments = self.parse_func_args()?;
             let data = FuncCallData { name, arguments, ctx: None };
@@ -842,7 +841,7 @@ impl ParserState {
             self.consume(TSyntactic(Syn::Colon))?;
 
             match &self.peek().data {
-                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_init => {
+                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_init => {
                     self.advance()?;
                     let mut init_vec = Vec::<DefLambdaData>::with_capacity(4);
 
@@ -859,7 +858,7 @@ impl ParserState {
                     class_data.init = if init_vec.is_empty() { None } else { Some(init_vec) }
                 }
 
-                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_func => {
+                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_func => {
                     self.advance()?;
                     let mut func_vec = Vec::<DefFuncData>::with_capacity(4);
 
@@ -877,32 +876,32 @@ impl ParserState {
                     class_data.methods = if func_vec.is_empty() { None } else { Some(func_vec) }
                 }
 
-                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_param => {
+                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_param => {
                     self.advance()?;
                     class_data.params = self.parse_modifiers()?;
                 }
 
-                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_var => {
+                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_var => {
                     self.advance()?;
                     class_data.fields = self.parse_fields()?
                 }
 
-                Some(TokenData::String(spur)) if spur == &util::SCACHE.const_pre => {
+                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_pre => {
                     self.advance()?;
                     class_data.pre_init = self.parse_multi_expr()?;
                 }
 
-                Some(TokenData::String(spur))if spur == &util::SCACHE.const_post => {
+                Some(TokenData::String(u64))if u64 == &util::SCACHE.const_post => {
                     self.advance()?;
                     class_data.post_init = self.parse_multi_expr()?;
                 }
 
-                Some(TokenData::String(spur))if spur == &util::SCACHE.const_final => {
+                Some(TokenData::String(u64))if u64 == &util::SCACHE.const_final => {
                     self.advance()?;
                     class_data.fin = self.parse_multi_expr()?;
                 }
 
-                Some(TokenData::String(spur))if spur == &util::SCACHE.const_validate => {
+                Some(TokenData::String(u64))if u64 == &util::SCACHE.const_validate => {
                     self.advance()?;
                     class_data.validate = self.parse_multi_expr()?;
                 }

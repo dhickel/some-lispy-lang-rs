@@ -722,53 +722,53 @@ impl<'a> Vm<'a> {
     }
 }
 
-// 
+//
 // #[cfg(test)]
 // mod tests {
 //     use parser::util::CompUnit;
 //     use crate::vm::Vm;
 //     use super::*;
-// 
-// 
+//
+//
 //     #[test]
 //     fn test_wide_rw() {
 //         let value = 24_031_u16;
-// 
+//
 //         let mut chunk = CompUnit {
 //             code: Vec::<u8>::new(),
 //             constants: Vec::<u8>::new(),
-//             existing_spurs: Default::default(),
+//             existing_u64s: Default::default(),
 //         };
-// 
-// 
+//
+//
 //         chunk.write_wide_inst(value);
 //         let mut vm = Vm::new(&mut chunk);
 //         let rtn_value = vm.read_wide_inst();
 //         assert_eq!(value, rtn_value)
 //     }
-// 
-// 
+//
+//
 //     #[test]
 //     fn test_stack_values() {
 //         let mut chunk = CompUnit {
 //             code: Vec::<u8>::new(),
 //             constants: Vec::<u8>::new(),
 //         };
-// 
+//
 //         let value1 = 23423423423_i64;
 //         let value2 = 3423.34234234_f64;
-// 
+//
 //         let idx1 = chunk.push_constant(&value1);
 //         let idx2 = chunk.push_constant(&value2);
-// 
+//
 //         let mut vm = Vm::new(&mut chunk);
-// 
+//
 //         vm.push_constant(idx1, 8);
 //         vm.push_constant(idx2, 8);
-// 
+//
 //         let value2_rtn = vm.pop_f64();
 //         let value1_rtn = vm.pop_i64();
-// 
+//
 //         assert_eq!(value1, value1_rtn);
 //         assert_eq!(value2, value2_rtn);
 //     }

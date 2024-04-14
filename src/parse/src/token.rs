@@ -1,4 +1,3 @@
-use lasso::Spur;
 use crate::token::Lex::*;
 use crate::token::Syn::*;
 use crate::token::Op::*;
@@ -247,7 +246,7 @@ pub enum Mod {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenData {
-    String(Spur),
+    String(u64),
     Integer(i64),
     Float(f64),
 }

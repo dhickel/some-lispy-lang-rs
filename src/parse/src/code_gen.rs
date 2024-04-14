@@ -110,12 +110,12 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
 
 fn gen_define_variable(data: Box<DefVarData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let ctx = data.ctx.unwrap();
-    
+
     todo!()
     // // Is Global
     // if ctx.scope == 0 {
-    //     let name_index = if let Some(spur) = comp_unit.existing_spurs.get(data.name) {
-    //         *spur
+    //     let name_index = if let Some(u64) = comp_unit.existing_u64s.get(data.name) {
+    //         *u64
     //     } else{
     //         comp_unit.push_constant(data.name)
     //     };

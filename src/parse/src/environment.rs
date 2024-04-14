@@ -1,6 +1,5 @@
 use ahash::{AHashMap, HashMap};
 use intmap::IntMap;
-use lasso::{Key, Spur};
 use lang::types::{ObjType, Type};
 use crate::util::SCACHE;
 
@@ -59,11 +58,11 @@ pub struct Context {
 impl Default for Context {
     fn default() -> Self {
         let mut types = IntMap::<Type>::with_capacity(50);
-        types.insert(SCACHE.const_int.into_usize() as u64, Type::Integer);
-        types.insert(SCACHE.const_float.into_usize() as u64, Type::Float);
-        types.insert(SCACHE.const_bool.into_usize() as u64, Type::Boolean);
-        types.insert(SCACHE.const_string.into_usize() as u64, Type::String);
-        types.insert(SCACHE.const_nil.into_usize() as u64, Type::Nil);
+        types.insert(SCACHE.const_int, Type::Integer);
+        types.insert(SCACHE.const_float, Type::Float);
+        types.insert(SCACHE.const_bool, Type::Boolean);
+        types.insert(SCACHE.const_string, Type::String);
+        types.insert(SCACHE.const_nil, Type::Nil);
 
         Context {
             curr_scope: 0,
@@ -79,8 +78,8 @@ impl Default for Context {
 
 
 impl Context {
-    pub fn add_symbol(&mut self, symbol: Spur, typ: Type) -> Result<SymbolCtx, String> {
-        let s_int = symbol.into_usize() as u64;
+    pub fn add_symbol(&mut self, symbol: u64, typ: Type) -> Result<SymbolCtx, String> {
+        let s_int = symbol;
         let data = SymbolCtx { scope: self.curr_scope, depth: self.curr_depth, typ };
 
         if self.curr_depth == 0 {
@@ -91,7 +90,7 @@ impl Context {
         if let Some(existing) = self.symbols.get_mut(&self.curr_scope) {
             return match existing.insert_checked(s_int, data.clone()) {
                 true => Ok(data.clone()),
-                false => Err(format!("Redefinition of existing binding: {}", SCACHE.resolve(&symbol)))
+                false => Err(format!("Redefinition of existing binding: {}", SCACHE.resolve(symbol)))
             };
         }
 
@@ -101,8 +100,8 @@ impl Context {
         Ok(data.clone())
     }
 
-    pub fn get_symbol_type(&self, symbol: Spur) -> &Type {
-        let s_int = symbol.into_usize() as u64;
+    pub fn get_symbol_type(&self, symbol: u64) -> &Type {
+        let s_int = symbol;
 
         for &scope_id in self.active_scopes.iter().rev() {
             if let Some(scope_symbols) = self.symbols.get(&scope_id) {
@@ -120,8 +119,8 @@ impl Context {
     }
 
 
-    pub fn get_symbol_ctx(&self, symbol: Spur) -> Option<SymbolCtx> {
-        let s_int = symbol.into_usize() as u64;
+    pub fn get_symbol_ctx(&self, symbol: u64) -> Option<SymbolCtx> {
+        let s_int = symbol;
 
         for &scope_id in self.active_scopes.iter().rev() {
             if let Some(scope_symbols) = self.symbols.get(&scope_id) {
@@ -138,8 +137,8 @@ impl Context {
         None
     }
 
-        pub fn validate_type(&self, spur: Spur) -> Type {
-            let found = self.types.get(spur.into_usize() as u64);
+        pub fn validate_type(&self, u64: u64) -> Type {
+            let found = self.types.get(u64);
             if found.is_none() { return Type::Unresolved; }
 
             match found.unwrap() {
@@ -149,17 +148,17 @@ impl Context {
                 Type::Object(obj) => {
                     for typ in &obj.super_types {
                         if let Type::Object(obj_type) = typ {
-                            if obj_type.name == spur { return typ.clone(); }
+                            if obj_type.name == u64 { return typ.clone(); }
                         }
-                    } // Object will always have a spur value
+                    } // Object will always have a u64 value
                     Type::Unresolved
                 }
                 Type::Lambda(_) => todo!(),
             }
         }
 
-        pub fn add_type(&mut self, spur: Spur, typ: Type) {
-            self.types.insert_checked(spur.into_usize() as u64, typ);
+        pub fn add_type(&mut self, u64: u64, typ: Type) {
+            self.types.insert_checked(u64, typ);
         }
 
         pub fn pushScope(&mut self) {

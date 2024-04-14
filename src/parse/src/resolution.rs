@@ -63,7 +63,7 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
                             } else {
                                 Err(format!(
                                     "Attempted to assign incorrect type for var: {}",
-                                    SCACHE.resolve(&data.name)))
+                                    SCACHE.resolve(data.name)))
                             }
                         }
                     }
@@ -77,7 +77,7 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
                             } else {
                                 Err(format!(
                                     "Attempted to assign incorrect type for var: {}",
-                                    SCACHE.resolve(&data.name)))
+                                    SCACHE.resolve(data.name)))
                             }
                         }
                     }

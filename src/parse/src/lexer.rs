@@ -72,6 +72,7 @@ impl<'a> LexicalState<'a> {
     }
 }
 
+
 pub fn process(input: String) -> Result<Vec<Token>, String> {
     let mut state = LexicalState::new(&input);
 
@@ -96,6 +97,7 @@ pub fn process(input: String) -> Result<Vec<Token>, String> {
     Ok(state.tokens)
 }
 
+
 fn lex_double_token(state: &mut LexicalState) -> bool {
     if !state.have_next() { return false; }
 
@@ -107,6 +109,7 @@ fn lex_double_token(state: &mut LexicalState) -> bool {
         }
     }
 }
+
 
 fn lex_single_token(state: &mut LexicalState) -> bool {
     match token::match_single_token(state.curr_char) {
@@ -127,6 +130,7 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
     }
 }
 
+
 fn lex_word_token(state: &mut LexicalState) -> bool {
     let string_data = read_data_to_string(state);
     match token::match_word_token(util::SCACHE.resolve(string_data)) {
@@ -135,12 +139,14 @@ fn lex_word_token(state: &mut LexicalState) -> bool {
     }
 }
 
+
 fn lex_type(state: &mut LexicalState) -> bool {
     state.advance(); // skip the extra  :
     let type_string = read_data_to_string(state);
     state.add_token_data(TSyntactic(Syn::DoubleColon), TokenData::String(type_string));
     true
 }
+
 
 fn lex_modifier(state: &mut LexicalState) -> bool {
     let mod_string = read_data_to_string(state);
@@ -152,6 +158,7 @@ fn lex_modifier(state: &mut LexicalState) -> bool {
     }
 }
 
+
 // TODO handle nested strings
 fn lex_string_literal(state: &mut LexicalState) -> bool {
     let mut string_data = String::new();
@@ -160,11 +167,12 @@ fn lex_string_literal(state: &mut LexicalState) -> bool {
         string_data.push(state.advance());
     }
 
-    let u64 = util::SCACHE.intern(&string_data);
+    let u64 = util::SCACHE.intern(string_data);
     state.advance(); // Consume closing "
     state.add_token_data(TLiteral(Lit::String), TokenData::String(u64));
     true
 }
+
 
 fn lex_instance(state: &mut LexicalState) -> bool {
     state.advance(); // skip @ symbol
@@ -193,14 +201,16 @@ fn lex_instance(state: &mut LexicalState) -> bool {
 fn read_data_to_string(state: &mut LexicalState) -> u64 {
     let mut string_data = String::new();
     string_data.push(state.curr_char);
-
-    let mut c: char = state.peek();
-    while state.have_next() && !is_def_end(c) && is_alpha_numeric(c) {
-        string_data.push(state.advance());
-        c = state.peek()
+    
+    while state.have_next() {
+        let c = state.peek();
+        if !is_def_end(c) && is_alpha_numeric(c) {
+            string_data.push(state.advance());
+        } else { break; }
     }
-    util::SCACHE.intern(&string_data)
+    util::SCACHE.intern(string_data)
 }
+
 
 fn lex_number_token(state: &mut LexicalState) -> bool {
     let mut is_float: bool = false;
@@ -246,13 +256,16 @@ fn is_def_end(c: char) -> bool {
     matches!(c, ' ' | ')' | '(' | '[' | ']' | '\r' | '\n' | '\t')
 }
 
+
 fn is_numeric(c: char) -> bool {
     c.is_ascii_digit()
 }
 
+
 fn is_alpha(c: char) -> bool {
     matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '-' )
 }
+
 
 fn is_alpha_numeric(c: char) -> bool {
     is_numeric(c) || is_alpha(c)

@@ -1,16 +1,18 @@
 #![allow(E0004)]
 
 
+use std::any::Any;
 use std::cmp::PartialEq;
 use std::fmt::format;
 use lang::types::Type;
 
 
-use crate::ast::{AstNode, DefVarData, IfData, OpData, WhileData};
+use crate::ast::{AssignData, AstNode, DefVarData, IfData, LiteralCallData, MultiExprData, OpData, WhileData};
 use crate::environment::Context;
 use crate::op_codes::OpCode;
 use crate::token::Op;
 use crate::{op_codes, util};
+use crate::token::Op::PlusPlus;
 use crate::util::{CompUnit, SCACHE};
 
 
@@ -34,7 +36,7 @@ impl GenData {
         self.code.append(&mut other.code);
     }
 
-    pub fn append_wide_inst(&mut self, val: u16) {
+    pub fn append_wide_operand(&mut self, val: u16) {
         self.code.push((val & 0xFF) as u8);
         self.code.push(((val >> 8) & 0xFF) as u8);
     }
@@ -64,13 +66,13 @@ pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result
 
 fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, String> {
     match node {
-        AstNode::DefVariable(data) => todo!(),
+        AstNode::DefVariable(data) => gen_define_variable(data, comp_unit),
         AstNode::DefLambda(_) => todo!(),
         AstNode::DefFunction(_) => todo!(),
         AstNode::DefStruct(_) => todo!(),
         AstNode::DefClass(_) => todo!(),
-        AstNode::ExprAssignment(_) => todo!(),
-        AstNode::ExprMulti(_) => todo!(),
+        AstNode::ExprAssignment(data) => gen_assignment(data, comp_unit),
+        AstNode::ExprMulti(data) => gen_multi_expr(data, comp_unit),
         AstNode::ExprPrint(_) => todo!(),
         AstNode::ExprIf(data) => {
             gen_if_expr(data, comp_unit)
@@ -85,7 +87,7 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::ExprFuncCall(_) => todo!(),
         AstNode::ExprFuncCalInner(_) => todo!(),
         AstNode::ExprObjectCall(_) => todo!(),
-        AstNode::ExprLiteralCall(_) => todo!(),
+        AstNode::ExprLiteralCall(data) => gen_literal_call(data, comp_unit),
         AstNode::ExprObjectAssignment(_) => todo!(),
         AstNode::ExprGenRand(_) => todo!(),
         AstNode::ExprDirectInst(_) => todo!(),
@@ -107,20 +109,98 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
     }
 }
 
+// TODO push modifiers as well as a byte vec where each byte = mod (allows up to 8 modifiers)
 
 fn gen_define_variable(data: Box<DefVarData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let ctx = data.ctx.unwrap();
 
-    todo!()
-    // // Is Global
-    // if ctx.scope == 0 {
-    //     let name_index = if let Some(u64) = comp_unit.existing_u64s.get(data.name) {
-    //         *u64
-    //     } else{
-    //         comp_unit.push_constant(data.name)
-    //     };
-    // }
-    // Err()
+    let mut code = GenData::empty();
+    code.typ = ctx.typ;
+
+    //Is Global
+    if ctx.scope < 100 {// todo fix this
+        let name_load = gen_name_load(data.name, comp_unit)?;
+        let value = gen_node(data.value, comp_unit)?;
+        code.append_gen_data(value);
+        code.append_op_code(OpCode::HeapStore);
+        code.append_wide_operand(8_u16);
+        code.append_gen_data(name_load);
+        code.append_op_code(OpCode::DefGlobal);
+    } else {
+        todo!()
+    }
+    Ok(code)
+}
+
+
+fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let ctx = data.ctx.unwrap();
+    let mut code = GenData::empty();
+    code.typ = Type::Unresolved; // TODO, types should be provided with calls as well for generation?
+    if ctx.scope < 100 {// todo fix this
+        let name_load = gen_name_load(data.name, comp_unit)?;
+        code.append_gen_data(name_load);
+        code.append_op_code(OpCode::LoadGlobal)
+    } else {
+        todo!()
+    }
+    Ok(code)
+}
+
+
+fn gen_assignment(data: Box<AssignData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    println!("Data{:?}", &data);
+    let ctx = data.ctx.unwrap();
+
+    let mut code = GenData::empty();
+    code.typ = Type::Nil;
+
+    if ctx.scope < 100 {// todo fix this
+        let name_load = gen_name_load(data.name, comp_unit)?;
+        let value = gen_node(data.value, comp_unit)?;
+        code.append_gen_data(value);
+        code.append_op_code(OpCode::HeapStore);
+        code.append_wide_operand(8_u16);
+        code.append_gen_data(name_load);
+        code.append_op_code(OpCode::AssignGlobal);
+    } else {
+        println!("ctx: {:?}", ctx);
+        todo!()
+    }
+    Ok(code)
+}
+
+
+fn gen_name_load(name: u64, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let mut code = GenData::empty();
+
+    let name_index = if let Some(str) = comp_unit.existing_str.get(&name) {
+        *str
+    } else {
+        let idx = comp_unit.push_constant(&name);
+        comp_unit.existing_str.insert(name, idx);
+        idx
+    };
+
+    if name_index > u8::MAX as u16 {
+        code.append_op_code(OpCode::LoadConstW);
+        code.append_wide_operand(name_index);
+    } else {
+        code.append_op_code(OpCode::LoadConst);
+        code.append_operand(name_index as u8);
+    }
+    Ok(code)
+}
+
+
+fn gen_multi_expr(mut data: MultiExprData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let mut code = GenData::empty();
+    while let Some(expr) = data.expressions.pop() {
+        let result = gen_node(expr, comp_unit)?;
+        code.typ = result.typ.clone();
+        code.append_gen_data(result)
+    }
+    Ok(code)
 }
 
 
@@ -152,17 +232,19 @@ fn gen_while_loop(data: Box<WhileData>, comp_unit: &mut CompUnit) -> Result<GenD
     code.typ = Type::Boolean;
 
     let body = gen_node(data.body, comp_unit)?;
+    println!("Body: {:?}", body);
     if data.is_do {
         code.append_gen_data(body.clone());
     }
     let loop_start = code.code.len();
+    println!("Loop Start{}", loop_start);
 
     let loop_cond = gen_node(data.condition, comp_unit)?;
     code.append_gen_data(loop_cond);
     let jump_index = emit_jump_empty(OpCode::JumpFalse, &mut code);
 
     code.append_gen_data(body);
-    emit_jump(OpCode::JumpBack, comp_unit.code.len() - loop_start, &mut code);
+    emit_jump(OpCode::JumpBack, code.code.len() - loop_start, &mut code);
     patch_jump(jump_index, &mut code);
     Ok(code)
 }
@@ -176,7 +258,7 @@ fn gen_numerical_lit(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData,
         _ => return Err("Fatal: Invalid literal in gen_node".to_string())
     };
 
-    let code = if value.0 > u8::MAX as usize {
+    let code = if value.0 > u8::MAX as u16 {
         let bytes = util::get_wide_bytes(value.0 as u16);
         vec![OpCode::LoadConstW as u8, bytes.0, bytes.1]
     } else {
@@ -370,7 +452,7 @@ fn gen_comparison(operation: Op, mut operands: Vec<GenData>, mut code: GenData, 
 
 fn emit_jump_empty(op_code: OpCode, gen_data: &mut GenData) -> usize {
     gen_data.append_op_code(op_code);
-    gen_data.append_wide_inst(0);
+    gen_data.append_wide_operand(0);
     gen_data.code.len() - 2
 }
 
@@ -380,7 +462,8 @@ fn emit_jump(op_code: OpCode, offset: usize, gen_data: &mut GenData) {
     if offset > u16::MAX as usize {
         panic!("Too large of jump encountered (> 65,535 instructions)")
     }
-    gen_data.append_wide_inst(offset as u16);
+    // + 3 to include op_code(1 byte) + wide operand (2 bytes)
+    gen_data.append_wide_operand((offset + 3) as u16);
 }
 
 

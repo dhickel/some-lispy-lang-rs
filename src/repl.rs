@@ -23,28 +23,25 @@ macro_rules! nano_time {
 }
 
 
-
-
 #[allow(dead_code)]
 fn main() {
     let mut comp_unit = CompUnit {
         code: vec![],
         constants: Vec::<[u8; 8]>::with_capacity(100),
-        existing_u64s: AHashMap::<u64, u16>::with_capacity(50)
+        existing_str: AHashMap::<u64, u16>::with_capacity(50)
     };
 
-    let u64 = SCACHE.const_float;
-
-
-    println!("size of u64{}", std::mem::size_of_val(&u64));
+    
 
     let context = Context::default();
-    let input = "(+ 2 30 40 (+ 20 20))".to_string();
-
+    let input = "(define x 10) (define y 10) (while &do (> x  8) (:= y (+ y  1)) (:= x (- x 1))) y".to_string();
+    
     let t = nano_time!();
     let tokens = parser::lexer::process(input).expect("Token Err");
+    
 
     let mut ast = parser::parser::process(tokens).expect("Parse Err");
+    println!("ast: {:?}", &ast);
 
     let resolved = parser::resolution::resolve_types(&mut ast, context);
     println!("Resolved: {}", resolved);
@@ -53,14 +50,14 @@ fn main() {
 
     comp_unit.write_op_code(OpCode::RtnI64);
     //comp_unit.write_op_code(OpCode::RtnI64);
-   // comp_unit.write_op_code(OpCode::Exit);
+   comp_unit.write_op_code(OpCode::Exit);
     
   //  comp_unit.write_op_code(OpCode::Exit);
 
     //comp_unit.write_op_code(OpCode::Exit);
     println!("Proc Time: {} ns", nano_time!() - t);
-    println!("comp unit: {:?}", comp_unit);
-    println!("Decoded: {:?}", parser::op_codes::decode(comp_unit.clone()));
+    println!("comp unit: {:?}", comp_unit); 
+    println!("Decoded: {:?}", parser::op_codes::decode(comp_unit.code.as_slice()));
 
 
     let mut vm = Vm::new(&mut comp_unit);

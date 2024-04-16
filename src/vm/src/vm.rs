@@ -1,10 +1,12 @@
 use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Sub};
 use std::os::unix::fs::OpenOptionsExt;
-use parser::op_codes::{OpCode};
+use parser::op_codes::{decode, OpCode};
 use std::time::{SystemTime, UNIX_EPOCH};
+use intmap::IntMap;
+use lang::types::{ObjType, Type};
 use parser::util;
-use parser::util::CompUnit;
+use parser::util::{CompUnit, SCACHE};
 
 macro_rules! nano_time {
     () => {
@@ -32,13 +34,14 @@ pub enum Value {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HeapTag {
-    typ: u16,
+    // typ: u16,
     size: usize,
     loc: *mut u8,
     active: bool,
 }
 
 
+#[derive(Debug)]
 pub struct Heap {
     items: Vec<HeapTag>,
     data_start: *mut u8,
@@ -62,13 +65,13 @@ impl Heap {
         }
     }
 
-    pub fn insert_item(&mut self, item: Vec<u8>, typ: u16) -> usize {
+    pub fn insert_item(&mut self, item: &[u8] /*typ: u16*/) -> u64 {
         unsafe {
             let loc = self.get_insert_loc(item.len());
             std::ptr::copy_nonoverlapping(item.as_ptr(), loc, item.len());
 
             let tag = HeapTag {
-                typ,
+                //typ,
                 size: item.len(),
                 loc,
                 active: true,
@@ -76,21 +79,39 @@ impl Heap {
 
             let index = self.get_index();
             self.items.insert(index, tag);
-            index
+            index as u64
         }
     }
 
-    pub fn get_item(&self, index: usize) -> &[u8] {
-        let meta = self.items[index];
+    pub unsafe fn insert_bytes(&mut self, ptr: *const u8, size: usize) -> u64 {
         unsafe {
-            std::slice::from_raw_parts(meta.loc, meta.size)
+            let loc = self.get_insert_loc(size);
+            std::ptr::copy_nonoverlapping(ptr, loc, size);
+
+            let tag = HeapTag {
+                //typ,
+                size: size,
+                loc,
+                active: true,
+            };
+
+            let index = self.get_index();
+            self.items.insert(index, tag);
+            index as u64
+        }
+    }
+
+    pub fn get_item(&self, index: u64) -> (*const u8, usize) {
+        let meta = self.items[index as usize];
+        unsafe {
+            (meta.loc, meta.size)
         }
     }
 
     fn get_index(&mut self) -> usize {
         if !self.free_indexes.is_empty() {
             self.free_indexes.pop().unwrap()
-        } else { self.free_indexes.len() }
+        } else { self.items.len() }
     }
 
     fn get_insert_loc(&mut self, size: usize) -> *mut u8 {
@@ -129,6 +150,8 @@ pub struct Vm<'a> {
     int_cache: [i64; 256],
     float_cache: [f64; 256],
     byte_cache: [u8; 2048],
+    heap: Heap,
+    global_defs: IntMap<u64>,
 }
 
 
@@ -142,6 +165,8 @@ impl<'a> Vm<'a> {
             int_cache: [0; 256],
             float_cache: [0.0; 256],
             byte_cache: [0; 2048],
+            heap: Heap::new(1.049e+8 as usize),
+            global_defs: IntMap::<u64>::with_capacity(50),
         }
     }
 
@@ -150,7 +175,7 @@ impl<'a> Vm<'a> {
             let code = *self.ip;
             self.ip = self.ip.add(1);
             let code: OpCode = std::mem::transmute(code);
-            println!("At Inst: {:?}", code);
+           // println!("At Inst: {:?}", code);
             code
         }
     }
@@ -184,7 +209,7 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn push_bytes(&mut self, bytes: [u8; 8]) {
+    fn push_8_bytes(&mut self, bytes: [u8; 8]) {
         unsafe {
             let new_stack_top = self.stack_top.add(8);
             let byte_ptr = bytes.as_ptr();
@@ -193,17 +218,32 @@ impl<'a> Vm<'a> {
         }
     }
 
+    fn push_arbitrary_bytes(&mut self, pointer: (*const u8, usize)) {
+        unsafe {
+            let new_stack_top = self.stack_top.add(pointer.1);
+            std::ptr::copy_nonoverlapping(pointer.0, self.stack_top, pointer.1);
+            self.stack_top = new_stack_top;
+        }
+    }
+
     fn push_i64(&mut self, value: i64) {
         unsafe {
             let bytes: [u8; 8] = std::mem::transmute(value);
-            self.push_bytes(bytes);
+            self.push_8_bytes(bytes);
+        }
+    }
+
+    fn push_u64(&mut self, value: u64) {
+        unsafe {
+            let bytes: [u8; 8] = std::mem::transmute(value);
+            self.push_8_bytes(bytes);
         }
     }
 
     fn push_f64(&mut self, value: f64) {
         unsafe {
             let bytes: [u8; 8] = std::mem::transmute(value);
-            self.push_bytes(bytes);
+            self.push_8_bytes(bytes);
         }
     }
 
@@ -232,13 +272,14 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn pop_bytes(&mut self, n: usize) -> &[u8] {
+    fn pop_bytes(&mut self, n: usize) -> *const u8 {
         unsafe {
             if self.stack_top.sub(n) < self.stack.as_mut_ptr() {
                 panic!("Attempted to pop stack less than start index")
             }
             self.stack_top = self.stack_top.offset(-(n as isize));
-            std::slice::from_raw_parts(self.stack_top, n)
+            self.stack_top as *const u8
+            // std::slice::from_raw_parts(self.stack_top, n)
         }
     }
 
@@ -251,16 +292,24 @@ impl<'a> Vm<'a> {
 
     pub fn pop_f64(&mut self) -> f64 {
         unsafe {
-            let bytes = self.pop_bytes(std::mem::size_of::<f64>());
-            let value = std::ptr::read(bytes.as_ptr() as *const f64);
+            let ptr = self.pop_bytes(std::mem::size_of::<f64>());
+            let value = std::ptr::read(ptr as *const f64);
             value
         }
     }
 
     pub fn pop_i64(&mut self) -> i64 {
         unsafe {
-            let bytes = self.pop_bytes(std::mem::size_of::<i64>());
-            let value = std::ptr::read(bytes.as_ptr() as *const i64);
+            let ptr = self.pop_bytes(std::mem::size_of::<i64>());
+            let value = std::ptr::read(ptr as *const i64);
+            value
+        }
+    }
+
+    pub fn pop_u64(&mut self) -> u64 {
+        unsafe {
+            let ptr = self.pop_bytes(std::mem::size_of::<u64>());
+            let value = std::ptr::read(ptr as *const u64);
             value
         }
     }
@@ -322,6 +371,13 @@ impl<'a> Vm<'a> {
     fn print_value<T>(&self, value: &T) where T: Debug {
         println!("Value: {:?}", value)
     }
+    
+    pub fn print_remaining_ops(&self) {
+        unsafe {
+            let offset = self.ip.offset_from(self.comp_unit.code.as_ptr()) as usize;
+            println!("Remaining Ops{:?}", decode(&self.comp_unit.code[offset..]))
+        }
+    }
 
     pub fn interpret(&mut self, chunk: &'a mut CompUnit) -> InterpResult {
         self.ip = chunk.code.as_mut_ptr();
@@ -334,8 +390,14 @@ impl<'a> Vm<'a> {
         self.stack_top = self.stack.as_mut_ptr();
         self.ip = self.comp_unit.code.as_mut_ptr();
         let t = nano_time!();
+        
+        let mut i = 0;
 
         'outer: loop {
+            i += 1;
+            if i > 1000 {
+                break
+            }
             match self.read_op_code() {
                 OpCode::Exit => {
                     println!("Exec Time: {}ns", nano_time!() - t);
@@ -344,7 +406,7 @@ impl<'a> Vm<'a> {
 
                 OpCode::RtnI64 => {
                     let val = self.pop_i64();
-                    self.print_value(&val);
+                  //  self.print_value(&val);
                 }
 
                 OpCode::RtnF64 => {
@@ -359,7 +421,6 @@ impl<'a> Vm<'a> {
 
                 OpCode::RtnRef => {
                     let val = self.pop_bytes(8);
-                    println!("{:?}", val)
                 }
 
                 OpCode::LoadConst => {
@@ -678,8 +739,6 @@ impl<'a> Vm<'a> {
                 OpCode::JumpFalse => {
                     let offset = self.read_wide_inst();
                     if self.pop_bool() == false {
-                        println!("jumpfalse");
-
                         unsafe {
                             self.ip = self.ip.add(offset as usize);
                         }
@@ -687,10 +746,8 @@ impl<'a> Vm<'a> {
                 }
 
                 OpCode::JumpFWd => {
-                    println!("jumpfwd");
                     self.print_stack();
                     let offset = self.read_wide_inst();
-                    println!("offset: {} ", offset);
                     unsafe {
                         self.ip = self.ip.add(offset as usize);
                     }
@@ -712,9 +769,43 @@ impl<'a> Vm<'a> {
                 OpCode::IConst5 => self.push_i64(5),
                 OpCode::Pop => { self.pop_bytes(8); }
 
-                OpCode::AssignGlobal => {}
-                OpCode::DefGlobal => {}
-                OpCode::LoadGlobal => {}
+                OpCode::DefGlobal => {
+                    let name_id = self.pop_u64();
+                    let value = self.pop_u64();
+                    self.global_defs.insert(name_id, value);
+                }
+                OpCode::AssignGlobal => {
+                    let name_id = self.pop_u64();
+                    let value = self.pop_u64();
+                    self.global_defs.insert(name_id, value);
+                 
+                }
+
+                OpCode::LoadGlobal => {
+                    let name_id = self.pop_u64();
+                    let item_ref = if let Some(val) = self.global_defs.get(name_id) {
+                        *val
+                    } else {
+                        println!("{}", SCACHE.resolve(14));
+                        println!("Global defs: {:?}", self.global_defs);
+                        println!("SCache: {:?}",SCACHE.cache.lock().unwrap().print_cache());
+                        println!("name_id: {}", SCACHE.resolve(name_id));
+                        panic!("Failed to resolve variable binding {}", name_id)
+                    };
+                    unsafe {
+                        let item_bytes = self.heap.get_item(item_ref);
+                        self.push_arbitrary_bytes(item_bytes);
+                    }
+                }
+
+                OpCode::HeapStore => {
+                    let size = self.read_wide_inst() as usize;
+                    let ptr = self.pop_bytes(size);
+                    unsafe {
+                        let tag_ref = self.heap.insert_bytes(ptr, size);
+                        self.push_u64(tag_ref);
+                    }
+                }
             }
         }
 

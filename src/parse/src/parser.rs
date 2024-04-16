@@ -379,7 +379,7 @@ impl ParserState {
             TExpression(Expr::Car) => {
                 let data = ListAccData {
                     index_expr: None,
-                    pattern: Some(util::SCACHE.intern("f")),
+                    pattern: Some(util::SCACHE.intern("f".to_string())),
                     list: self.parse_list_head()?,
                 };
                 Ok(ExprListAccess(Box::new(data)))
@@ -388,7 +388,7 @@ impl ParserState {
             TExpression(Expr::Cdr) => {
                 let data = ListAccData {
                     index_expr: None,
-                    pattern: Some(util::SCACHE.intern("r")),
+                    pattern: Some(util::SCACHE.intern("r".to_string())),
                     list: self.parse_list_head()?,
                 };
                 Ok(ExprListAccess(Box::new(data)))

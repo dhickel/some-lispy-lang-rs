@@ -1,12 +1,13 @@
 use lang::types::Type;
 use crate::ast::AstNode;
-use crate::environment::Context;
+use crate::environment::{Context, SymbolCtx};
 use crate::util::SCACHE;
 
 
 pub fn resolve_types(mut program_nodes: &mut Vec<AstNode>, mut context: Context) -> bool {
     let mut fully_resolved = true;
     for _ in 0..2 {
+        fully_resolved = true;
         for node in program_nodes.iter_mut() {
             if resolve(node, &mut context) == Ok(Type::Unresolved) {
                 fully_resolved = false;
@@ -23,14 +24,23 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
             let resolved_type = resolve(&mut data.value, context)?;
             if resolved_type == Type::Unresolved { return Ok(Type::Unresolved); }
 
+
             if let Some(d_type) = data.d_type {
                 let resolved_d_type = context.validate_type(d_type);
                 if resolved_type == Type::Unresolved {
-                    Ok(Type::Unresolved)
-                } else {
-                    Ok(resolved_d_type)
+                    return Ok(Type::Unresolved);
+                } else if resolved_type != resolved_d_type {
+                    return Err(format!(
+                        "Resolved type: {:?} does not equal declared type: {:?}",
+                        resolved_type, resolved_d_type));
                 }
-            } else { Ok(resolved_type) }
+            }
+
+            context.add_symbol(data.name, resolved_type.clone())?;
+
+            let ctx = context.get_symbol_ctx(data.name);
+            data.ctx = ctx;
+            Ok(resolved_type)
         }
 
         AstNode::DefLambda(data) => {
@@ -48,10 +58,11 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
         AstNode::ExprAssignment(data) => {
             let resolved_type = resolve(&mut data.value, context)?;
             if resolved_type == Type::Unresolved {
+                println!("Resolved false");
                 return Ok(Type::Unresolved);
             } else {
                 data.ctx = Some(context.get_scope_ctx());
-
+                println!("Assign OCntext added");
                 match &data.value {
                     AstNode::ExprIf(expr) => {
                         if !expr.all_types_same() {
@@ -87,12 +98,12 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
         }
 
         AstNode::ExprMulti(data) => {
-            context.pushScope();
+            context.push_scope();
             let mut resolved_type = Type::Unresolved;
             for expr in data.expressions.iter_mut() {
                 resolved_type = resolve(expr, context)?;
             }
-            context.popScope();
+            context.pop_scope();
             Ok(resolved_type)
         }
 
@@ -101,7 +112,7 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
         }
 
         AstNode::ExprIf(data) => {
-            context.pushScope();
+            context.push_scope();
 
             let cond_type = resolve(&mut data.if_branch.cond_node, context)?;
             if cond_type == Type::Unresolved {
@@ -112,15 +123,15 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
             if if_type != Type::Unresolved {
                 data.if_branch.typ = if_type.clone();
             }
-            context.popScope();
+            context.pop_scope();
 
             if let Some(ref mut els) = data.else_branch {
-                context.pushScope();
+                context.push_scope();
                 let else_type = resolve(els, context)?;
                 if else_type != Type::Unresolved {
                     data.else_type = else_type.clone();
                 }
-                context.popScope();
+                context.pop_scope();
 
                 if if_type != Type::Unresolved && else_type != Type::Unresolved {
                     Ok(else_type) // Fixme, find a better way to represent conditional types as they vary
@@ -132,7 +143,7 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
             let mut unresolved = false;
             let mut cond_type = Type::Unresolved;
             for branch in data.cond_branches.iter_mut() {
-                context.pushScope();
+                context.push_scope();
                 let branch_type = resolve(&mut branch.then_node, context)?;
 
                 if branch_type != Type::Unresolved {
@@ -140,16 +151,16 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
                 } else { unresolved = true; }
 
                 cond_type = branch_type;
-                context.popScope();
+                context.pop_scope();
             }
 
             if let Some(ref mut els) = data.else_branch {
-                context.pushScope();
+                context.push_scope();
                 let else_type = resolve(els, context)?;
                 if else_type != Type::Unresolved {
                     data.else_type = else_type.clone();
                 }
-                context.popScope();
+                context.pop_scope();
 
                 if !unresolved && else_type != Type::Unresolved {
                     Ok(else_type) // Fixme, find a better way to represent conditional types as they vary
@@ -163,7 +174,20 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
             }
         }
 
-        AstNode::ExprWhileLoop(_) => Ok(Type::Boolean), //TODO handle return assignment
+        AstNode::ExprWhileLoop(data) => {
+            let cond_type = resolve(&mut data.condition, context)?;
+            if cond_type == Type::Unresolved {
+                return Ok(Type::Unresolved);
+            }
+            
+            let body_type = resolve(&mut data.body, context)?;
+            if body_type == Type::Unresolved {
+                Ok(Type::Unresolved)
+            } else {
+                Ok(body_type)
+            }
+            
+        } //TODO handle return assignment
         AstNode::ExprCons(_) => Ok(Type::Pair),
         AstNode::ExprPairList(_) => Ok(Type::Pair),
         AstNode::ExprListAccess(data) => Ok(Type::Pair), // TODO this will need to be runtime checked
@@ -178,7 +202,6 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
         AstNode::ExprGenRand(data) => if data.is_float { Ok(Type::Float) } else { Ok(Type::Integer) },
         AstNode::ExprDirectInst(data) => Ok(context.get_symbol_type(data.name).clone()),
         AstNode::ExprInitInst(data) => Ok(context.get_symbol_type(data.name).clone()),
-
         AstNode::Operation(ref mut data) => {
             let mut typ = Type::Integer;
             for op in data.operands.iter_mut() {

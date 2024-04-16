@@ -67,6 +67,7 @@ pub enum OpCode {
     AssignGlobal,
     DefGlobal,
     LoadGlobal,
+    HeapStore,
 }
 
 
@@ -79,9 +80,9 @@ impl OpCode {
 }
 
 
-pub fn decode(comp_unit: CompUnit) -> Vec<String> {
-    let mut iter = comp_unit.code.iter();
-    let mut decoded = Vec::<String>::with_capacity(comp_unit.code.len());
+pub fn decode( code: &[u8]) -> Vec<String> {
+    let mut iter = code.iter();
+    let mut decoded = Vec::<String>::with_capacity(code.len());
 
     while let Some(next) = iter.next() {
         match OpCode::from_byte(*next) {
@@ -192,13 +193,22 @@ pub fn decode(comp_unit: CompUnit) -> Vec<String> {
             OpCode::IConst4 => decoded.push("IConst4".to_string()),
             OpCode::IConst5 => decoded.push("IConst5".to_string()),
             OpCode::Pop => decoded.push("Pop".to_string()),
-            OpCode::AssignGlobal => decoded.push("AssignGlobal".to_string()),
+            OpCode::AssignGlobal => {
+                decoded.push(format!("AssignGlobal"))
+            },
             OpCode::DefGlobal => {
+                decoded.push(format!("DefGlobal"))
+            }
+            OpCode::LoadGlobal => {
+   
+                decoded.push(format!("LoadGlobal"))
+            },
+
+            OpCode::HeapStore => {
                 let val1 = iter.next().unwrap();
                 let val2 = iter.next().unwrap();
-                decoded.push(format!("DefGlobal | Type: {}", util::read_wide_bytes(*val1, *val2)))
+                decoded.push(format!("HeapStore | Size_Multi: {}", util::read_wide_bytes(*val1, *val2)))
             }
-            OpCode::LoadGlobal => decoded.push("LoadGlobal".to_string()),
         }
     }
     decoded

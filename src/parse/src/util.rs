@@ -11,52 +11,49 @@ use crate::op_codes::OpCode;
 
 
 pub struct Interner {
-    map: AHashMap<NonNull<str>, u64>,
-    list: Vec<NonNull<str>>,
-    next_index: u64,
+    map: AHashMap<String, u64>,  
+    list: Vec<*const str>,      
 }
-
-// FIXME, this all should just me moved out of a singleton and passed through the the vm
 unsafe impl Send for Interner {}
 unsafe impl Sync for Interner {}
-
-
 impl Default for Interner {
     fn default() -> Self {
-        let list: Vec<NonNull<str>> = Vec::with_capacity(100);
         Interner {
-            map: AHashMap::<NonNull<str>, u64>::with_capacity(100),
-            list,
-            next_index: 0,
+            map: AHashMap::with_capacity(100),
+            list: Vec::with_capacity(100),
         }
     }
 }
 
-
 impl Interner {
-    pub fn intern(&mut self, string: &str) -> u64 {
-        unsafe {
-            if let Some(&id) = self.map.get(&NonNull::new_unchecked(string as *const str as *mut str)) {
-                return id;
-            }
-
-            let layout = Layout::array::<u8>(string.len()).unwrap();
-            let ptr = alloc(layout);
-
-            std::ptr::copy_nonoverlapping(string.as_ptr(), ptr, string.len());
-
-            let slice = std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, string.len()));
-            let non_null_ptr = NonNull::new_unchecked(slice as *const str as *mut str);
-
-            self.list.push(non_null_ptr);
-            self.map.insert(non_null_ptr, self.list.len() as u64 - 1);
-            self.list.len() as u64 - 1
+    pub fn intern(&mut self, string: String) -> u64 {
+        if let Some(&id) = self.map.get(&string) {
+            return id;
         }
+  
+        let new_id = self.list.len() as u64;
+        let raw_ptr = string.as_str() as *const str;
+        self.list.push(raw_ptr);
+        self.map.insert(string, new_id);
+        new_id
     }
 
     pub fn resolve(&self, id: u64) -> &str {
-        unsafe {
-            self.list.get(id as usize).map(|&ptr| &*ptr.as_ptr()).unwrap()
+        self.list.get(id as usize).map(|&ptr| unsafe { &*ptr }).expect("Invalid interned id")
+    }
+    
+    pub fn print_cache(&self) {
+        println!("Intern Cache: {:?}", self.map)
+    }
+}
+
+
+impl Drop for Interner {
+    fn drop(&mut self) {
+        for &ptr in &self.list {
+            unsafe {
+                let _ = Box::from_raw(ptr as *mut str);  
+            }
         }
     }
 }
@@ -83,19 +80,19 @@ pub struct SCache {
 impl Default for SCache {
     fn default() -> Self {
         let mut cache = Interner::default();
-        let const_init = cache.intern("init");
-        let const_param = cache.intern("param");
-        let const_var = cache.intern("var");
-        let const_func = cache.intern("func");
-        let const_pre = cache.intern("pre");
-        let const_post = cache.intern("post");
-        let const_final = cache.intern("final");
-        let const_validate = cache.intern("validate");
-        let const_int = cache.intern("int");
-        let const_float = cache.intern("float");
-        let const_bool = cache.intern("bool");
-        let const_string = cache.intern("string");
-        let const_nil = cache.intern("nil");
+        let const_init = cache.intern("init".to_string());
+        let const_param = cache.intern("param".to_string());
+        let const_var = cache.intern("var".to_string());
+        let const_func = cache.intern("func".to_string());
+        let const_pre = cache.intern("pre".to_string());
+        let const_post = cache.intern("post".to_string());
+        let const_final = cache.intern("final".to_string());
+        let const_validate = cache.intern("validate".to_string());
+        let const_int = cache.intern("int".to_string());
+        let const_float = cache.intern("float".to_string());
+        let const_bool = cache.intern("bool".to_string());
+        let const_string = cache.intern("string".to_string());
+        let const_nil = cache.intern("nil".to_string());
 
         SCache {
             cache: Mutex::new(cache),
@@ -118,7 +115,7 @@ impl Default for SCache {
 
 
 impl SCache {
-    pub fn intern(&self, s: &str) -> u64 {
+    pub fn intern(&self, s: String) -> u64 {
         self.cache.lock().unwrap().intern(s)
     }
 
@@ -172,7 +169,7 @@ pub enum ConstValue {
 pub struct CompUnit {
     pub code: Vec<u8>,
     pub constants: Vec<[u8; 8]>,
-    pub existing_u64s: AHashMap<u64, u16>,
+    pub existing_str: AHashMap<u64, u16>,
 }
 
 
@@ -190,18 +187,18 @@ impl CompUnit {
         self.code.push(((val >> 8) & 0xFF) as u8);
     }
 
-    fn add_constant(&mut self, bytes: [u8; 8]) -> usize {
+    fn add_constant(&mut self, bytes: [u8; 8]) -> u16 {
         unsafe {
             let curr_index = self.constants.len();
             if curr_index >= u16::MAX as usize {
                 panic!("Exceeded size of constant pool")
             }
             self.constants.push(bytes);
-            curr_index
+            curr_index as u16
         }
     }
 
-    pub fn push_constant<T>(&mut self, value: &T) -> usize {
+    pub fn push_constant<T>(&mut self, value: &T) -> u16 {
         unsafe {
             let size = std::mem::size_of::<T>();
             if size > 8 {
@@ -225,5 +222,4 @@ impl CompUnit {
         self.code.append(&mut other.code);
     }
 }
-
 

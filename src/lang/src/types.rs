@@ -30,3 +30,6 @@ pub struct FuncType {
     pub return_type: Box<Type>,
     pub arg_typ: Vec<Type>,
 }
+
+
+

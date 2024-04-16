@@ -27,8 +27,6 @@ enum LiteralValue {
 }
 
 
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct SymbolCtx {
     pub scope: u32,
@@ -137,46 +135,65 @@ impl Context {
         None
     }
 
-        pub fn validate_type(&self, u64: u64) -> Type {
-            let found = self.types.get(u64);
-            if found.is_none() { return Type::Unresolved; }
+    pub fn validate_type(&self, u64: u64) -> Type {
+        let found = self.types.get(u64);
+        if found.is_none() { return Type::Unresolved; }
 
-            match found.unwrap() {
-                Type::Unresolved | Type::Integer | Type::Float | Type::String | Type::Boolean |
-                Type::Vector(_) | Type::Nil | Type::Pair => found.unwrap().clone(),
-                Type::Quote => todo!(),
-                Type::Object(obj) => {
-                    for typ in &obj.super_types {
-                        if let Type::Object(obj_type) = typ {
-                            if obj_type.name == u64 { return typ.clone(); }
-                        }
-                    } // Object will always have a u64 value
-                    Type::Unresolved
-                }
-                Type::Lambda(_) => todo!(),
+        match found.unwrap() {
+            Type::Unresolved | Type::Integer | Type::Float | Type::String | Type::Boolean |
+            Type::Vector(_) | Type::Nil | Type::Pair => found.unwrap().clone(),
+            Type::Quote => todo!(),
+            Type::Object(obj) => {
+                for typ in &obj.super_types {
+                    if let Type::Object(obj_type) = typ {
+                        if obj_type.name == u64 { return typ.clone(); }
+                    }
+                } // Object will always have a u64 value
+                Type::Unresolved
             }
-        }
-
-        pub fn add_type(&mut self, u64: u64, typ: Type) {
-            self.types.insert_checked(u64, typ);
-        }
-
-        pub fn pushScope(&mut self) {
-            self.curr_scope += 1;
-            self.curr_depth += 1;
-            self.active_scopes.push(self.curr_scope)
-        }
-
-        pub fn popScope(&mut self) {
-            self.curr_depth -= 1;
-            self.active_scopes.pop().expect("Fatal: Popped global scope");
-        }
-
-        pub fn get_scope_ctx(&self) -> ScopeCtx {
-            ScopeCtx {
-                scope: self.curr_scope,
-                depth: self.curr_depth,
-            }
+            Type::Lambda(_) => todo!(),
         }
     }
+
+    pub fn add_type(&mut self, u64: u64, typ: Type) {
+        self.types.insert_checked(u64, typ);
+    }
+
+    pub fn push_scope(&mut self) {
+        self.curr_scope += 1;
+        self.curr_depth += 1;
+        self.active_scopes.push(self.curr_scope)
+    }
+
+    pub fn pop_scope(&mut self) {
+        self.curr_depth -= 1;
+        self.active_scopes.pop().expect("Fatal: Popped global scope");
+    }
+
+    pub fn get_scope_ctx(&self) -> ScopeCtx {
+        ScopeCtx {
+            scope: self.curr_scope,
+            depth: self.curr_depth,
+        }
+    }
+
+    pub fn get_type_id(&self, typ : Type) -> u64 {
+
+
+        match typ {
+            Type::Unresolved => panic!("Attempted to lookup unresolved type"),
+            Type::Integer => SCACHE.const_int,
+            Type::Float => SCACHE.const_float,
+            Type::Boolean => SCACHE.const_bool,
+            Type::Vector(_) => todo!(),
+            Type::String => SCACHE.const_string,
+            Type::Pair => todo!(),
+            Type::Nil => SCACHE.const_nil,
+            Type::Quote => todo!(),
+            Type::Object(obj) => obj.name,
+            Type::Lambda(_) => todo!()
+        }
+        
+    }
+}
 

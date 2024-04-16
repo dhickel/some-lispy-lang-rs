@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 ahash = "0.8.11"
-backtrace-on-stack-overflow = "0.3.0"
-lasso = "0.7.2"
+intmap = "2.0.0"
 lazy_static = "1.4.0"
 rand = "0.8.5"
 parser = {path = "../parse"}
+lang = {path = "../lang"}

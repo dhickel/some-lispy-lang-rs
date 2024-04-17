@@ -166,7 +166,7 @@ pub struct OpData {
     pub operation: Op,
     pub operands: Vec<AstNode>,
     pub typ: Type,
-    
+
 }
 
 

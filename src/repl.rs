@@ -4,7 +4,7 @@ extern crate core;
 use std::time::{SystemTime, UNIX_EPOCH};
 use ahash::AHashMap;
 
-use parser::environment::Context;
+use parser::environment::{Context, Environment};
 use parser::op_codes::OpCode;
 
 use parser::util::{CompUnit, SCACHE};
@@ -25,42 +25,47 @@ macro_rules! nano_time {
 
 #[allow(dead_code)]
 fn main() {
-    let mut comp_unit = CompUnit {
-        code: vec![],
-        constants: Vec::<[u8; 8]>::with_capacity(100),
-        existing_str: AHashMap::<u64, u16>::with_capacity(50)
-    };
+    let mut ctx = Context::default();
 
-    
+    let env = Environment::new(&mut ctx);
 
-    let context = Context::default();
+
     let input = "(define x 10) (define y 10) (while &do (> x  8) (:= y (+ y  1)) (:= x (- x 1))) y".to_string();
-    
+
     let t = nano_time!();
     let tokens = parser::lexer::process(input).expect("Token Err");
-    
+
 
     let mut ast = parser::parser::process(tokens).expect("Parse Err");
     println!("ast: {:?}", &ast);
 
-    let resolved = parser::resolution::resolve_types(&mut ast, context);
+    let resolved = parser::resolution::resolve_types(&mut ast, env);
+
+    let mut comp_unit = CompUnit {
+        code: vec![],
+        constants: Vec::<[u8; 8]>::with_capacity(100),
+        existing_str: AHashMap::<u64, u16>::with_capacity(50),
+        ctx: &mut ctx,
+    };
+
+
     println!("Resolved: {}", resolved);
     parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
 
 
     comp_unit.write_op_code(OpCode::RtnI64);
     //comp_unit.write_op_code(OpCode::RtnI64);
-   comp_unit.write_op_code(OpCode::Exit);
-    
-  //  comp_unit.write_op_code(OpCode::Exit);
+    comp_unit.write_op_code(OpCode::Exit);
+
+    //  comp_unit.write_op_code(OpCode::Exit);
 
     //comp_unit.write_op_code(OpCode::Exit);
     println!("Proc Time: {} ns", nano_time!() - t);
-    println!("comp unit: {:?}", comp_unit); 
+    println!("comp unit: {:?}", comp_unit);
     println!("Decoded: {:?}", parser::op_codes::decode(comp_unit.code.as_slice()));
 
 
-    let mut vm = Vm::new(&mut comp_unit);
+    let mut vm = Vm::new(comp_unit);
     vm.run();
     vm.print_stack();
 

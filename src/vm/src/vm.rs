@@ -1,3 +1,4 @@
+use std::collections::LinkedList;
 use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Sub};
 use std::os::unix::fs::OpenOptionsExt;
@@ -15,6 +16,7 @@ macro_rules! nano_time {
             .expect("")
             .as_nanos()
     };
+  
 }
 
 pub enum InterpResult {
@@ -34,7 +36,7 @@ pub enum Value {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HeapTag {
-    // typ: u16,
+    typ: u16,
     size: usize,
     loc: *mut u8,
     active: bool,
@@ -65,13 +67,13 @@ impl Heap {
         }
     }
 
-    pub fn insert_item(&mut self, item: &[u8] /*typ: u16*/) -> u64 {
+    pub fn insert_item(&mut self, item: &[u8], typ: u16) -> u64 {
         unsafe {
             let loc = self.get_insert_loc(item.len());
             std::ptr::copy_nonoverlapping(item.as_ptr(), loc, item.len());
 
             let tag = HeapTag {
-                //typ,
+                typ,
                 size: item.len(),
                 loc,
                 active: true,
@@ -83,13 +85,13 @@ impl Heap {
         }
     }
 
-    pub unsafe fn insert_bytes(&mut self, ptr: *const u8, size: usize) -> u64 {
+    pub unsafe fn insert_bytes(&mut self, ptr: *const u8, size: usize, typ: u16) -> u64 {
         unsafe {
             let loc = self.get_insert_loc(size);
             std::ptr::copy_nonoverlapping(ptr, loc, size);
 
             let tag = HeapTag {
-                //typ,
+                typ,
                 size: size,
                 loc,
                 active: true,
@@ -143,7 +145,7 @@ impl Heap {
 
 #[derive(Debug)]
 pub struct Vm<'a> {
-    comp_unit: &'a mut CompUnit,
+    comp_unit: CompUnit<'a>,
     ip: *mut u8,
     stack: [u8; 1048576],
     stack_top: *mut u8,
@@ -156,7 +158,7 @@ pub struct Vm<'a> {
 
 
 impl<'a> Vm<'a> {
-    pub fn new(chunk: &'a mut CompUnit) -> Self {
+    pub fn new(chunk: CompUnit<'a>) -> Self {
         Vm {
             comp_unit: chunk,
             ip: std::ptr::null_mut(),
@@ -175,7 +177,7 @@ impl<'a> Vm<'a> {
             let code = *self.ip;
             self.ip = self.ip.add(1);
             let code: OpCode = std::mem::transmute(code);
-           // println!("At Inst: {:?}", code);
+            println!("At Inst: {:?}", code);
             code
         }
     }
@@ -274,6 +276,7 @@ impl<'a> Vm<'a> {
 
     fn pop_bytes(&mut self, n: usize) -> *const u8 {
         unsafe {
+            if n != 8 { panic!("Invalid pop amount");  }
             if self.stack_top.sub(n) < self.stack.as_mut_ptr() {
                 panic!("Attempted to pop stack less than start index")
             }
@@ -371,7 +374,7 @@ impl<'a> Vm<'a> {
     fn print_value<T>(&self, value: &T) where T: Debug {
         println!("Value: {:?}", value)
     }
-    
+
     pub fn print_remaining_ops(&self) {
         unsafe {
             let offset = self.ip.offset_from(self.comp_unit.code.as_ptr()) as usize;
@@ -379,24 +382,19 @@ impl<'a> Vm<'a> {
         }
     }
 
-    pub fn interpret(&mut self, chunk: &'a mut CompUnit) -> InterpResult {
-        self.ip = chunk.code.as_mut_ptr();
-        self.comp_unit = chunk;
-        InterpResult::Ok
-    }
 
     //
     pub fn run(&mut self) -> InterpResult {
         self.stack_top = self.stack.as_mut_ptr();
         self.ip = self.comp_unit.code.as_mut_ptr();
         let t = nano_time!();
-        
+
         let mut i = 0;
 
         'outer: loop {
             i += 1;
             if i > 1000 {
-                break
+                break;
             }
             match self.read_op_code() {
                 OpCode::Exit => {
@@ -406,7 +404,7 @@ impl<'a> Vm<'a> {
 
                 OpCode::RtnI64 => {
                     let val = self.pop_i64();
-                  //  self.print_value(&val);
+                    //  self.print_value(&val);
                 }
 
                 OpCode::RtnF64 => {
@@ -746,7 +744,6 @@ impl<'a> Vm<'a> {
                 }
 
                 OpCode::JumpFWd => {
-                    self.print_stack();
                     let offset = self.read_wide_inst();
                     unsafe {
                         self.ip = self.ip.add(offset as usize);
@@ -778,17 +775,17 @@ impl<'a> Vm<'a> {
                     let name_id = self.pop_u64();
                     let value = self.pop_u64();
                     self.global_defs.insert(name_id, value);
-                 
                 }
 
                 OpCode::LoadGlobal => {
+                    self.print_remaining_ops();
                     let name_id = self.pop_u64();
                     let item_ref = if let Some(val) = self.global_defs.get(name_id) {
                         *val
                     } else {
                         println!("{}", SCACHE.resolve(14));
                         println!("Global defs: {:?}", self.global_defs);
-                        println!("SCache: {:?}",SCACHE.cache.lock().unwrap().print_cache());
+                        println!("SCache: {:?}", SCACHE.cache.lock().unwrap().print_cache());
                         println!("name_id: {}", SCACHE.resolve(name_id));
                         panic!("Failed to resolve variable binding {}", name_id)
                     };
@@ -796,13 +793,17 @@ impl<'a> Vm<'a> {
                         let item_bytes = self.heap.get_item(item_ref);
                         self.push_arbitrary_bytes(item_bytes);
                     }
+                    self.print_remaining_ops();
                 }
 
                 OpCode::HeapStore => {
+                    let typ = self.read_wide_inst();
+                    println!("type {:?}", self.comp_unit.ctx.types.get_type_by_id(typ));
                     let size = self.read_wide_inst() as usize;
+                    println!("size: {}", size);
                     let ptr = self.pop_bytes(size);
                     unsafe {
-                        let tag_ref = self.heap.insert_bytes(ptr, size);
+                        let tag_ref = self.heap.insert_bytes(ptr, size, 0);
                         self.push_u64(tag_ref);
                     }
                 }

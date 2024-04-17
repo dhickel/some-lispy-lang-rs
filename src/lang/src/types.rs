@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashSet};
 
 
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Unresolved,
     Integer,
@@ -18,14 +18,14 @@ pub enum Type {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ObjType {
     pub super_types: Vec<Type>,
     pub name: u64,
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FuncType {
     pub return_type: Box<Type>,
     pub arg_typ: Vec<Type>,

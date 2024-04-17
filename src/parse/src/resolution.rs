@@ -1,10 +1,10 @@
 use lang::types::Type;
 use crate::ast::AstNode;
-use crate::environment::{Context, SymbolCtx};
+use crate::environment::{Environment, SymbolCtx};
 use crate::util::SCACHE;
 
 
-pub fn resolve_types(mut program_nodes: &mut Vec<AstNode>, mut context: Context) -> bool {
+pub fn resolve_types(mut program_nodes: &mut Vec<AstNode>, mut context: Environment) -> bool {
     let mut fully_resolved = true;
     for _ in 0..2 {
         fully_resolved = true;
@@ -18,7 +18,7 @@ pub fn resolve_types(mut program_nodes: &mut Vec<AstNode>, mut context: Context)
 }
 
 
-fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
+fn resolve(node: &mut AstNode, context: &mut Environment) -> Result<Type, String> {
     match node {
         AstNode::DefVariable(data) => {
             let resolved_type = resolve(&mut data.value, context)?;
@@ -29,7 +29,7 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
                 let resolved_d_type = context.validate_type(d_type);
                 if resolved_type == Type::Unresolved {
                     return Ok(Type::Unresolved);
-                } else if resolved_type != resolved_d_type {
+                } else if resolved_type != *resolved_d_type {
                     return Err(format!(
                         "Resolved type: {:?} does not equal declared type: {:?}",
                         resolved_type, resolved_d_type));
@@ -46,7 +46,7 @@ fn resolve(node: &mut AstNode, context: &mut Context) -> Result<Type, String> {
         AstNode::DefLambda(data) => {
             let resolved_type = resolve(&mut data.body, context)?;
             if let Some(d_type) = data.d_type {
-                if resolved_type != context.validate_type(d_type) {
+                if resolved_type != *context.validate_type(d_type) {
                     return Err("Declared type does not match actual type for lambda".to_string());
                 }
             }

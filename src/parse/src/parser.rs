@@ -5,7 +5,7 @@ use lang::types::Type;
 use crate::ast::*;
 use crate::ast::AstNode::*;
 use crate::code_gen::GenData;
-use crate::environment::{Binding, Context};
+use crate::environment::{Binding, Environment};
 use crate::op_codes::OpCode;
 use crate::token::*;
 use crate::token::TokenType::*;
@@ -23,7 +23,6 @@ struct ParserState {
     pub end: usize,
     pub depth: i32,
     pub globals: IntMap<Binding>,
-    pub context: Context,
     pub warnings: Vec<String>,
 }
 
@@ -37,7 +36,6 @@ impl ParserState {
             end: len,
             depth: 0,
             globals: IntMap::<Binding>::with_capacity(50),
-            context: Context::default(),
             warnings: Vec::<String>::new(),
         }
     }

@@ -8,18 +8,16 @@ use lang::types::Type;
 
 
 use crate::ast::{AssignData, AstNode, DefVarData, IfData, LiteralCallData, MultiExprData, OpData, WhileData};
-use crate::environment::Context;
 use crate::op_codes::OpCode;
 use crate::token::Op;
 use crate::{op_codes, util};
-use crate::token::Op::PlusPlus;
 use crate::util::{CompUnit, SCACHE};
 
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GenData {
     pub code: Vec<u8>,
-    typ: Type,
+    typ: u16,
 }
 
 
@@ -49,7 +47,7 @@ impl GenData {
     fn empty() -> GenData {
         GenData {
             code: Vec::<u8>::with_capacity(0),
-            typ: Type::Unresolved,
+            typ: 0, // 0 = #nil
         }
     }
 }
@@ -121,10 +119,10 @@ fn gen_define_variable(data: Box<DefVarData>, comp_unit: &mut CompUnit) -> Resul
     if ctx.scope < 100 {// todo fix this
         let name_load = gen_name_load(data.name, comp_unit)?;
         let value = gen_node(data.value, comp_unit)?;
-        code.append_gen_data(value);
-        code.append_op_code(OpCode::HeapStore);
-        code.append_wide_operand(8_u16);
-        code.append_gen_data(name_load);
+        let heap_store = gen_heap_store(ctx.typ, 8_u16)?;
+        code.append_gen_data(value); // calc value to stack
+        code.append_gen_data(heap_store); // store value on heap, push ref to stack
+        code.append_gen_data(name_load); // push name to stack
         code.append_op_code(OpCode::DefGlobal);
     } else {
         todo!()
@@ -132,11 +130,20 @@ fn gen_define_variable(data: Box<DefVarData>, comp_unit: &mut CompUnit) -> Resul
     Ok(code)
 }
 
+fn gen_heap_store(typ: u16, size: u16) -> Result<GenData, String> {
+    let mut code = GenData::empty();
+    code.typ = typ;
+    code.append_op_code(OpCode::HeapStore);
+    code.append_wide_operand(typ);
+    code.append_wide_operand(size);
+    Ok(code)
+}
+
 
 fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let ctx = data.ctx.unwrap();
     let mut code = GenData::empty();
-    code.typ = Type::Unresolved; // TODO, types should be provided with calls as well for generation?
+    code.typ = 0; // TODO, types should be provided with calls as well for generation?
     if ctx.scope < 100 {// todo fix this
         let name_load = gen_name_load(data.name, comp_unit)?;
         code.append_gen_data(name_load);
@@ -149,18 +156,18 @@ fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<G
 
 
 fn gen_assignment(data: Box<AssignData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    println!("Data{:?}", &data);
+ 
     let ctx = data.ctx.unwrap();
 
     let mut code = GenData::empty();
-    code.typ = Type::Nil;
+    code.typ = 0;
 
     if ctx.scope < 100 {// todo fix this
         let name_load = gen_name_load(data.name, comp_unit)?;
         let value = gen_node(data.value, comp_unit)?;
+        let heap_store = gen_heap_store(0, 8)?;
         code.append_gen_data(value);
-        code.append_op_code(OpCode::HeapStore);
-        code.append_wide_operand(8_u16);
+        code.append_gen_data(heap_store);
         code.append_gen_data(name_load);
         code.append_op_code(OpCode::AssignGlobal);
     } else {
@@ -206,7 +213,7 @@ fn gen_multi_expr(mut data: MultiExprData, comp_unit: &mut CompUnit) -> Result<G
 
 fn gen_if_expr(data: Box<IfData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::empty();
-    code.typ = data.if_branch.typ;
+    code.typ = comp_unit.ctx.types.get_type_id(&data.if_branch.typ);
 
     let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
     code.append_gen_data(cond_data);
@@ -229,7 +236,7 @@ fn gen_if_expr(data: Box<IfData>, comp_unit: &mut CompUnit) -> Result<GenData, S
 
 fn gen_while_loop(data: Box<WhileData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::empty();
-    code.typ = Type::Boolean;
+    code.typ = comp_unit.ctx.types.get_type_id(&Type::Boolean);
 
     let body = gen_node(data.body, comp_unit)?;
     println!("Body: {:?}", body);
@@ -267,7 +274,7 @@ fn gen_numerical_lit(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData,
 
     let data = GenData {
         code,
-        typ: value.1,
+        typ: comp_unit.ctx.types.get_type_id(&value.1),
     };
     Ok(data)
 }
@@ -279,15 +286,15 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 
     for operand in data.operands {
         let gen_data = gen_node(operand, comp_unit)?;
-        if gen_data.typ == Type::Float {
+        if gen_data.typ == comp_unit.ctx.types.float {
             is_float = true
         }
         operands.push(gen_data)
     }
 
     for operand in &mut operands {
-        if is_float && operand.typ != Type::Float {
-            if matches!(operand.typ, Type::Integer | Type::Boolean) {
+        if is_float && operand.typ != comp_unit.ctx.types.float {
+            if operand.typ == comp_unit.ctx.types.int || operand.typ == comp_unit.ctx.types.bool {
                 operand.append_op_code(OpCode::I64ToF64)
             } else { return Err(format!("Unexpected node type for operation: {:?}", operand.typ).to_string()); }
         }
@@ -297,7 +304,7 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 
     let code = GenData {
         code: Vec::<u8>::with_capacity(capacity),
-        typ: if is_float { Type::Float } else { Type::Integer },
+        typ: if is_float { comp_unit.ctx.types.float } else { comp_unit.ctx.types.int },
     };
 
 

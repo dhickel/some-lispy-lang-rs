@@ -3,19 +3,27 @@ use std::cell::{RefCell, UnsafeCell};
 use std::ops::Deref;
 use std::ptr::NonNull;
 use std::sync::{Mutex, RwLock, RwLockReadGuard};
+
 use ahash::AHashMap;
 use intmap::IntMap;
 use lazy_static::lazy_static;
 use crate::code_gen::GenData;
+use crate::environment::Context;
 use crate::op_codes::OpCode;
 
 
 pub struct Interner {
-    map: AHashMap<String, u64>,  
-    list: Vec<*const str>,      
+    map: AHashMap<String, u64>,
+    list: Vec<*const str>,
 }
+
+
 unsafe impl Send for Interner {}
+
+
 unsafe impl Sync for Interner {}
+
+
 impl Default for Interner {
     fn default() -> Self {
         Interner {
@@ -25,12 +33,13 @@ impl Default for Interner {
     }
 }
 
+
 impl Interner {
     pub fn intern(&mut self, string: String) -> u64 {
         if let Some(&id) = self.map.get(&string) {
             return id;
         }
-  
+
         let new_id = self.list.len() as u64;
         let raw_ptr = string.as_str() as *const str;
         self.list.push(raw_ptr);
@@ -39,9 +48,11 @@ impl Interner {
     }
 
     pub fn resolve(&self, id: u64) -> &str {
-        self.list.get(id as usize).map(|&ptr| unsafe { &*ptr }).expect("Invalid interned id")
+        unsafe {
+            self.list.get(id as usize).map(|&ptr| &*ptr).expect("Invalid interned id")
+        }
     }
-    
+
     pub fn print_cache(&self) {
         println!("Intern Cache: {:?}", self.map)
     }
@@ -52,7 +63,7 @@ impl Drop for Interner {
     fn drop(&mut self) {
         for &ptr in &self.list {
             unsafe {
-                let _ = Box::from_raw(ptr as *mut str);  
+                let _ = Box::from_raw(ptr as *mut str);
             }
         }
     }
@@ -74,6 +85,7 @@ pub struct SCache {
     pub const_bool: u64,
     pub const_string: u64,
     pub const_nil: u64,
+    pub const_pair: u64,
 }
 
 
@@ -92,7 +104,8 @@ impl Default for SCache {
         let const_float = cache.intern("float".to_string());
         let const_bool = cache.intern("bool".to_string());
         let const_string = cache.intern("string".to_string());
-        let const_nil = cache.intern("nil".to_string());
+        let const_nil = cache.intern("#nil".to_string());
+        let const_pair = cache.intern("pair".to_string());
 
         SCache {
             cache: Mutex::new(cache),
@@ -109,6 +122,7 @@ impl Default for SCache {
             const_bool,
             const_string,
             const_nil,
+            const_pair,
         }
     }
 }
@@ -165,15 +179,16 @@ pub enum ConstValue {
 }
 
 
-#[derive(Debug, Clone)]
-pub struct CompUnit {
+#[derive(Debug)]
+pub struct CompUnit<'a> {
     pub code: Vec<u8>,
     pub constants: Vec<[u8; 8]>,
     pub existing_str: AHashMap<u64, u16>,
+    pub ctx: &'a mut Context
 }
 
 
-impl CompUnit {
+impl <'a>CompUnit<'a> {
     pub fn write_op_code(&mut self, op: OpCode) {
         self.code.push(op as u8)
     }

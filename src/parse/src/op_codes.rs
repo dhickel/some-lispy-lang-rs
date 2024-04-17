@@ -80,7 +80,7 @@ impl OpCode {
 }
 
 
-pub fn decode( code: &[u8]) -> Vec<String> {
+pub fn decode(code: &[u8]) -> Vec<String> {
     let mut iter = code.iter();
     let mut decoded = Vec::<String>::with_capacity(code.len());
 
@@ -195,19 +195,24 @@ pub fn decode( code: &[u8]) -> Vec<String> {
             OpCode::Pop => decoded.push("Pop".to_string()),
             OpCode::AssignGlobal => {
                 decoded.push(format!("AssignGlobal"))
-            },
+            }
             OpCode::DefGlobal => {
                 decoded.push(format!("DefGlobal"))
             }
             OpCode::LoadGlobal => {
-   
                 decoded.push(format!("LoadGlobal"))
-            },
+            }
 
             OpCode::HeapStore => {
-                let val1 = iter.next().unwrap();
-                let val2 = iter.next().unwrap();
-                decoded.push(format!("HeapStore | Size_Multi: {}", util::read_wide_bytes(*val1, *val2)))
+                let typ1 = iter.next().unwrap();
+                let typ2 = iter.next().unwrap();
+                let size1 = iter.next().unwrap();
+                let size2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "HeapStore | TypeId: {} | Size: {}",
+                    util::read_wide_bytes(*typ1, *typ2),
+                    util::read_wide_bytes(*size1, *size2))
+                )
             }
         }
     }

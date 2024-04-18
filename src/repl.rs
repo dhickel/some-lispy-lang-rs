@@ -30,7 +30,7 @@ fn main() {
     let env = Environment::new(&mut ctx);
 
 
-    let input = "(define x 10) (define y 10) (while &do (> x  8) (:= y (+ y  1)) (:= x (- x 1))) y".to_string();
+    let input = "(car (cdr (cons 1 (cons 2 3))))".to_string();
 
     let t = nano_time!();
     let tokens = parser::lexer::process(input).expect("Token Err");

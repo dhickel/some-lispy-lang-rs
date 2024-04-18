@@ -68,6 +68,9 @@ pub enum OpCode {
     DefGlobal,
     LoadGlobal,
     HeapStore,
+    Cons,
+    Car,
+    Cdr
 }
 
 
@@ -214,6 +217,10 @@ pub fn decode(code: &[u8]) -> Vec<String> {
                     util::read_wide_bytes(*size1, *size2))
                 )
             }
+
+            OpCode::Cons => decoded.push("Cons".to_string()),
+            OpCode::Car =>  decoded.push("Car".to_string()),
+            OpCode::Cdr =>  decoded.push("Cdr".to_string()),
         }
     }
     decoded

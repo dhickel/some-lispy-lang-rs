@@ -7,10 +7,11 @@ use std::fmt::format;
 use lang::types::Type;
 
 
-use crate::ast::{AssignData, AstNode, DefVarData, IfData, LiteralCallData, MultiExprData, OpData, WhileData};
+use crate::ast::{AssignData, AstNode, ConsData, DefVarData, IfData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
 use crate::op_codes::OpCode;
 use crate::token::Op;
 use crate::{op_codes, util};
+use crate::token::Op::PlusPlus;
 use crate::util::{CompUnit, SCACHE};
 
 
@@ -79,9 +80,9 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::ExprWhileLoop(data) => {
             gen_while_loop(data, comp_unit)
         }
-        AstNode::ExprCons(_) => todo!(),
-        AstNode::ExprPairList(_) => todo!(),
-        AstNode::ExprListAccess(_) => todo!(),
+        AstNode::ExprCons(data) => gen_cons(data, comp_unit),
+        AstNode::ExprPairList(data) => gen_list_new(data, comp_unit),
+        AstNode::ExprListAccess(data) => gen_list_access(data, comp_unit),
         AstNode::ExprFuncCall(_) => todo!(),
         AstNode::ExprFuncCalInner(_) => todo!(),
         AstNode::ExprObjectCall(_) => todo!(),
@@ -130,6 +131,7 @@ fn gen_define_variable(data: Box<DefVarData>, comp_unit: &mut CompUnit) -> Resul
     Ok(code)
 }
 
+
 fn gen_heap_store(typ: u16, size: u16) -> Result<GenData, String> {
     let mut code = GenData::empty();
     code.typ = typ;
@@ -156,7 +158,6 @@ fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<G
 
 
 fn gen_assignment(data: Box<AssignData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
- 
     let ctx = data.ctx.unwrap();
 
     let mut code = GenData::empty();
@@ -197,6 +198,78 @@ fn gen_name_load(name: u64, comp_unit: &mut CompUnit) -> Result<GenData, String>
         code.append_operand(name_index as u8);
     }
     Ok(code)
+}
+
+
+fn gen_cons(data: Box<ConsData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let car_code = gen_node(data.car, comp_unit)?;
+   // let car_code = append_heap_store_if_needed(car_code, comp_unit)?;
+    let cdr_code = gen_node(data.cdr, comp_unit)?;
+   // let cdr_code = append_heap_store_if_needed(cdr_code, comp_unit)?;
+
+    let mut code = GenData::empty();
+    code.typ = comp_unit.ctx.types.pair;
+
+    code.append_gen_data(cdr_code);
+    code.append_gen_data(car_code);
+
+    code.append_op_code(OpCode::Cons);
+    Ok(code)
+}
+
+
+fn gen_list_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let mut operands = Vec::<GenData>::with_capacity(data.operands.len());
+    let mut code = GenData::empty();
+    code.typ = comp_unit.ctx.types.pair;
+
+    for op in data.operands {
+        let gen_data = gen_node(op, comp_unit)?;
+        operands.push(gen_data);
+        //operands.push(append_heap_store_if_needed(gen_data, comp_unit)?);
+    }
+
+    code.append_gen_data(operands.pop().unwrap());
+    code.append_op_code(OpCode::IConst0); // 0 == nil ref index
+    code.append_op_code(OpCode::Cons);
+
+    while let Some(next) = operands.pop() {
+        code.append_gen_data(next);
+        code.append_op_code(OpCode::Cons);
+    }
+
+    Ok(code)
+}
+
+
+fn gen_list_access(data: Box<ListAccData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let mut code = GenData::empty();
+    code.typ = comp_unit.ctx.types.nil;
+    
+    let list_code = gen_node(data.list, comp_unit)?;
+    code.append_gen_data(list_code);
+    
+    if let Some(pattern) = data.pattern {
+        for acc in pattern {
+            code.append_op_code(if acc == 0 { OpCode::Car } else { OpCode::Cdr })
+        }
+    } else if let Some(index) = data.index_expr {
+        todo!()
+    }
+    Ok(code)
+}
+
+
+fn append_heap_store_if_needed(mut data: GenData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    match comp_unit.ctx.types.get_type_by_id(data.typ) {
+        Type::Integer | Type::Float | Type::Boolean => {
+            data.append_gen_data(gen_heap_store(data.typ, 8)?);
+        }
+        Type::Vector(_) | Type::String | Type::Pair | Type::Nil
+        | Type::Quote | Type::Object(_) | Type::Lambda(_) => {}
+        _ => panic!("Need match for type")
+    }
+    Ok(data)
 }
 
 

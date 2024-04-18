@@ -35,7 +35,7 @@ pub enum Value {
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct HeapTag {
+pub struct HeapItem {
     typ: u16,
     size: usize,
     loc: *mut u8,
@@ -45,9 +45,9 @@ pub struct HeapTag {
 
 #[derive(Debug)]
 pub struct Heap {
-    items: Vec<HeapTag>,
+    items: Vec<HeapItem>,
     data_start: *mut u8,
-    data_end: *mut u8,
+    data_top: *mut u8,
     data_capacity: usize,
     free_blocks: Vec<(usize, *mut u8)>,
     free_indexes: Vec<usize>,
@@ -57,22 +57,32 @@ pub struct Heap {
 impl Heap {
     pub fn new(size: usize) -> Heap {
         let heap = util::get_byte_array(size);
-        Heap {
-            items: Vec::<HeapTag>::with_capacity(100),
+        let mut heap_struct = Heap {
+            items: Vec::<HeapItem>::with_capacity(100),
             data_start: heap,
-            data_end: heap,
+            data_top: heap,
             data_capacity: size,
             free_blocks: Vec::<(usize, *mut u8)>::with_capacity(100),
             free_indexes: Vec::<usize>::with_capacity(100),
-        }
+        };
+
+        let nil_arr: [u8; 8] = [0; 8];
+        unsafe { heap_struct.insert_bytes(nil_arr.as_ptr(), 8, 0); }
+        heap_struct
     }
+
+
+    pub fn get_nil_obj(&self) -> u64 {
+        0_u64
+    }
+
 
     pub fn insert_item(&mut self, item: &[u8], typ: u16) -> u64 {
         unsafe {
             let loc = self.get_insert_loc(item.len());
             std::ptr::copy_nonoverlapping(item.as_ptr(), loc, item.len());
 
-            let tag = HeapTag {
+            let tag = HeapItem {
                 typ,
                 size: item.len(),
                 loc,
@@ -85,23 +95,43 @@ impl Heap {
         }
     }
 
+// pub fn allocate_full_pair(&mut self, car: HeapItem, cdr_tag: HeapItem) -> HeapItem {
+//     
+// }
+// 
+// pub fn allocate_end_pair(&mut self, car: [u8, 8]) -> u64 {}
+
     pub unsafe fn insert_bytes(&mut self, ptr: *const u8, size: usize, typ: u16) -> u64 {
-        unsafe {
-            let loc = self.get_insert_loc(size);
-            std::ptr::copy_nonoverlapping(ptr, loc, size);
+        let loc = self.get_insert_loc(size);
+        std::ptr::copy_nonoverlapping(ptr, loc, size);
 
-            let tag = HeapTag {
-                typ,
-                size: size,
-                loc,
-                active: true,
-            };
+        let tag = HeapItem {
+            typ,
+            size: size,
+            loc,
+            active: true,
+        };
 
-            let index = self.get_index();
-            self.items.insert(index, tag);
-            index as u64
-        }
+        let index = self.get_index();
+        self.items.insert(index, tag);
+        index as u64
     }
+
+    pub unsafe fn insert_pair(&mut self, car_ptr: *const u8, cdr_ptr: *const u8, size: usize, typ: u16) -> u64 {
+        let loc = self.get_insert_loc(size * 2);
+        std::ptr::copy_nonoverlapping(car_ptr, loc, size);
+        std::ptr::copy_nonoverlapping(cdr_ptr, loc.add(size), size);
+        let tag = HeapItem {
+            typ,
+            size: size * 2,
+            loc,
+            active: true,
+        };
+        let index = self.get_index();
+        self.items.insert(index, tag);
+        index as u64
+    }
+
 
     pub fn get_item(&self, index: u64) -> (*const u8, usize) {
         let meta = self.items[index as usize];
@@ -110,11 +140,18 @@ impl Heap {
         }
     }
 
+
+    pub fn get_item_meta(&self, index: u64) -> &HeapItem {
+        unsafe { self.items.get_unchecked(index as usize) }
+    }
+
+
     fn get_index(&mut self) -> usize {
         if !self.free_indexes.is_empty() {
             self.free_indexes.pop().unwrap()
         } else { self.items.len() }
     }
+
 
     fn get_insert_loc(&mut self, size: usize) -> *mut u8 {
         let mut loc = None;
@@ -134,9 +171,9 @@ impl Heap {
             pointer
         } else {
             if self.data_capacity < size { panic!("Heap overflow") }
-            let loc = self.data_end;
+            let loc = self.data_top;
             self.data_capacity -= size;
-            unsafe { self.data_end = loc.add(size); }
+            unsafe { self.data_top = loc.add(size); }
             loc
         }
     }
@@ -235,7 +272,7 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn push_u64(&mut self, value: u64) {
+    fn push_ref(&mut self, value: u64) {
         unsafe {
             let bytes: [u8; 8] = std::mem::transmute(value);
             self.push_8_bytes(bytes);
@@ -276,7 +313,7 @@ impl<'a> Vm<'a> {
 
     fn pop_bytes(&mut self, n: usize) -> *const u8 {
         unsafe {
-            if n != 8 { panic!("Invalid pop amount");  }
+            if n != 8 { panic!("Invalid pop amount"); }
             if self.stack_top.sub(n) < self.stack.as_mut_ptr() {
                 panic!("Attempted to pop stack less than start index")
             }
@@ -309,7 +346,7 @@ impl<'a> Vm<'a> {
         }
     }
 
-    pub fn pop_u64(&mut self) -> u64 {
+    pub fn pop_ref(&mut self) -> u64 {
         unsafe {
             let ptr = self.pop_bytes(std::mem::size_of::<u64>());
             let value = std::ptr::read(ptr as *const u64);
@@ -404,7 +441,7 @@ impl<'a> Vm<'a> {
 
                 OpCode::RtnI64 => {
                     let val = self.pop_i64();
-                    //  self.print_value(&val);
+                      self.print_value(&val);
                 }
 
                 OpCode::RtnF64 => {
@@ -767,19 +804,19 @@ impl<'a> Vm<'a> {
                 OpCode::Pop => { self.pop_bytes(8); }
 
                 OpCode::DefGlobal => {
-                    let name_id = self.pop_u64();
-                    let value = self.pop_u64();
+                    let name_id = self.pop_ref();
+                    let value = self.pop_ref();
                     self.global_defs.insert(name_id, value);
                 }
                 OpCode::AssignGlobal => {
-                    let name_id = self.pop_u64();
-                    let value = self.pop_u64();
+                    let name_id = self.pop_ref();
+                    let value = self.pop_ref();
                     self.global_defs.insert(name_id, value);
                 }
 
                 OpCode::LoadGlobal => {
                     self.print_remaining_ops();
-                    let name_id = self.pop_u64();
+                    let name_id = self.pop_ref();
                     let item_ref = if let Some(val) = self.global_defs.get(name_id) {
                         *val
                     } else {
@@ -804,12 +841,49 @@ impl<'a> Vm<'a> {
                     let ptr = self.pop_bytes(size);
                     unsafe {
                         let tag_ref = self.heap.insert_bytes(ptr, size, 0);
-                        self.push_u64(tag_ref);
+                        self.push_ref(tag_ref);
                     }
                 }
-            }
-        }
 
+                OpCode::Cons => {
+                    unsafe {
+                        let cell = self.heap.insert_pair(
+                            self.stack_top.sub(8), // car
+                            self.stack_top.sub(16), // cdr
+                            8,
+                            self.comp_unit.ctx.types.pair,
+                        );
+                        self.stack_top = self.stack_top.sub(16); // "pop" items
+                        self.push_ref(cell);
+                    }
+                }
+
+                OpCode::Car => {
+                    unsafe {
+                        let pair_ref = self.pop_ref();
+                        let meta = self.heap.get_item_meta(pair_ref);
+                        if meta.typ != self.comp_unit.ctx.types.pair {
+                            panic!("car called on non-pair item")
+                        }
+                        // Only push first 8 bytes for car
+                        self.push_arbitrary_bytes((meta.loc, 8));
+                    }
+                }
+                OpCode::Cdr => {
+                    unsafe {
+                        let pair_ref = self.pop_ref();
+                        let meta = self.heap.get_item_meta(pair_ref);
+                        if meta.typ != self.comp_unit.ctx.types.pair {
+                            panic!("car called on non-pair item")
+                        }
+                        // Only push last 8 bytes for cdr
+                        self.push_arbitrary_bytes((meta.loc.add(8), 8));
+                    }
+                    
+                }
+            }
+            
+        }
         InterpResult::Ok
     }
 }

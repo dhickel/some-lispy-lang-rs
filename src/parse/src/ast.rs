@@ -53,6 +53,7 @@ pub enum AstNode {
 
 }
 
+
 trait CodeGen {
     fn is_rectified(&self) -> bool;
     fn get_code(&self, byte_code: &mut Vec<u8>) -> &Vec<u8>;
@@ -67,7 +68,7 @@ pub struct DefVarData {
     pub modifiers: Option<Vec<Mod>>,
     pub value: AstNode,
     pub d_type: Option<u64>,
-    pub ctx: Option<SymbolCtx>
+    pub ctx: Option<SymbolCtx>,
 }
 
 
@@ -78,7 +79,7 @@ pub struct DefLambdaData {
     pub body: AstNode,
     pub d_type: Option<u64>,
     pub typ: Type,
-    pub ctx: Option<SymbolCtx>
+    pub ctx: Option<SymbolCtx>,
 }
 
 
@@ -105,7 +106,7 @@ pub struct Param {
 pub struct DefStructData {
     pub name: u64,
     pub fields: Option<Vec<Field>>,
-    pub ctx: Option<SymbolCtx>
+    pub ctx: Option<SymbolCtx>,
 }
 
 
@@ -120,7 +121,7 @@ pub struct DefClassData {
     pub post_init: Option<AstNode>,
     pub fin: Option<AstNode>,
     pub validate: Option<AstNode>,
-    pub ctx: Option<SymbolCtx>
+    pub ctx: Option<SymbolCtx>,
 }
 
 
@@ -136,7 +137,7 @@ impl DefClassData {
             post_init: None,
             fin: None,
             validate: None,
-            ctx: None
+            ctx: None,
         }
     }
 }
@@ -146,7 +147,7 @@ impl DefClassData {
 pub struct DirectInst {
     pub name: u64,
     pub args: Option<Vec<InstArgs>>,
-    pub ctx: Option<ScopeCtx>
+    pub ctx: Option<ScopeCtx>,
 }
 
 
@@ -172,31 +173,35 @@ pub struct OpData {
 
 // Expression Data
 #[derive(Debug, Clone, PartialEq)]
-pub struct MultiExprData{
-    pub expressions : Vec<AstNode>,
-    pub typ: Type
+pub struct MultiExprData {
+    pub expressions: Vec<AstNode>,
+    pub typ: Type,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignData {
     pub name: u64,
     pub value: AstNode,
-    pub ctx: Option<ScopeCtx>
+    pub ctx: Option<ScopeCtx>,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBranch {
     pub cond_node: AstNode,
     pub then_node: AstNode,
-    pub typ: Type
+    pub typ: Type,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfData {
     pub if_branch: CondBranch,
     pub else_branch: Option<AstNode>,
-    pub else_type: Type
+    pub else_type: Type,
 }
+
 
 impl IfData {
     pub fn all_types_same(&self) -> bool {
@@ -209,14 +214,16 @@ impl IfData {
 pub struct CondData {
     pub cond_branches: Vec<CondBranch>,
     pub else_branch: Option<AstNode>,
-    pub else_type: Type
+    pub else_type: Type,
 }
 
-impl CondData { //todo ignore void for method call branching when implemented
+
+impl CondData {
+    //todo ignore void for method call branching when implemented
     pub fn all_types_same(&self) -> bool {
         for branch in &self.cond_branches {
             if branch.typ != self.else_type {
-                return false
+                return false;
             }
         }
         true
@@ -242,7 +249,7 @@ pub struct ConsData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListAccData {
     pub index_expr: Option<AstNode>,
-    pub pattern: Option<u64>,
+    pub pattern: Option<Vec<u8>>,
     pub list: AstNode,
 }
 
@@ -251,7 +258,7 @@ pub struct ListAccData {
 pub struct FuncCallData {
     pub name: u64,
     pub arguments: Option<Vec<FuncArg>>,
-    pub ctx: Option<ScopeCtx>
+    pub ctx: Option<ScopeCtx>,
 }
 
 
@@ -259,22 +266,22 @@ pub struct FuncCallData {
 pub struct ObjectCallData {
     pub name: u64,
     pub accessors: LinkedList<Accessor>,
-    pub ctx: Option<ScopeCtx>
+    pub ctx: Option<ScopeCtx>,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiteralCallData {
     pub name: u64,
-    pub ctx: Option<ScopeCtx>
+    pub ctx: Option<ScopeCtx>,
 }
-
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectAssignData {
     pub access: ObjectCallData,
     pub value: AstNode,
-    pub ctx: Option<SymbolCtx>
+    pub ctx: Option<SymbolCtx>,
 }
 
 
@@ -283,8 +290,7 @@ pub struct InnerFuncCallData {
     pub expr: AstNode,
     pub accessors: Option<Vec<Accessor>>,
     pub arguments: Option<Vec<FuncArg>>,
-    pub ctx: Option<ScopeCtx>
-    
+    pub ctx: Option<ScopeCtx>,
 }
 
 

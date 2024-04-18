@@ -1,4 +1,5 @@
 use std::collections::LinkedList;
+use std::process::id;
 use ahash::AHashMap;
 use intmap::IntMap;
 use lang::types::Type;
@@ -10,11 +11,7 @@ use crate::op_codes::OpCode;
 use crate::token::*;
 use crate::token::TokenType::*;
 use crate::util;
-
-
-
-
-
+use crate::util::SCACHE;
 
 
 struct ParserState {
@@ -377,7 +374,7 @@ impl ParserState {
             TExpression(Expr::Car) => {
                 let data = ListAccData {
                     index_expr: None,
-                    pattern: Some(util::SCACHE.intern("f".to_string())),
+                    pattern: Some(vec![0]),
                     list: self.parse_list_head()?,
                 };
                 Ok(ExprListAccess(Box::new(data)))
@@ -386,7 +383,7 @@ impl ParserState {
             TExpression(Expr::Cdr) => {
                 let data = ListAccData {
                     index_expr: None,
-                    pattern: Some(util::SCACHE.intern("r".to_string())),
+                    pattern: Some(vec![1]),
                     list: self.parse_list_head()?,
                 };
                 Ok(ExprListAccess(Box::new(data)))
@@ -563,9 +560,20 @@ impl ParserState {
             let list = self.parse_list_head()?;
 
             if let Some(TokenData::String(s)) = token_data {
+                let str = SCACHE.resolve(*s);
+                let mut pattern = Vec::<u8>::with_capacity(str.chars().count());
+
+                for char in str.chars() {
+                    match char {
+                        'f' => pattern.push(0),
+                        'r' => pattern.push(1),
+                        _ => { return Err(format!("Invalid access pattern char: {}", char)); }
+                    }
+                }
+
                 let data = ListAccData {
                     index_expr: None,
-                    pattern: Some(s.clone()),
+                    pattern: Some(pattern),
                     list,
                 };
                 Ok(ExprListAccess(Box::new(data)))

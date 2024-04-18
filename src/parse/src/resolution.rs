@@ -4,6 +4,15 @@ use crate::environment::{Environment, SymbolCtx};
 use crate::util::SCACHE;
 
 
+
+// TODO notes: add better resolution for conditional statements so they can always be used
+//  as inner expression, only allow cond. to either return void for branching, or a single type.
+//  only non void types can be used for assignment, and all multi types should be flagged as 
+//  the type void for that expression (even if it has non void branches, as some expression
+//  return a value that is ignored in many context, if statements shouldnt be forced to have
+//  type cohesion across branches, just when being used inside other expressions
+
+
 pub fn resolve_types(mut program_nodes: &mut Vec<AstNode>, mut context: Environment) -> bool {
     let mut fully_resolved = true;
     for _ in 0..2 {
@@ -190,7 +199,10 @@ fn resolve(node: &mut AstNode, context: &mut Environment) -> Result<Type, String
         } //TODO handle return assignment
         AstNode::ExprCons(_) => Ok(Type::Pair),
         AstNode::ExprPairList(_) => Ok(Type::Pair),
-        AstNode::ExprListAccess(data) => Ok(Type::Pair), // TODO this will need to be runtime checked
+        AstNode::ExprListAccess(data) => {
+            resolve(&mut data.list, context)?;
+            Ok(Type::Nil)
+        }
         AstNode::ExprFuncCall(data) => Ok(context.get_symbol_type(data.name).clone()),
         AstNode::ExprFuncCalInner(data) => Ok(resolve(&mut data.expr, context)?),
         AstNode::ExprObjectCall(data) => todo!(), // TODO will need to resolve accessor to their type

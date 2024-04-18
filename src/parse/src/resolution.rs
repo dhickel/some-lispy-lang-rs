@@ -4,7 +4,6 @@ use crate::environment::{Environment, SymbolCtx};
 use crate::util::SCACHE;
 
 
-
 // TODO notes: add better resolution for conditional statements so they can always be used
 //  as inner expression, only allow cond. to either return void for branching, or a single type.
 //  only non void types can be used for assignment, and all multi types should be flagged as 
@@ -188,17 +187,39 @@ fn resolve(node: &mut AstNode, context: &mut Environment) -> Result<Type, String
             if cond_type == Type::Unresolved {
                 return Ok(Type::Unresolved);
             }
-            
+
             let body_type = resolve(&mut data.body, context)?;
             if body_type == Type::Unresolved {
                 Ok(Type::Unresolved)
             } else {
                 Ok(body_type)
             }
-            
         } //TODO handle return assignment
         AstNode::ExprCons(_) => Ok(Type::Pair),
         AstNode::ExprPairList(_) => Ok(Type::Pair),
+        AstNode::ExprArray(data) => {
+            let mut resolved = true;
+            let mut typ: Type = Type::Unresolved;
+            for i in 0..data.operands.len() {
+                let r_type = resolve(data.operands.get_mut(i).unwrap(), context)?;
+                if  Type::Unresolved == r_type {
+                   resolved = false;
+                    continue
+                } else if i == 0 {
+                    typ = r_type
+                } else if typ != r_type {
+                   return  Err(format!("Array type mismatch, expected: {:?}, found: {:?}", typ, resolved))
+                }
+            }
+            if !resolved {
+                return Ok(Type::Unresolved)
+            } else {
+                let arr_type = Type::Array(Box::new(typ.clone()));
+                context.define_type(arr_type.clone());
+                data.typ = arr_type.clone();
+                Ok(arr_type)
+            }
+        }
         AstNode::ExprListAccess(data) => {
             resolve(&mut data.list, context)?;
             Ok(Type::Nil)

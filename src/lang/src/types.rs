@@ -8,7 +8,7 @@ pub enum Type {
     Integer,
     Float,
     Boolean,
-    Vector(Box<Type>),
+    Array(Box<Type>),
     String,
     Pair,
     Nil,

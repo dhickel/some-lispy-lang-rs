@@ -86,6 +86,7 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
         "car" => Some(TExpression(Car)),
         "cdr" => Some(TExpression(Cdr)),
         "list" => Some(TExpression(Expr::List)),
+        "array" => Some(TExpression(Expr::Array)),
         "lacc" => Some(TExpression(Lacc)),
         "define" => Some(TDefinition(Define)),
         "defunc" => Some(TDefinition(DefineFunc)),
@@ -219,6 +220,7 @@ pub enum Expr {
     Lacc,
     Randi,
     Randf,
+    Array,
 }
 
 

@@ -82,6 +82,7 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         }
         AstNode::ExprCons(data) => gen_cons(data, comp_unit),
         AstNode::ExprPairList(data) => gen_list_new(data, comp_unit),
+        AstNode::ExprArray(data) => gen_array_new(data, comp_unit),
         AstNode::ExprListAccess(data) => gen_list_access(data, comp_unit),
         AstNode::ExprFuncCall(_) => todo!(),
         AstNode::ExprFuncCalInner(_) => todo!(),
@@ -143,16 +144,16 @@ fn gen_heap_store(typ: u16, size: u16) -> Result<GenData, String> {
 
 
 fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let ctx = data.ctx.unwrap();
+   // let ctx = data.ctx.unwrap(); // FIXME FIXME
     let mut code = GenData::empty();
     code.typ = 0; // TODO, types should be provided with calls as well for generation?
-    if ctx.scope < 100 {// todo fix this
+   // if ctx.scope < 100 {// todo fix this
         let name_load = gen_name_load(data.name, comp_unit)?;
         code.append_gen_data(name_load);
-        code.append_op_code(OpCode::LoadGlobal)
-    } else {
-        todo!()
-    }
+        code.append_op_code(OpCode::LoadGlobal);
+  //  } else {
+    //    todo!()
+   // }
     Ok(code)
 }
 
@@ -237,7 +238,25 @@ fn gen_list_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Strin
         code.append_gen_data(next);
         code.append_op_code(OpCode::Cons);
     }
+    Ok(code)
+}
 
+fn gen_array_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let size = data.operands.len();
+    if size > u16::MAX as usize {
+        return Err("Too many array literals (> 65,535".to_string());
+    }
+    let mut code = GenData::empty();
+    code.typ = comp_unit.ctx.types.get_type_id(&data.typ);
+
+    for op in data.operands {
+        let gen_data = gen_node(op, comp_unit)?;
+       code.append_gen_data(gen_data);
+    }
+    
+    code.append_op_code(OpCode::NewArray);
+    code.append_wide_operand(code.typ);
+    code.append_wide_operand(size as u16);
     Ok(code)
 }
 
@@ -254,7 +273,9 @@ fn gen_list_access(data: Box<ListAccData>, comp_unit: &mut CompUnit) -> Result<G
             code.append_op_code(if acc == 0 { OpCode::Car } else { OpCode::Cdr })
         }
     } else if let Some(index) = data.index_expr {
-        todo!()
+        let index_code = gen_node(index, comp_unit)?;
+        code.append_gen_data(index_code);
+        code.append_op_code(OpCode::Aacc);
     }
     Ok(code)
 }
@@ -265,7 +286,7 @@ fn append_heap_store_if_needed(mut data: GenData, comp_unit: &mut CompUnit) -> R
         Type::Integer | Type::Float | Type::Boolean => {
             data.append_gen_data(gen_heap_store(data.typ, 8)?);
         }
-        Type::Vector(_) | Type::String | Type::Pair | Type::Nil
+        Type::Array(_) | Type::String | Type::Pair | Type::Nil
         | Type::Quote | Type::Object(_) | Type::Lambda(_) => {}
         _ => panic!("Need match for type")
     }

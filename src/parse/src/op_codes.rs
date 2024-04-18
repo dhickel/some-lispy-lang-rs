@@ -70,7 +70,9 @@ pub enum OpCode {
     HeapStore,
     Cons,
     Car,
-    Cdr
+    Cdr,
+    NewArray,
+    Aacc,
 }
 
 
@@ -219,8 +221,22 @@ pub fn decode(code: &[u8]) -> Vec<String> {
             }
 
             OpCode::Cons => decoded.push("Cons".to_string()),
-            OpCode::Car =>  decoded.push("Car".to_string()),
-            OpCode::Cdr =>  decoded.push("Cdr".to_string()),
+            OpCode::Car => decoded.push("Car".to_string()),
+            OpCode::Cdr => decoded.push("Cdr".to_string()),
+
+            OpCode::NewArray => {
+                let typ1 = iter.next().unwrap();
+                let typ2 = iter.next().unwrap();
+                let size1 = iter.next().unwrap();
+                let size2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "NewArray | TypeId: {} | Size: {}",
+                    util::read_wide_bytes(*typ1, *typ2),
+                    util::read_wide_bytes(*size1, *size2))
+                )
+            }
+
+            OpCode::Aacc =>  decoded.push("Aacc".to_string()),
         }
     }
     decoded

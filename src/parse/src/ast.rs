@@ -25,6 +25,7 @@ pub enum AstNode {
     ExprWhileLoop(Box<WhileData>),
     ExprCons(Box<ConsData>),
     ExprPairList(OpData),
+    ExprArray(OpData),
     ExprListAccess(Box<ListAccData>),
     ExprFuncCall(Box<FuncCallData>),
     ExprFuncCalInner(Box<InnerFuncCallData>),

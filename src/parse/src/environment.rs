@@ -90,7 +90,7 @@ impl TypeTable {
         let id = self.type_ids.len();
 
         match &typ {
-            Type::Vector(data) => todo!(),
+            Type::Array(data) => { self.type_names.insert(SCACHE.intern("Array".to_string()), id as u16); },// FIXMe name
             Type::Object(data) => { self.type_names.insert(data.name, id as u16); }
             Type::Lambda(data) => todo!(),
             _ => panic!(),
@@ -257,7 +257,7 @@ impl<'a> Environment<'a> {
 
         match found.unwrap() {
             Type::Unresolved | Type::Integer | Type::Float | Type::String | Type::Boolean |
-            Type::Vector(_) | Type::Nil | Type::Pair => found.unwrap(),
+            Type::Array(_) | Type::Nil | Type::Pair => found.unwrap(),
             Type::Quote => todo!(),
             Type::Object(obj) => {
                 for typ in &obj.super_types {
@@ -299,7 +299,7 @@ impl<'a> Environment<'a> {
             Type::Integer => SCACHE.const_int,
             Type::Float => SCACHE.const_float,
             Type::Boolean => SCACHE.const_bool,
-            Type::Vector(_) => todo!(),
+            Type::Array(_) => todo!(),
             Type::String => SCACHE.const_string,
             Type::Pair => todo!(),
             Type::Nil => SCACHE.const_nil,

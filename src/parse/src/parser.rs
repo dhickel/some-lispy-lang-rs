@@ -359,6 +359,10 @@ impl ParserState {
                 self.parse_list()
             }
 
+            TExpression(Expr::Array) => {
+                self.parse_array()
+            }
+
             TExpression(Expr::Lacc) => {
                 self.parse_list_access()
             }
@@ -396,6 +400,8 @@ impl ParserState {
             TExpression(Expr::Randf) => {
                 self.parse_rand(true)
             }
+            
+           
 
             _ => Err(format!("Expected expression found {:?}", expression))
         }
@@ -538,6 +544,20 @@ impl ParserState {
         } else {
             let data = OpData { operation: Op::List, operands: elements, typ: Type::Unresolved };
             Ok(ExprPairList(data))
+        }
+    }
+    
+    pub fn parse_array(&mut self) -> Result<AstNode, String> {
+        let mut elements = Vec::<AstNode>::new();
+        while self.peek().token_type != TLexical(Lex::RightParen) {
+            elements.push(self.parse_expr_data()?);
+        }
+
+        if elements.is_empty() {
+            Ok(LitNil)
+        } else {
+            let data = OpData { operation: Op::List, operands: elements, typ: Type::Unresolved };
+            Ok(ExprArray(data))
         }
     }
 

@@ -869,6 +869,7 @@ impl<'a> Vm<'a> {
                         self.push_arbitrary_bytes((meta.loc, 8));
                     }
                 }
+                
                 OpCode::Cdr => {
                     unsafe {
                         let pair_ref = self.pop_ref();
@@ -879,7 +880,29 @@ impl<'a> Vm<'a> {
                         // Only push last 8 bytes for cdr
                         self.push_arbitrary_bytes((meta.loc.add(8), 8));
                     }
-                    
+                }
+                
+                OpCode::NewArray => {
+                    let typ = self.read_wide_inst();
+                    let size = self.read_wide_inst() as usize * 8;
+                    unsafe {
+                        let ptr = self.stack_top.sub(size);
+                        // Can copy directly off the stack as all value/refs will be on it ordered
+                        let heap_ref = self.heap.insert_bytes(ptr, size, typ);
+                        self.stack_top = ptr;
+                        self.push_ref(heap_ref);
+                    }
+                }
+                OpCode::Aacc => {
+                    let arr_ref = self.pop_ref();
+                    let index = self.pop_i64() as usize;
+                    let arr_meta = self.heap.get_item_meta(arr_ref);
+                    if index < 0 || index * 8 > arr_meta.size{
+                        panic!("Invalid index for  access, index: {}, array length: {}", index, arr_meta.size / 8)
+                    }
+                    unsafe {
+                        self.push_arbitrary_bytes((arr_meta.loc.add(index * 8), 8))
+                    }
                 }
             }
             

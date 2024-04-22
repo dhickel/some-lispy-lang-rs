@@ -1,7 +1,6 @@
 use ahash::{AHashMap, HashMap};
 use intmap::IntMap;
 use lang::types::{ObjType, Type};
-use lang::types::Type::Unresolved;
 use crate::util::{SCACHE, SCache};
 
 
@@ -29,8 +28,8 @@ pub struct TypeTable {
 }
 
 
-impl TypeTable {
-    pub fn new() -> Self {
+impl Default for TypeTable {
+    fn default() -> Self {
         let mut type_defs = AHashMap::<Type, u16>::with_capacity(50);
         let mut type_ids = Vec::<Type>::with_capacity(50);
         let mut type_names = AHashMap::<u64, u16>::with_capacity(50);
@@ -78,9 +77,12 @@ impl TypeTable {
             pair,
         }
     }
+}
+
+impl TypeTable {
 
     pub fn get_or_define_type(&mut self, typ: Type) -> u16 {
-        if typ == Unresolved {
+        if typ == Type::Unresolved {
             panic!("Passed unresolved type to define_type");
         }
         if self.type_defs.contains_key(&typ) {
@@ -165,7 +167,7 @@ impl Default for Context {
         Context {
             symbols,
             globals,
-            types: TypeTable::new(),
+            types: TypeTable::default(),
         }
     }
 }
@@ -187,7 +189,7 @@ impl<'a> Environment<'a> {
             curr_depth: 0,
             active_scopes: Vec::<u32>::with_capacity(10),
             ctx,
-            unresolved: Unresolved,
+            unresolved: Type::Unresolved,
         }
     }
 

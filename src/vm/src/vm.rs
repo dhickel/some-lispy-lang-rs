@@ -668,6 +668,7 @@ impl<'a> Vm<'a> {
                     }
                     self.push_bool(true)
                 }
+                
                 OpCode::LogicXor => {
                     let mut truths = 0;
                     let n = self.read_inst();
@@ -893,6 +894,7 @@ impl<'a> Vm<'a> {
                         self.push_ref(heap_ref);
                     }
                 }
+                
                 OpCode::Aacc => {
                     let arr_ref = self.pop_ref();
                     let index = self.pop_i64() as usize;

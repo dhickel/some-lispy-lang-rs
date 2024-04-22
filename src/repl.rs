@@ -30,7 +30,7 @@ fn main() {
     let env = Environment::new(&mut ctx);
 
 
-    let input = "(define x (array 0 11 22 33 44 55 66 77 88 99)) (lacc x 4)".to_string();
+    let input = "(define x (array 0 11 22 33 44 55 66 77 88 99)) (* (lacc x 2)(lacc x 4))".to_string();
 
     let t = nano_time!();
     let tokens = parser::lexer::process(input).expect("Token Err");
@@ -111,9 +111,9 @@ fn main() {
     // let mut env = Environment::new();
     // let mut loader = RefCell::new(ClassLoader::default());
     // let mut string_cache = Rodeo::default();
-    // 
+    //
     // println!("Size of Stuct: {}", std::mem::size_of::<SmallInst>());
-    // 
+    //
     // loop {
     //     print!("> ");
     //     let mut input = String::new();
@@ -129,7 +129,7 @@ fn main() {
     //         }
     //         // }
     //         Err(error) => println!("error: {}", error),
-    // 
+    //
     //         // match parse::lexer::process(input) {
     //         //     Ok(tokens) => {
     //         //         println!("Tokens: {:?}\n", tokens);

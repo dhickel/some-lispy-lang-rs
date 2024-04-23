@@ -116,7 +116,9 @@ checksum = "ee87fd093563344074bacf24faa0bb0227fb6969fb223e922db798516de924d6"
 name = "lang"
 version = "0.1.0"
 dependencies = [
- "lasso",
+ "ahash",
+ "intmap",
+ "lazy_static",
 ]
 
 [[package]]
@@ -199,8 +201,6 @@ dependencies = [
  "ahash",
  "intmap",
  "lang",
- "lasso",
- "lazy_static",
  "rand",
 ]
 

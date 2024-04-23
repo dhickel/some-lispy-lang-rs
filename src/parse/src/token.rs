@@ -6,6 +6,7 @@ use crate::token::Lit::*;
 use crate::token::Mod::*;
 use crate::token::Def::*;
 use crate::token::TokenType::*;
+use crate::util::IString;
 
 
 pub fn match_single_token(input: char) -> Option<TokenType> {
@@ -248,7 +249,7 @@ pub enum Mod {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenData {
-    String(u64),
+    String(IString),
     Integer(i64),
     Float(f64),
 }

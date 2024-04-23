@@ -1,20 +1,28 @@
 use std::alloc::{alloc, Layout};
-use std::cell::{RefCell, UnsafeCell};
-use std::ops::Deref;
-use std::ptr::NonNull;
-use std::sync::{Mutex, RwLock, RwLockReadGuard};
+use std::sync::{Mutex};
 
 use ahash::AHashMap;
-use intmap::IntMap;
 use lazy_static::lazy_static;
-use crate::code_gen::GenData;
-use crate::environment::Context;
-use crate::op_codes::OpCode;
+
 
 
 pub struct Interner {
     map: AHashMap<String, u64>,
     list: Vec<*const str>,
+}
+
+
+// TODO
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub struct IString {
+    pub value: u64,
+}
+
+
+impl PartialEq<u64> for IString {
+    fn eq(&self, other: &u64) -> bool {
+        self.value == *other
+    }
 }
 
 
@@ -35,21 +43,27 @@ impl Default for Interner {
 
 
 impl Interner {
-    pub fn intern(&mut self, string: String) -> u64 {
+    pub fn intern(&mut self, string: String) -> IString {
         if let Some(&id) = self.map.get(&string) {
-            return id;
+            return IString { value: id };
         }
 
         let new_id = self.list.len() as u64;
         let raw_ptr = string.as_str() as *const str;
         self.list.push(raw_ptr);
         self.map.insert(string, new_id);
-        new_id
+        IString { value: new_id }
     }
 
-    pub fn resolve(&self, id: u64) -> &str {
+    pub fn resolve(&self, i_string: IString) -> &str {
         unsafe {
-            self.list.get(id as usize).map(|&ptr| &*ptr).expect("Invalid interned id")
+            self.list.get(i_string.value as usize).map(|&ptr| &*ptr).expect("Invalid interned id")
+        }
+    }
+
+    pub fn resolve_value(&self, value: u64) -> &str {
+        unsafe {
+            self.list.get(value as usize).map(|&ptr| &*ptr).expect("Invalid interned id")
         }
     }
 
@@ -72,20 +86,20 @@ impl Drop for Interner {
 
 pub struct SCache {
     pub cache: Mutex<Interner>,
-    pub const_init: u64,
-    pub const_param: u64,
-    pub const_var: u64,
-    pub const_func: u64,
-    pub const_pre: u64,
-    pub const_post: u64,
-    pub const_final: u64,
-    pub const_validate: u64,
-    pub const_int: u64,
-    pub const_float: u64,
-    pub const_bool: u64,
-    pub const_string: u64,
-    pub const_nil: u64,
-    pub const_pair: u64,
+    pub const_init: IString,
+    pub const_param: IString,
+    pub const_var: IString,
+    pub const_func: IString,
+    pub const_pre: IString,
+    pub const_post: IString,
+    pub const_final: IString,
+    pub const_validate: IString,
+    pub const_int: IString,
+    pub const_float: IString,
+    pub const_bool: IString,
+    pub const_string: IString,
+    pub const_nil: IString,
+    pub const_pair: IString,
 }
 
 
@@ -129,7 +143,7 @@ impl Default for SCache {
 
 
 impl SCache {
-    pub fn intern(&self, s: String) -> u64 {
+    pub fn intern(&self, s: String) -> IString {
         self.cache.lock().unwrap().intern(s)
     }
 
@@ -137,9 +151,17 @@ impl SCache {
     // rw lock the value is owned by the lock. As such this function transmutes
     // the pointer to static as to be able to return it. These reference are never
     // stored externally and are just used for temporary access.
-    pub fn resolve(&self, id: u64) -> &str {
+    pub fn resolve(&self, id: IString) -> &str {
         let interner = self.cache.lock().unwrap();
         let string_ref: &str = interner.resolve(id);
+        unsafe {
+            std::mem::transmute::<&str, &'static str>(string_ref)
+        }
+    }
+
+    pub fn resolve_value(&self, id: u64) -> &str {
+        let interner = self.cache.lock().unwrap();
+        let string_ref: &str = interner.resolve_value(id);
         unsafe {
             std::mem::transmute::<&str, &'static str>(string_ref)
         }
@@ -168,73 +190,6 @@ pub fn get_byte_array(size: usize) -> *mut u8 {
         let ptr = alloc(layout);
         if ptr.is_null() { panic!("Failed to allocate memory"); }
         ptr
-    }
-}
-
-
-pub enum ConstValue {
-    Integer,
-    Float,
-    String,
-}
-
-
-#[derive(Debug)]
-pub struct CompUnit<'a> {
-    pub code: Vec<u8>,
-    pub constants: Vec<[u8; 8]>,
-    pub existing_str: AHashMap<u64, u16>,
-    pub ctx: &'a mut Context
-}
-
-
-impl <'a>CompUnit<'a> {
-    pub fn write_op_code(&mut self, op: OpCode) {
-        self.code.push(op as u8)
-    }
-
-    pub fn write_operand(&mut self, val: u8) {
-        self.code.push(val);
-    }
-
-    pub fn write_wide_inst(&mut self, val: u16) {
-        self.code.push((val & 0xFF) as u8);
-        self.code.push(((val >> 8) & 0xFF) as u8);
-    }
-
-    fn add_constant(&mut self, bytes: [u8; 8]) -> u16 {
-        unsafe {
-            let curr_index = self.constants.len();
-            if curr_index >= u16::MAX as usize {
-                panic!("Exceeded size of constant pool")
-            }
-            self.constants.push(bytes);
-            curr_index as u16
-        }
-    }
-
-    pub fn push_constant<T>(&mut self, value: &T) -> u16 {
-        unsafe {
-            let size = std::mem::size_of::<T>();
-            if size > 8 {
-                panic!("Attempted to add constant of more than 8 bytes");
-            }
-
-            let value_ptr = value as *const T as *const u8;
-            let bytes_slice = std::slice::from_raw_parts(value_ptr, size);
-
-            let mut padded_bytes = [0u8; 8];
-            if size < 8 {
-                padded_bytes[8 - size..].copy_from_slice(bytes_slice);
-            } else {
-                padded_bytes.copy_from_slice(bytes_slice);
-            }
-
-            self.add_constant(padded_bytes)
-        }
-    }
-    pub fn push_code_gen(&mut self, mut other: GenData) {
-        self.code.append(&mut other.code);
     }
 }
 

@@ -7,8 +7,6 @@ edition = "2021"
 
 [dependencies]
 ahash = "0.8.11"
-lasso = "0.7.2"
-lazy_static = "1.4.0"
 rand = "0.8.5"
 intmap = "2.0.0"
 lang = {path = "../lang"}

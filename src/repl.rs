@@ -4,7 +4,6 @@ extern crate core;
 use std::time::{SystemTime, UNIX_EPOCH};
 use ahash::AHashMap;
 
-use parser::environment::{Context, Environment};
 use parser::op_codes::OpCode;
 
 use parser::util::{CompUnit, SCACHE};

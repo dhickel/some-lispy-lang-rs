@@ -1,7 +1,11 @@
 use std::collections::LinkedList;
+use lang::environment::SymbolCtx;
 use lang::types::Type;
+use lang::util::IString;
+use crate::types::Type;
 use crate::environment::{ScopeCtx, SymbolCtx};
 use crate::token::{Mod, Op};
+use crate::util::IString;
 
 
 // Nodes
@@ -65,10 +69,10 @@ trait CodeGen {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefVarData {
-    pub name: u64,
+    pub name: IString,
     pub modifiers: Option<Vec<Mod>>,
     pub value: AstNode,
-    pub d_type: Option<u64>,
+    pub d_type: Option<IString>,
     pub ctx: Option<SymbolCtx>,
 }
 
@@ -78,7 +82,7 @@ pub struct DefLambdaData {
     pub modifiers: Option<Vec<Mod>>,
     pub parameters: Option<Vec<Param>>,
     pub body: AstNode,
-    pub d_type: Option<u64>,
+    pub d_type: Option<IString>,
     pub typ: Type,
     pub ctx: Option<SymbolCtx>,
 }
@@ -86,26 +90,26 @@ pub struct DefLambdaData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefFuncData {
-    pub name: u64,
+    pub name: IString,
     pub lambda: DefLambdaData,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
-    pub name: u64,
+    pub name: IString,
     pub optional: bool,
     pub default_value: Option<AstNode>,
     pub dynamic: bool,
     pub mutable: bool,
-    pub d_type: Option<u64>,
+    pub d_type: Option<IString>,
     pub c_type: Type,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefStructData {
-    pub name: u64,
+    pub name: IString,
     pub fields: Option<Vec<Field>>,
     pub ctx: Option<SymbolCtx>,
 }
@@ -113,7 +117,7 @@ pub struct DefStructData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefClassData {
-    pub name: u64,
+    pub name: IString,
     pub params: Option<Vec<Mod>>,
     pub fields: Option<Vec<Field>>,
     pub init: Option<Vec<DefLambdaData>>,
@@ -127,7 +131,7 @@ pub struct DefClassData {
 
 
 impl DefClassData {
-    pub fn empty_def(name: u64) -> DefClassData {
+    pub fn empty_def(name: IString) -> DefClassData {
         DefClassData {
             name,
             params: None,
@@ -146,7 +150,7 @@ impl DefClassData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DirectInst {
-    pub name: u64,
+    pub name: IString,
     pub args: Option<Vec<InstArgs>>,
     pub ctx: Option<ScopeCtx>,
 }
@@ -154,9 +158,9 @@ pub struct DirectInst {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
-    pub name: u64,
+    pub name: IString,
     pub modifiers: Option<Vec<Mod>>,
-    pub p_type: Option<u64>,
+    pub p_type: Option<IString>,
     pub default_value: Option<AstNode>,
     pub c_type: Type,
 }
@@ -182,7 +186,7 @@ pub struct MultiExprData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignData {
-    pub name: u64,
+    pub name: IString,
     pub value: AstNode,
     pub ctx: Option<ScopeCtx>,
 }
@@ -257,7 +261,7 @@ pub struct ListAccData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncCallData {
-    pub name: u64,
+    pub name: IString,
     pub arguments: Option<Vec<FuncArg>>,
     pub ctx: Option<ScopeCtx>,
 }
@@ -265,7 +269,7 @@ pub struct FuncCallData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectCallData {
-    pub name: u64,
+    pub name: IString,
     pub accessors: LinkedList<Accessor>,
     pub ctx: Option<ScopeCtx>,
 }
@@ -273,7 +277,7 @@ pub struct ObjectCallData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiteralCallData {
-    pub name: u64,
+    pub name: IString,
     pub ctx: Option<ScopeCtx>,
 }
 
@@ -297,7 +301,7 @@ pub struct InnerFuncCallData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Accessor {
-    pub name: u64,
+    pub name: IString,
     pub is_field: bool,
     pub args: Option<Vec<FuncArg>>,
 }
@@ -306,13 +310,13 @@ pub struct Accessor {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncArg {
     pub value: AstNode,
-    pub name: Option<u64>,
+    pub name: Option<IString>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InstArgs {
-    pub name: u64,
+    pub name: IString,
     pub value: AstNode,
 }
 

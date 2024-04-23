@@ -1,17 +1,13 @@
 use std::collections::LinkedList;
-use std::process::id;
-use ahash::AHashMap;
-use intmap::IntMap;
 use lang::types::Type;
+use lang::util;
+use lang::util::{IString, SCACHE};
+use crate::types::Type;
 use crate::ast::*;
 use crate::ast::AstNode::*;
-use crate::code_gen::GenData;
-use crate::environment::{Binding, Environment};
-use crate::op_codes::OpCode;
 use crate::token::*;
 use crate::token::TokenType::*;
-use crate::util;
-use crate::util::SCACHE;
+
 
 
 struct ParserState {
@@ -19,31 +15,38 @@ struct ParserState {
     pub current: usize,
     pub end: usize,
     pub depth: i32,
-    pub globals: IntMap<Binding>,
     pub warnings: Vec<String>,
+    pub name_space: IString,
+}
+
+
+pub struct ParseResult {
+    pub name_space: IString,
+    pub root_expressions: Vec<AstNode>
 }
 
 
 impl ParserState {
     pub fn new(tokens: Vec<Token>) -> ParserState {
         let len = tokens.len();
+
         ParserState {
             tokens,
             current: 0,
             end: len,
             depth: 0,
-            globals: IntMap::<Binding>::with_capacity(50),
             warnings: Vec::<String>::new(),
+            name_space: SCACHE.intern("main".to_string()),
         }
     }
 
 
-    pub fn process(&mut self) -> Result<Vec<AstNode>, String> {
+    pub fn process(&mut self) -> Result<ParseResult, String> {
         let mut root_expressions = Vec::<AstNode>::new();
         while self.have_next() {
             root_expressions.push(self.parse_expr_data()?);
         }
-        Ok(root_expressions)
+        Ok(ParseResult{name_space: self.name_space, root_expressions})
     }
 
 
@@ -400,8 +403,6 @@ impl ParserState {
             TExpression(Expr::Randf) => {
                 self.parse_rand(true)
             }
-            
-           
 
             _ => Err(format!("Expected expression found {:?}", expression))
         }
@@ -546,7 +547,7 @@ impl ParserState {
             Ok(ExprPairList(data))
         }
     }
-    
+
     pub fn parse_array(&mut self) -> Result<AstNode, String> {
         let mut elements = Vec::<AstNode>::new();
         while self.peek().token_type != TLexical(Lex::RightParen) {
@@ -643,7 +644,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_type_if_exists(&mut self) -> Result<Option<u64>, String> {
+    pub fn parse_type_if_exists(&mut self) -> Result<Option<IString>, String> {
         let typ = if let TSyntactic(Syn::DoubleColon) = &self.peek().token_type {
             self.advance()?;
             let next = self.advance()?;
@@ -658,7 +659,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_identifier(&mut self, identifier: u64) -> Result<AstNode, String> {
+    pub fn parse_identifier(&mut self, identifier: IString) -> Result<AstNode, String> {
         let name = identifier;
         let mut accessors = None;
 
@@ -790,7 +791,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_instance(&mut self, name: u64) -> Result<AstNode, String> {
+    pub fn parse_instance(&mut self, name: IString) -> Result<AstNode, String> {
         if self.previous_n(2).token_type == TLexical(Lex::LeftParen) {
             let arguments = self.parse_func_args()?;
             let data = FuncCallData { name, arguments, ctx: None };
@@ -867,7 +868,7 @@ impl ParserState {
             self.consume(TSyntactic(Syn::Colon))?;
 
             match &self.peek().data {
-                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_init => {
+                Some(TokenData::String(init)) if init == &util::SCACHE.const_init => {
                     self.advance()?;
                     let mut init_vec = Vec::<DefLambdaData>::with_capacity(4);
 
@@ -884,7 +885,7 @@ impl ParserState {
                     class_data.init = if init_vec.is_empty() { None } else { Some(init_vec) }
                 }
 
-                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_func => {
+                Some(TokenData::String(istring)) if istring == &util::SCACHE.const_func => {
                     self.advance()?;
                     let mut func_vec = Vec::<DefFuncData>::with_capacity(4);
 
@@ -902,32 +903,32 @@ impl ParserState {
                     class_data.methods = if func_vec.is_empty() { None } else { Some(func_vec) }
                 }
 
-                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_param => {
+                Some(TokenData::String(istring)) if istring == &util::SCACHE.const_param => {
                     self.advance()?;
                     class_data.params = self.parse_modifiers()?;
                 }
 
-                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_var => {
+                Some(TokenData::String(istring)) if istring == &util::SCACHE.const_var => {
                     self.advance()?;
                     class_data.fields = self.parse_fields()?
                 }
 
-                Some(TokenData::String(u64)) if u64 == &util::SCACHE.const_pre => {
+                Some(TokenData::String(istring)) if istring == &util::SCACHE.const_pre => {
                     self.advance()?;
                     class_data.pre_init = self.parse_multi_expr()?;
                 }
 
-                Some(TokenData::String(u64))if u64 == &util::SCACHE.const_post => {
+                Some(TokenData::String(istring))if istring == &util::SCACHE.const_post => {
                     self.advance()?;
                     class_data.post_init = self.parse_multi_expr()?;
                 }
 
-                Some(TokenData::String(u64))if u64 == &util::SCACHE.const_final => {
+                Some(TokenData::String(istring))if istring == &util::SCACHE.const_final => {
                     self.advance()?;
                     class_data.fin = self.parse_multi_expr()?;
                 }
 
-                Some(TokenData::String(u64))if u64 == &util::SCACHE.const_validate => {
+                Some(TokenData::String(istring))if istring == &util::SCACHE.const_validate => {
                     self.advance()?;
                     class_data.validate = self.parse_multi_expr()?;
                 }
@@ -1119,7 +1120,7 @@ impl ParserState {
 }
 
 
-pub fn process(tokens: Vec<Token>) -> Result<Vec<AstNode>, String> {
+pub fn process(tokens: Vec<Token>) -> Result<ParseResult, String> {
     let mut state = ParserState::new(tokens);
     state.process()
 }

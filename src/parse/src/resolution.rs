@@ -1,7 +1,9 @@
+use lang::environment::Environment;
 use lang::types::Type;
+use lang::util::SCACHE;
 use crate::ast::AstNode;
-use crate::environment::{Environment, SymbolCtx};
-use crate::util::SCACHE;
+use crate::parser::ParseResult;
+
 
 
 // TODO notes: add better resolution for conditional statements so they can always be used
@@ -12,11 +14,11 @@ use crate::util::SCACHE;
 //  type cohesion across branches, just when being used inside other expressions
 
 
-pub fn resolve_types(mut program_nodes: &mut Vec<AstNode>, mut context: Environment) -> bool {
+pub fn resolve_types(mut parse_result: &mut ParseResult, mut context: Environment) -> bool {
     let mut fully_resolved = true;
     for _ in 0..2 {
         fully_resolved = true;
-        for node in program_nodes.iter_mut() {
+        for node in parse_result.root_expressions.iter_mut() {
             if resolve(node, &mut context) == Ok(Type::Unresolved) {
                 fully_resolved = false;
             }

@@ -1,18 +1,43 @@
-#![allow(E0004)]
 
-
-use std::any::Any;
 use std::cmp::PartialEq;
-use std::fmt::format;
-use lang::types::Type;
+use lang::environment::MetaSpace;
+
 
 
 use crate::ast::{AssignData, AstNode, ConsData, DefVarData, IfData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
 use crate::op_codes::OpCode;
 use crate::token::Op;
-use crate::{op_codes, util};
-use crate::token::Op::PlusPlus;
-use crate::util::{CompUnit, SCACHE};
+
+
+
+
+#[derive(Debug)]
+pub struct CompUnit<'a> {
+    pub code: Vec<u8>,
+    pub meta_space: &'a mut MetaSpace,
+}
+
+
+impl<'a> CompUnit<'a> {
+    pub fn write_op_code(&mut self, op: OpCode) {
+        self.code.push(op as u8)
+    }
+
+    pub fn write_operand(&mut self, val: u8) {
+        self.code.push(val);
+    }
+
+    pub fn write_wide_inst(&mut self, val: u16) {
+        self.code.push((val & 0xFF) as u8);
+        self.code.push(((val >> 8) & 0xFF) as u8);
+    }
+
+ 
+
+    pub fn push_code_gen(&mut self, mut other: GenData) {
+        self.code.append(&mut other.code);
+    }
+}
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -209,7 +234,7 @@ fn gen_cons(data: Box<ConsData>, comp_unit: &mut CompUnit) -> Result<GenData, St
    // let cdr_code = append_heap_store_if_needed(cdr_code, comp_unit)?;
 
     let mut code = GenData::empty();
-    code.typ = comp_unit.ctx.types.pair;
+    code.typ = comp_unit.meta_space.types.pair;
 
     code.append_gen_data(cdr_code);
     code.append_gen_data(car_code);
@@ -222,7 +247,7 @@ fn gen_cons(data: Box<ConsData>, comp_unit: &mut CompUnit) -> Result<GenData, St
 fn gen_list_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut operands = Vec::<GenData>::with_capacity(data.operands.len());
     let mut code = GenData::empty();
-    code.typ = comp_unit.ctx.types.pair;
+    code.typ = comp_unit.meta_space.types.pair;
 
     for op in data.operands {
         let gen_data = gen_node(op, comp_unit)?;
@@ -247,7 +272,7 @@ fn gen_array_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         return Err("Too many array literals (> 65,535".to_string());
     }
     let mut code = GenData::empty();
-    code.typ = comp_unit.ctx.types.get_type_id(&data.typ);
+    code.typ = comp_unit.meta_space.types.get_type_id(&data.typ);
 
     for op in data.operands {
         let gen_data = gen_node(op, comp_unit)?;
@@ -263,7 +288,7 @@ fn gen_array_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 
 fn gen_list_access(data: Box<ListAccData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::empty();
-    code.typ = comp_unit.ctx.types.nil;
+    code.typ = comp_unit.meta_space.types.nil;
     
     let list_code = gen_node(data.list, comp_unit)?;
     code.append_gen_data(list_code);
@@ -282,7 +307,7 @@ fn gen_list_access(data: Box<ListAccData>, comp_unit: &mut CompUnit) -> Result<G
 
 
 fn append_heap_store_if_needed(mut data: GenData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    match comp_unit.ctx.types.get_type_by_id(data.typ) {
+    match comp_unit.meta_space.types.get_type_by_id(data.typ) {
         Type::Integer | Type::Float | Type::Boolean => {
             data.append_gen_data(gen_heap_store(data.typ, 8)?);
         }
@@ -307,7 +332,7 @@ fn gen_multi_expr(mut data: MultiExprData, comp_unit: &mut CompUnit) -> Result<G
 
 fn gen_if_expr(data: Box<IfData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::empty();
-    code.typ = comp_unit.ctx.types.get_type_id(&data.if_branch.typ);
+    code.typ = comp_unit.meta_space.types.get_type_id(&data.if_branch.typ);
 
     let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
     code.append_gen_data(cond_data);
@@ -330,7 +355,7 @@ fn gen_if_expr(data: Box<IfData>, comp_unit: &mut CompUnit) -> Result<GenData, S
 
 fn gen_while_loop(data: Box<WhileData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::empty();
-    code.typ = comp_unit.ctx.types.get_type_id(&Type::Boolean);
+    code.typ = comp_unit.meta_space.types.get_type_id(&Type::Boolean);
 
     let body = gen_node(data.body, comp_unit)?;
     println!("Body: {:?}", body);
@@ -368,7 +393,7 @@ fn gen_numerical_lit(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData,
 
     let data = GenData {
         code,
-        typ: comp_unit.ctx.types.get_type_id(&value.1),
+        typ: comp_unit.meta_space.types.get_type_id(&value.1),
     };
     Ok(data)
 }
@@ -380,15 +405,15 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 
     for operand in data.operands {
         let gen_data = gen_node(operand, comp_unit)?;
-        if gen_data.typ == comp_unit.ctx.types.float {
+        if gen_data.typ == comp_unit.meta_space.types.float {
             is_float = true
         }
         operands.push(gen_data)
     }
 
     for operand in &mut operands {
-        if is_float && operand.typ != comp_unit.ctx.types.float {
-            if operand.typ == comp_unit.ctx.types.int || operand.typ == comp_unit.ctx.types.bool {
+        if is_float && operand.typ != comp_unit.meta_space.types.float {
+            if operand.typ == comp_unit.meta_space.types.int || operand.typ == comp_unit.meta_space.types.bool {
                 operand.append_op_code(OpCode::I64ToF64)
             } else { return Err(format!("Unexpected node type for operation: {:?}", operand.typ).to_string()); }
         }
@@ -398,7 +423,7 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 
     let code = GenData {
         code: Vec::<u8>::with_capacity(capacity),
-        typ: if is_float { comp_unit.ctx.types.float } else { comp_unit.ctx.types.int },
+        typ: if is_float { comp_unit.meta_space.types.float } else { comp_unit.meta_space.types.int },
     };
 
 

@@ -1,6 +1,4 @@
-use parser::environment::{Context, NameSpace};
-use parser::types::TypeTable;
-use parser::util;
+use lang::util;
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -74,15 +72,15 @@ impl Heap {
         let loc = self.get_insert_loc(size);
         std::ptr::copy_nonoverlapping(ptr, loc, size);
 
-        let tag = HeapItem {
+        let item = HeapItem {
             typ,
-            size: size,
+            size,
             loc,
             active: true,
         };
 
         let index = self.get_index();
-        self.items.insert(index, tag);
+        self.items.insert(index, item);
         index as u64
     }
 
@@ -90,14 +88,16 @@ impl Heap {
         let loc = self.get_insert_loc(size * 2);
         std::ptr::copy_nonoverlapping(car_ptr, loc, size);
         std::ptr::copy_nonoverlapping(cdr_ptr, loc.add(size), size);
-        let tag = HeapItem {
+        
+        let item = HeapItem {
             typ,
             size: size * 2,
             loc,
             active: true,
         };
+        
         let index = self.get_index();
-        self.items.insert(index, tag);
+        self.items.insert(index, item);
         index as u64
     }
 

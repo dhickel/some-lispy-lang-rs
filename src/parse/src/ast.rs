@@ -1,11 +1,9 @@
 use std::collections::LinkedList;
-use lang::environment::SymbolCtx;
-use lang::types::Type;
+
 use lang::util::IString;
-use crate::types::Type;
-use crate::environment::{ScopeCtx, SymbolCtx};
+use crate::environment::SymbolCtx;
 use crate::token::{Mod, Op};
-use crate::util::IString;
+use crate::types::Type;
 
 
 // Nodes
@@ -152,7 +150,7 @@ impl DefClassData {
 pub struct DirectInst {
     pub name: IString,
     pub args: Option<Vec<InstArgs>>,
-    pub ctx: Option<ScopeCtx>,
+    pub ctx: Option<SymbolCtx>,
 }
 
 
@@ -188,7 +186,7 @@ pub struct MultiExprData {
 pub struct AssignData {
     pub name: IString,
     pub value: AstNode,
-    pub ctx: Option<ScopeCtx>,
+    pub ctx: Option<SymbolCtx>,
 }
 
 
@@ -263,7 +261,7 @@ pub struct ListAccData {
 pub struct FuncCallData {
     pub name: IString,
     pub arguments: Option<Vec<FuncArg>>,
-    pub ctx: Option<ScopeCtx>,
+    pub ctx: Option<SymbolCtx>,
 }
 
 
@@ -271,14 +269,14 @@ pub struct FuncCallData {
 pub struct ObjectCallData {
     pub name: IString,
     pub accessors: LinkedList<Accessor>,
-    pub ctx: Option<ScopeCtx>,
+    pub ctx: Option<SymbolCtx>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiteralCallData {
     pub name: IString,
-    pub ctx: Option<ScopeCtx>,
+    pub ctx: Option<SymbolCtx>,
 }
 
 
@@ -295,7 +293,7 @@ pub struct InnerFuncCallData {
     pub expr: AstNode,
     pub accessors: Option<Vec<Accessor>>,
     pub arguments: Option<Vec<FuncArg>>,
-    pub ctx: Option<ScopeCtx>,
+    pub ctx: Option<SymbolCtx>,
 }
 
 

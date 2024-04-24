@@ -263,8 +263,7 @@ impl<'a> Vm<'a> {
         }
     }
 
-
-    //
+    
     pub fn run(&mut self) -> InterpResult {
         self.stack_top = self.stack.as_mut_ptr();
         self.ip = self.comp_unit.code.as_mut_ptr();

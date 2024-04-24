@@ -1,5 +1,5 @@
 use ahash::AHashMap;
-use crate::util::{IString, SCACHE};
+use lang::util::{IString, SCACHE};
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

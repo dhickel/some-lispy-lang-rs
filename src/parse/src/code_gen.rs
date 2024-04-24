@@ -1,14 +1,12 @@
-
 use std::cmp::PartialEq;
-use lang::environment::MetaSpace;
-
+use lang::util;
 
 
 use crate::ast::{AssignData, AstNode, ConsData, DefVarData, IfData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
+use crate::environment::MetaSpace;
 use crate::op_codes::OpCode;
 use crate::token::Op;
-
-
+use crate::types::Type;
 
 
 #[derive(Debug)]
@@ -19,21 +17,19 @@ pub struct CompUnit<'a> {
 
 
 impl<'a> CompUnit<'a> {
-    pub fn write_op_code(&mut self, op: OpCode) {
+    pub fn push_op_code(&mut self, op: OpCode) {
         self.code.push(op as u8)
     }
 
-    pub fn write_operand(&mut self, val: u8) {
+    pub fn push_operand(&mut self, val: u8) {
         self.code.push(val);
     }
 
-    pub fn write_wide_inst(&mut self, val: u16) {
+    pub fn push_wide_inst(&mut self, val: u16) {
         self.code.push((val & 0xFF) as u8);
         self.code.push(((val >> 8) & 0xFF) as u8);
     }
-
- 
-
+    
     pub fn push_code_gen(&mut self, mut other: GenData) {
         self.code.append(&mut other.code);
     }
@@ -98,13 +94,9 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::ExprAssignment(data) => gen_assignment(data, comp_unit),
         AstNode::ExprMulti(data) => gen_multi_expr(data, comp_unit),
         AstNode::ExprPrint(_) => todo!(),
-        AstNode::ExprIf(data) => {
-            gen_if_expr(data, comp_unit)
-        }
+        AstNode::ExprIf(data) => gen_if_expr(data, comp_unit),
         AstNode::ExprCond(_) => todo!(),
-        AstNode::ExprWhileLoop(data) => {
-            gen_while_loop(data, comp_unit)
-        }
+        AstNode::ExprWhileLoop(data) => gen_while_loop(data, comp_unit),
         AstNode::ExprCons(data) => gen_cons(data, comp_unit),
         AstNode::ExprPairList(data) => gen_list_new(data, comp_unit),
         AstNode::ExprArray(data) => gen_array_new(data, comp_unit),
@@ -117,9 +109,7 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::ExprGenRand(_) => todo!(),
         AstNode::ExprDirectInst(_) => todo!(),
         AstNode::ExprInitInst(_) => todo!(),
-        AstNode::Operation(op_data) => {
-            gen_operation(op_data, comp_unit)
-        }
+        AstNode::Operation(op_data) => gen_operation(op_data, comp_unit),
         AstNode::LitInteger(_) | AstNode::LitFloat(_) | AstNode::LitBoolean(_) => {
             gen_numerical_lit(node, comp_unit)
         }
@@ -169,16 +159,16 @@ fn gen_heap_store(typ: u16, size: u16) -> Result<GenData, String> {
 
 
 fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-   // let ctx = data.ctx.unwrap(); // FIXME FIXME
+    // let ctx = data.ctx.unwrap(); // FIXME FIXME
     let mut code = GenData::empty();
     code.typ = 0; // TODO, types should be provided with calls as well for generation?
-   // if ctx.scope < 100 {// todo fix this
-        let name_load = gen_name_load(data.name, comp_unit)?;
-        code.append_gen_data(name_load);
-        code.append_op_code(OpCode::LoadGlobal);
-  //  } else {
+    // if ctx.scope < 100 {// todo fix this
+    let name_load = gen_name_load(data.name, comp_unit)?;
+    code.append_gen_data(name_load);
+    code.append_op_code(OpCode::LoadGlobal);
+    //  } else {
     //    todo!()
-   // }
+    // }
     Ok(code)
 }
 
@@ -229,9 +219,9 @@ fn gen_name_load(name: u64, comp_unit: &mut CompUnit) -> Result<GenData, String>
 
 fn gen_cons(data: Box<ConsData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let car_code = gen_node(data.car, comp_unit)?;
-   // let car_code = append_heap_store_if_needed(car_code, comp_unit)?;
+    // let car_code = append_heap_store_if_needed(car_code, comp_unit)?;
     let cdr_code = gen_node(data.cdr, comp_unit)?;
-   // let cdr_code = append_heap_store_if_needed(cdr_code, comp_unit)?;
+    // let cdr_code = append_heap_store_if_needed(cdr_code, comp_unit)?;
 
     let mut code = GenData::empty();
     code.typ = comp_unit.meta_space.types.pair;
@@ -266,6 +256,7 @@ fn gen_list_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Strin
     Ok(code)
 }
 
+
 fn gen_array_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let size = data.operands.len();
     if size > u16::MAX as usize {
@@ -276,9 +267,9 @@ fn gen_array_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 
     for op in data.operands {
         let gen_data = gen_node(op, comp_unit)?;
-       code.append_gen_data(gen_data);
+        code.append_gen_data(gen_data);
     }
-    
+
     code.append_op_code(OpCode::NewArray);
     code.append_wide_operand(code.typ);
     code.append_wide_operand(size as u16);
@@ -289,10 +280,10 @@ fn gen_array_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 fn gen_list_access(data: Box<ListAccData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::empty();
     code.typ = comp_unit.meta_space.types.nil;
-    
+
     let list_code = gen_node(data.list, comp_unit)?;
     code.append_gen_data(list_code);
-    
+
     if let Some(pattern) = data.pattern {
         for acc in pattern {
             code.append_op_code(if acc == 0 { OpCode::Car } else { OpCode::Cdr })

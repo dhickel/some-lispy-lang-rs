@@ -6,3 +6,5 @@ pub mod ast;
 pub mod code_gen;
 pub mod op_codes;
 pub mod resolution;
+pub mod types;
+pub mod environment;

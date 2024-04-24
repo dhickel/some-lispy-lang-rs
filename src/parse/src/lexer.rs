@@ -1,9 +1,11 @@
 use std::iter::Peekable;
 use std::str::Chars;
 use crate::token::{Lex, Lit, Op, Syn, Token, TokenData, TokenType};
-use crate::token::TokenType::{TLexical, TLiteral, TOperation, TSyntactic};
-use crate::{token, util};
-use crate::util::SCACHE;
+
+use lang::util;
+use lang::util::{IString, SCACHE};
+use crate::token;
+use crate::token::TokenType::*;
 
 
 struct LexicalState<'a> {
@@ -198,7 +200,7 @@ fn lex_instance(state: &mut LexicalState) -> bool {
 //     state.add_token_data(Literal(Lit::Quote), TokenData::String(data));
 // }
 
-fn read_data_to_string(state: &mut LexicalState) -> u64 {
+fn read_data_to_string(state: &mut LexicalState) -> IString {
     let mut string_data = String::new();
     string_data.push(state.curr_char);
     

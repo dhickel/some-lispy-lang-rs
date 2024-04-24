@@ -1,7 +1,8 @@
-use lang::environment::Environment;
-use lang::types::Type;
+use vm::environment::Environment;
+use crate::types::Type;
 use lang::util::SCACHE;
 use crate::ast::AstNode;
+use crate::environment::Environment;
 use crate::parser::ParseResult;
 
 
@@ -13,6 +14,8 @@ use crate::parser::ParseResult;
 //  return a value that is ignored in many context, if statements shouldnt be forced to have
 //  type cohesion across branches, just when being used inside other expressions
 
+
+// TODO skip over already resolved nodes 2nd loop
 
 pub fn resolve_types(mut parse_result: &mut ParseResult, mut context: Environment) -> bool {
     let mut fully_resolved = true;

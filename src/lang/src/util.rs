@@ -5,14 +5,12 @@ use ahash::AHashMap;
 use lazy_static::lazy_static;
 
 
-
 pub struct Interner {
     map: AHashMap<String, u64>,
     list: Vec<*const str>,
 }
 
 
-// TODO
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct IString {
     pub value: u64,
@@ -169,8 +167,6 @@ impl SCache {
 }
 
 lazy_static! {pub static ref SCACHE : SCache = SCache::default();}
-
-
 
 pub fn get_wide_bytes(val: u16) -> (u8, u8) {
     ((val & 0xFF) as u8, ((val >> 8) & 0xFF) as u8)

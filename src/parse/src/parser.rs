@@ -1,14 +1,13 @@
 use std::collections::LinkedList;
-use lang::types::Type;
+use crate::types::Type;
 use lang::util;
 use lang::util::{IString, SCACHE};
-use crate::types::Type;
+use vm::environment::Mod;
+use vm::environment::Mod::*;
 use crate::ast::*;
 use crate::ast::AstNode::*;
 use crate::token::*;
 use crate::token::TokenType::*;
-
-
 
 struct ParserState {
     pub tokens: Vec<Token>,

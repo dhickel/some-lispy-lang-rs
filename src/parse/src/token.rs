@@ -1,12 +1,12 @@
+use lang::util::IString;
+use crate::token::Mod::*;
 use crate::token::Lex::*;
 use crate::token::Syn::*;
 use crate::token::Op::*;
 use crate::token::Expr::*;
-use crate::token::Lit::*;
-use crate::token::Mod::*;
 use crate::token::Def::*;
+use crate::token::Lit::*;
 use crate::token::TokenType::*;
-use crate::util::IString;
 
 
 pub fn match_single_token(input: char) -> Option<TokenType> {
@@ -101,11 +101,12 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
 }
 
 
+// Modifiers are imported from lang::environment
 pub fn match_modifier_token(input: &str) -> Option<TokenType> {
     match input {
         "&mut" => Some(TModifier(Mutable)),
         "&pub" => Some(TModifier(Public)),
-        "&priv" => Some(TModifier(Private)),
+        "&null" => Some(TModifier(Nullable)),
         "&stat" => Some(TModifier(Static)),
         "&dyn" => Some(TModifier(Dynamic)),
         "&opt" => Some(TModifier(Optional)),
@@ -123,7 +124,7 @@ pub enum TokenType {
     TLiteral(Lit),
     TExpression(Expr),
     TDefinition(Def),
-    TModifier(Mod)
+    TModifier(Mod),
 }
 
 
@@ -239,7 +240,7 @@ pub enum Def {
 pub enum Mod {
     Mutable,
     Public,
-    Private,
+    Nullable,
     Static,
     Dynamic,
     Optional,

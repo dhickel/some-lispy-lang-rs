@@ -54,7 +54,7 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
         AstNode::ExprGenRand(data) => resolve_gen_rand(data, env),
         AstNode::ExprDirectInst(data) => resolve_direct_inst(data, env),
         AstNode::ExprInitInst(data) => resolve_init_inst(data, env),
-        AstNode::Operation(ref mut data) => resolve_operation(data, env),
+        AstNode::Operation(data) => resolve_operation(data, env),
         AstNode::LitInteger(_) => Ok(Type::Integer),
         AstNode::LitFloat(_) => Ok(Type::Float),
         AstNode::LitBoolean(_) => Ok(Type::Boolean),
@@ -71,6 +71,7 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
 
 
 pub fn resolve_def_var(data: &mut Box<DefVarData>, env: &mut Environment) -> Result<Type, String> {
+
     let resolved_type = resolve(&mut data.value, env)?;
     if resolved_type == Type::Unresolved { return Ok(Type::Unresolved); }
 
@@ -80,21 +81,19 @@ pub fn resolve_def_var(data: &mut Box<DefVarData>, env: &mut Environment) -> Res
         if resolved_type == Type::Unresolved {
             return Ok(Type::Unresolved);
         } else if resolved_type != *resolved_d_type {
-            return Err(format!(
-                "Resolved type: {:?} does not equal declared type: {:?}",
-                resolved_type, resolved_d_type));
+            return Err(format!("Resolved type: {:?} does not equal declared type: {:?}", resolved_type, resolved_d_type));
         }
     }
 
-    env.add_symbol(data.name, resolved_type.clone())?;
-
-    let ctx = env.get_symbol_ctx(data.name);
-    data.ctx = ctx;
+    let mods = data.modifiers.as_ref().unwrap_or_else(|| &vec![]);
+    let ctx = env.add_var_symbol(data.name, resolved_type.clone(), mods)?;
+    data.ctx = Some(ctx.clone());
     Ok(resolved_type)
 }
 
 
 pub fn resolve_def_lambda(data: &mut Box<DefLambdaData>, env: &mut Environment) -> Result<Type, String> {
+    
     let resolved_type = resolve(&mut data.body, env)?;
     if let Some(d_type) = data.d_type {
         if resolved_type != *env.validate_type(d_type) {
@@ -126,8 +125,14 @@ pub fn resolve_expr_assign(data: &mut Box<AssignData>, env: &mut Environment) ->
         println!("Resolved false");
         return Ok(Type::Unresolved);
     } else {
-        data.ctx = Some(env.get_scope_ctx());
-        println!("Assign OCntext added");
+        let ctx = env.get_symbol_ctx(data.name);
+        if let Some(ctx) = ctx {
+            data.ctx = Some(env.get_env_ctx());
+        } else {
+            return Err(format!("Failed to resolve symbol: {}", SCACHE.resolve(data.name)));
+        }
+
+        println!("Assign Context added");
         match &data.value {
             AstNode::ExprIf(expr) => {
                 if !expr.all_types_same() {
@@ -137,9 +142,7 @@ pub fn resolve_expr_assign(data: &mut Box<AssignData>, env: &mut Environment) ->
                     if var_type == &resolved_type {
                         Ok(resolved_type)
                     } else {
-                        Err(format!(
-                            "Attempted to assign incorrect type for var: {}",
-                            SCACHE.resolve(data.name)))
+                        Err(format!("Attempted to assign incorrect type for var: {}", SCACHE.resolve(data.name)))
                     }
                 }
             }
@@ -151,9 +154,7 @@ pub fn resolve_expr_assign(data: &mut Box<AssignData>, env: &mut Environment) ->
                     if var_type == &resolved_type {
                         Ok(resolved_type)
                     } else {
-                        Err(format!(
-                            "Attempted to assign incorrect type for var: {}",
-                            SCACHE.resolve(data.name)))
+                        Err(format!("Attempted to assign incorrect type for var: {}", SCACHE.resolve(data.name)))
                     }
                 }
             }
@@ -316,8 +317,12 @@ pub fn resolve_obj_call(data: &mut Box<ObjectCallData>, env: &mut Environment) -
 
 
 pub fn resolve_literal_call(data: &mut LiteralCallData, env: &mut Environment) -> Result<Type, String> {
-    data.ctx = Some(env.get_scope_ctx());
-    Ok(env.get_symbol_type(data.name).clone())
+    if let Some(ctx) = env.get_symbol_ctx(data.name) {
+        data.ctx = Some(env.get_env_ctx());
+        Ok(env.get_symbol_type(data.name).clone())
+    } else {
+        return Err(format!("Failed to resolve symbol: {}", SCACHE.resolve(data.name)));
+    }
 }
 
 
@@ -332,7 +337,7 @@ pub fn resolve_gen_rand(data: &mut Box<GenRandData>, env: &mut Environment) -> R
 
 
 pub fn resolve_direct_inst(data: &mut Box<DirectInst>, env: &mut Environment) -> Result<Type, String> {
-    Ok(env.get_symbol_type(data.name).clone()),
+    Ok(env.get_symbol_type(data.name).clone())
 }
 
 

@@ -54,6 +54,22 @@ impl MetaSpace {
         *self.ns_map.get(name.value).expect("Fatal: Namespace failed to resolve")
     }
 
+    pub fn get_func(&mut self, env_ctx: &ExprCtx) -> &mut FuncMeta {
+        let ns = self.get_ns_by_id(env_ctx.ns);
+        if let Some(class_id) = env_ctx.class {
+            let mut obj = &ns.obj_metadata[class_id as usize];
+            if let ObjectMeta::Class(mut class) = obj {
+                class.functions
+                    .get_mut(env_ctx.func.expect("Expected class id") as usize)
+                    .expect("Fatal: Failed to resolve function definition")
+            } else { panic!("Fatal: Definition is not class") }
+        } else {
+            ns.functions.get_mut(env_ctx.func.expect("Expected class id") as usize)
+                .expect("Fatal: Failed to resolve function definition")
+        }
+    }
+
+
     pub fn add_local_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString, s_ctx: SymbolCtx) -> &SymbolCtx {
         let mut ns = &self.namespaces.get_mut(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
@@ -70,6 +86,7 @@ impl MetaSpace {
         }
     }
 
+
     pub fn get_local_symbol(&self, ns_id: u16, scope_id: u32, name_val: u64) -> Option<&SymbolCtx> {
         let mut ns = &self.namespaces.get(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
@@ -77,6 +94,7 @@ impl MetaSpace {
         ns.local_symbols.get(scope_id as u64)
             .expect("Fatal: Failed to resolve scope").get(name_val)
     }
+
 
     pub fn add_global_symbol(&mut self, ns_id: u16, name: IString, s_ctx: SymbolCtx) -> &SymbolCtx {
         let mut ns = &self.namespaces.get_mut(ns_id as usize)
@@ -86,9 +104,11 @@ impl MetaSpace {
         ns.global_symbols.get(name.value).unwrap()
     }
 
+
     pub fn get_global_symbol(&self, ns_id: u16, name_val: u64) -> Option<&SymbolCtx> {
         self.namespaces[ns_id as usize].global_symbols.get(name_val)
     }
+
 
     pub fn add_var_def(&mut self, ns_id: u16, var_def: VarMeta) -> u16 {
         let mut ns = &self.namespaces.get_mut(ns_id as usize)
@@ -102,6 +122,7 @@ impl MetaSpace {
             idx as u16
         }
     }
+
 
     pub fn add_func_def(&mut self, ns_id: u16, func_def: FuncMeta) -> u16 {
         let mut ns = &self.namespaces.get_mut(ns_id as usize)
@@ -117,10 +138,11 @@ impl MetaSpace {
     }
 
 
-    pub fn add_constant<T>(&mut self, ns_id: u16, value: &T) -> u16 {
+    pub fn add_constant<T>(&mut self, value: &T, env_ctx: &ExprCtx) -> u16 {
         unsafe {
-            let mut ns = &self.namespaces.get_mut(ns_id as usize)
+            let mut ns = &self.namespaces.get_mut(env_ctx.ns as usize)
                 .expect("Fatal: Failed to resolve namespace");
+
 
             let size = std::mem::size_of::<T>();
             if size > 8 {
@@ -142,10 +164,13 @@ impl MetaSpace {
                 panic!("Exceeded size of constant pool")
             }
 
+            let hash = u64::from_ne_bytes(padded_bytes);
+            ns.existing_consts.insert(hash, curr_index as u16);
             ns.constants.push(padded_bytes);
             curr_index as u16
         }
     }
+
 
     pub fn add_object_meta(&mut self, ns_id: u16, obj_meta: ObjectMeta) -> u16 {
         let mut ns = &self.namespaces.get_mut(ns_id as usize)
@@ -157,6 +182,25 @@ impl MetaSpace {
         }
         ns.obj_metadata.push(obj_meta);
         idx as u16
+    }
+
+
+    pub fn push_code(&mut self, env_ctx: ExprCtx, code: &mut Vec<u8>) {
+        let ns = self.namespaces.get_mut(env_ctx.ns as usize)
+            .expect("Failed ro resolve namespace");
+
+        if let Some(class_id) = env_ctx.class {
+            let class = if let Some(ObjectMeta::Class(class)
+            ) = ns.obj_metadata.get_mut(class_id as usize) {
+                class
+            } else { panic!("Fatal: Failed to resolve class") };
+
+            if let Some(func_id) = env_ctx.func {
+                let func = ns.functions.get_mut(func_id as usize)
+                    .expect("Fatal: Failed to resolve function");
+                func.code.append(code);
+            } else { class.code.append(code) }
+        } else { ns.code.append(code) }
     }
 }
 
@@ -170,6 +214,8 @@ pub struct NameSpace {
     pub functions: Vec<FuncMeta>,
     pub obj_metadata: Vec<ObjectMeta>,
     pub constants: Vec<[u8; 8]>,
+    pub existing_consts: IntMap<u16>,
+    pub code: Vec<u8>,
 }
 
 
@@ -183,6 +229,8 @@ impl NameSpace {
             functions: Vec::<FuncMeta>::with_capacity(20),
             obj_metadata: Vec::<ObjectMeta>::new(),
             constants: Vec::<[u8; 8]>::with_capacity(50),
+            existing_consts: IntMap::<u16>::with_capacity(50),
+            code: Vec::<u8>::with_capacity(100),
         }
     }
 }
@@ -248,9 +296,10 @@ pub struct ClassMeta {
     pub name: IString,
     pub global_symbols: IntMap<SymbolCtx>,
     pub local_symbols: IntMap<IntMap<SymbolCtx>>,
-    pub definitions: Vec<Definition>,
+    pub variables: Vec<VarMeta>,
+    pub functions: Vec<FuncMeta>,
     pub obj_metadata: Vec<ObjectMeta>,
-    pub constants: Vec<[u8; 8]>,
+    pub code: Vec<u8>,
 }
 
 
@@ -260,9 +309,10 @@ impl ClassMeta {
             name,
             global_symbols: IntMap::<SymbolCtx>::with_capacity(20),
             local_symbols: IntMap::<IntMap::<SymbolCtx>>::with_capacity(35),
-            definitions: Vec::<Definition>::with_capacity(20),
+            variables: Vec::<VarMeta>::with_capacity(20),
+            functions: Vec::<FuncMeta>::with_capacity(20),
             obj_metadata: Vec::<ObjectMeta>::new(),
-            constants: Vec::<[u8; 8]>::with_capacity(50),
+            code: Vec::<u8>::with_capacity(50),
         }
     }
 }
@@ -276,21 +326,42 @@ pub struct RecordMeta {}
 pub struct InterfaceMeta {}
 
 
+pub struct ResData {
+    ctx: Context,
+    typ: Type,
+}
+
+pub enum Context{
+    Symbol(SymbolCtx),
+    Expression(ExprCtx)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SymbolCtx {
     pub scope: u32,
     pub depth: u32,
     pub typ: u16,
-    pub namespace: u16,
+    pub ns: u16,
     pub index: u16,
     pub nullable: bool,
     pub mutable: bool,
     pub public: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExprCtx {
+    pub scope: u32,
+    pub depth: u32,
+    pub ns: u16,
+    pub class: Option<u16>,
+    pub func: Option<u16>,
+}
+
+
+
 
 impl SymbolCtx {
-    pub fn new(scope: u32, depth: u32, typ: u16, namespace: u16, index: u16, modifiers: Vec<Mod>,
+    pub fn new(scope: u32, depth: u32, typ: u16, namespace: u16, index: u16, modifiers: &[Mod],
     ) -> SymbolCtx {
         let nullable = modifiers.contains(&Mod::Nullable);
         let mutable = modifiers.contains(&Mod::Mutable);
@@ -300,7 +371,7 @@ impl SymbolCtx {
             scope,
             depth,
             typ,
-            namespace,
+            ns: namespace,
             index,
             nullable,
             mutable,
@@ -310,14 +381,15 @@ impl SymbolCtx {
 }
 
 
+
 pub struct Environment<'a> {
     curr_scope: u32,
     curr_depth: u32,
     active_scopes: Vec<u32>,
     meta_space: &'a mut MetaSpace,
     pub curr_ns: u16,
-    pub curr_func: Option<FuncMeta>,
-    pub curr_class: Option<ClassMeta>,
+    pub curr_func: Option<u16>,
+    pub curr_class: Option<u16>,
     unresolved: Type,
 }
 
@@ -350,10 +422,6 @@ impl<'a> Environment<'a> {
     }
 
 
-    pub fn push_func(&mut self, name: IString, arg_types: Vec<u16>, rtn_type: u16) {
-        self.curr_func = Some(FuncMeta::new(name, arg_types, rtn_type))
-    }
-
     pub fn pop_func(&mut self) {
         self.curr_func = None
     }
@@ -364,7 +432,7 @@ impl<'a> Environment<'a> {
     // If not top level, check for existing functions first as it may be nested in a class.
     // If not currently resolve a function body, and not a top level ns def, symbol must be
     // a top level class definition
-    pub fn add_var_symbol(&mut self, name: IString, typ: Type, mods: Vec<Mod>) -> Result<&SymbolCtx, String> {
+    pub fn add_var_symbol(&mut self, name: IString, typ: Type, mods: &[Mod]) -> Result<&SymbolCtx, String> {
         let type_id = self.meta_space.types.get_or_define_type(typ);
         let def = VarMeta { name };
 
@@ -374,7 +442,8 @@ impl<'a> Environment<'a> {
             let data = SymbolCtx::new(self.curr_scope, self.curr_depth, type_id, self.curr_ns, index, mods);
             let data = self.meta_space.add_global_symbol(self.curr_ns, name, data);
             Ok(data)
-        } else if let Some(func) = &mut self.curr_func {
+        } else if let Some(func_idx) = &mut self.curr_func {
+            let func = self.meta_space.get_func(&self.get_env_ctx());
             let index = func.next_local();
             let data = SymbolCtx::new(self.curr_scope, self.curr_depth, type_id, self.curr_ns, index, mods);
             let data = self.meta_space.add_local_symbol(self.curr_ns, self.curr_scope, name, data);
@@ -386,32 +455,46 @@ impl<'a> Environment<'a> {
         }
     }
 
+    // Implicitly pushes a new curr_func id which need to always be popped with pop_func after
+    // evaluating the body of the function
     pub fn add_func_symbol(&mut self, name: IString, lambda: DefLambdaData) -> Result<&SymbolCtx, String> {
         let arg_type_ids = if let Some(params) = lambda.parameters {
             params.iter()
                 .map(|p| self.meta_space.types.get_or_define_type(p.c_type.clone()))
                 .collect()
         } else { vec![] };
+
         let rtn_type_id = self.meta_space.types.get_or_define_type(lambda.typ);
         let def = FuncMeta::new(name, arg_type_ids, rtn_type_id);
 
         if self.curr_depth == 0 || (self.curr_func.is_none() & &self.curr_class.is_none()) {
             let index = self.meta_space.add_func_def(self.curr_ns, def);
+            self.curr_func = Some(index); // Set curr func index for body resolutions
+
             let data = SymbolCtx::new(
                 self.curr_scope, self.curr_depth,
-                rtn_type_id, // FIXME, lambda defs need to have a "full" type of args + return for resolution checks
+                rtn_type_id, // FIXME, lambda defs need to have a "full" type_id of args + return for resolution checks
                 self.curr_ns,
                 index,
-                lambda.modifiers.unwrap_or_else(|| vec![]),
+                &lambda.modifiers.unwrap_or_else(|| vec![]),
             );
 
             let data = self.meta_space.add_global_symbol(self.curr_ns, name, data);
             Ok(data)
-        } else if let Some(func) = &mut self.curr_func {
+        } else if let Some(func_id) = self.curr_func {
+            let mut func = self.meta_space.get_func(&self.get_env_ctx());
             let index = func.next_local();
-            let data = SymbolCtx::new(self.curr_scope, self.curr_depth, rtn_type_id,
-                self.curr_ns, index, lambda.modifiers.unwrap_or_else(|| vec![]),
+            self.curr_func = Some(index); // Set curr func index for body resolutions
+
+            let data = SymbolCtx::new(
+                self.curr_scope,
+                self.curr_depth,
+                rtn_type_id,
+                self.curr_ns,
+                index,
+                &lambda.modifiers.unwrap_or_else(|| vec![]),
             );
+
             let data = self.meta_space.add_local_symbol(self.curr_ns, self.curr_scope, name, data);
             Ok(data)
         } else if let Some(class) = &self.curr_class {
@@ -476,10 +559,6 @@ impl<'a> Environment<'a> {
     }
 
 
-    pub fn get_scope_ctx(&self) -> (u32, u32) {
-        (self.curr_scope, self.curr_depth)
-    }
-
     pub fn get_type_id(&self, typ: Type) -> IString {
         match typ {
             Type::Unresolved => panic!("Attempted to lookup unresolved type"),
@@ -493,6 +572,16 @@ impl<'a> Environment<'a> {
             Type::Quote => todo!(),
             Type::Object(obj) => obj.name,
             Type::Lambda(_) => todo!()
+        }
+    }
+
+    pub fn get_env_ctx(&self) -> ExprCtx {
+        ExprCtx {
+            scope: self.curr_scope,
+            depth: self.curr_depth,
+            ns: self.curr_ns,
+            class: self.curr_class,
+            func: self.curr_func,
         }
     }
 }

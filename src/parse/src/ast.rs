@@ -1,7 +1,7 @@
 use std::collections::LinkedList;
 
 use lang::util::IString;
-use crate::environment::SymbolCtx;
+use crate::environment::{ExprCtx, SymbolCtx};
 use crate::token::{Mod, Op};
 use crate::types::Type;
 
@@ -57,10 +57,6 @@ pub enum AstNode {
 }
 
 
-trait CodeGen {
-    fn is_rectified(&self) -> bool;
-    fn get_code(&self, byte_code: &mut Vec<u8>) -> &Vec<u8>;
-}
 
 
 // Definition Data
@@ -81,7 +77,7 @@ pub struct DefLambdaData {
     pub parameters: Option<Vec<Param>>,
     pub body: AstNode,
     pub d_type: Option<IString>,
-    pub typ: Type,
+    pub typ: ,
     pub ctx: Option<SymbolCtx>,
 }
 
@@ -149,8 +145,9 @@ impl DefClassData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DirectInst {
     pub name: IString,
+    pub namespace: Option<IString>,
     pub args: Option<Vec<InstArgs>>,
-    pub ctx: Option<SymbolCtx>,
+    pub ctx: Option<ExprCtx>,
 }
 
 
@@ -170,7 +167,7 @@ pub struct OpData {
     pub operation: Op,
     pub operands: Vec<AstNode>,
     pub typ: Type,
-
+    pub ctx: Option<ExprCtx>,
 }
 
 
@@ -179,14 +176,16 @@ pub struct OpData {
 pub struct MultiExprData {
     pub expressions: Vec<AstNode>,
     pub typ: Type,
+    pub ctx: Option<ExprCtx>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignData {
     pub name: IString,
+    pub namespace: Option<IString>,
     pub value: AstNode,
-    pub ctx: Option<SymbolCtx>,
+    pub ctx: Option<ExprCtx>,
 }
 
 
@@ -195,6 +194,7 @@ pub struct CondBranch {
     pub cond_node: AstNode,
     pub then_node: AstNode,
     pub typ: Type,
+    pub ctx: Option<ExprCtx>,
 }
 
 
@@ -203,6 +203,7 @@ pub struct IfData {
     pub if_branch: CondBranch,
     pub else_branch: Option<AstNode>,
     pub else_type: Type,
+    pub ctx: Option<ExprCtx>,
 }
 
 
@@ -218,6 +219,7 @@ pub struct CondData {
     pub cond_branches: Vec<CondBranch>,
     pub else_branch: Option<AstNode>,
     pub else_type: Type,
+    pub ctx: Option<ExprCtx>,
 }
 
 
@@ -239,6 +241,7 @@ pub struct WhileData {
     pub condition: AstNode,
     pub body: AstNode,
     pub is_do: bool,
+    pub ctx: Option<ExprCtx>,
 }
 
 
@@ -246,6 +249,7 @@ pub struct WhileData {
 pub struct ConsData {
     pub car: AstNode,
     pub cdr: AstNode,
+    pub ctx: Option<ExprCtx>,
 }
 
 
@@ -254,43 +258,50 @@ pub struct ListAccData {
     pub index_expr: Option<AstNode>,
     pub pattern: Option<Vec<u8>>,
     pub list: AstNode,
+    pub ctx: Option<ExprCtx>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncCallData {
     pub name: IString,
+    pub namespace: Option<IString>,
     pub arguments: Option<Vec<FuncArg>>,
-    pub ctx: Option<SymbolCtx>,
+    pub ctx: Option<ExprCtx>,
+    
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectCallData {
     pub name: IString,
+    pub namespace: Option<IString>,
     pub accessors: LinkedList<Accessor>,
-    pub ctx: Option<SymbolCtx>,
+    pub ctx: Option<ExprCtx>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiteralCallData {
     pub name: IString,
-    pub ctx: Option<SymbolCtx>,
+    pub namespace: Option<IString>,
+    pub ctx: Option<ExprCtx>
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectAssignData {
     pub access: ObjectCallData,
+    pub namespace: Option<IString>,
     pub value: AstNode,
-    pub ctx: Option<SymbolCtx>,
+    pub ctx: Option<ExprCtx>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InnerFuncCallData {
     pub expr: AstNode,
+    pub namespace: Option<IString>,
     pub accessors: Option<Vec<Accessor>>,
     pub arguments: Option<Vec<FuncArg>>,
     pub ctx: Option<SymbolCtx>,

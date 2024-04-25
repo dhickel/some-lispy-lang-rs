@@ -2,12 +2,12 @@ use std::collections::LinkedList;
 use crate::types::Type;
 use lang::util;
 use lang::util::{IString, SCACHE};
-use vm::environment::Mod;
-use vm::environment::Mod::*;
+
 use crate::ast::*;
 use crate::ast::AstNode::*;
 use crate::token::*;
 use crate::token::TokenType::*;
+
 
 struct ParserState {
     pub tokens: Vec<Token>,
@@ -21,7 +21,7 @@ struct ParserState {
 
 pub struct ParseResult {
     pub name_space: IString,
-    pub root_expressions: Vec<AstNode>
+    pub root_expressions: Vec<AstNode>,
 }
 
 
@@ -45,7 +45,7 @@ impl ParserState {
         while self.have_next() {
             root_expressions.push(self.parse_expr_data()?);
         }
-        Ok(ParseResult{name_space: self.name_space, root_expressions})
+        Ok(ParseResult { name_space: self.name_space, root_expressions })
     }
 
 
@@ -247,6 +247,7 @@ impl ParserState {
             self.consume_right_paren()?;
 
             let data = InnerFuncCallData {
+                namespace: None, // FIXME
                 expr: expression,
                 accessors: None,
                 arguments: args,
@@ -272,7 +273,7 @@ impl ParserState {
             operands.push(self.parse_expr_data()?);
         }
 
-        let data = OpData { operation, operands, typ: Type::Unresolved };
+        let data = OpData { operation, operands, typ: Type::Unresolved, ctx: None };
         Ok(Operation(data))
     }
 
@@ -382,6 +383,7 @@ impl ParserState {
                     index_expr: None,
                     pattern: Some(vec![0]),
                     list: self.parse_list_head()?,
+                    ctx: None,
                 };
                 Ok(ExprListAccess(Box::new(data)))
             }
@@ -391,6 +393,7 @@ impl ParserState {
                     index_expr: None,
                     pattern: Some(vec![1]),
                     list: self.parse_list_head()?,
+                    ctx: None,
                 };
                 Ok(ExprListAccess(Box::new(data)))
             }
@@ -428,7 +431,7 @@ impl ParserState {
                     _ => return Err("Expected a string identifier".to_string())
                 };
                 let value = self.parse_expr_data()?;
-                let data = AssignData { name, value, ctx: None };
+                let data = AssignData { name, value, namespace: None, ctx: None };// FIXME ns
                 Ok(ExprAssignment(Box::new(data)))
             }
 
@@ -446,8 +449,8 @@ impl ParserState {
                 self.consume_right_paren()?;
                 let value = self.parse_expr_data()?;
 
-                let access = ObjectCallData { name, accessors, ctx: None };
-                let assign_data = ObjectAssignData { access, value, ctx: None };
+                let access = ObjectCallData { name, namespace: None, accessors, ctx: None }; //FIXME ns
+                let assign_data = ObjectAssignData { access, value, namespace: None, ctx: None }; // FIXME ns
                 Ok(ExprObjectAssignment(Box::new(assign_data)))
             }
 
@@ -462,13 +465,13 @@ impl ParserState {
     pub fn parse_if(&mut self) -> Result<AstNode, String> {
         let condition = self.parse_expr_data()?;
         let then = self.parse_expr_data()?;
-        let if_branch = CondBranch { cond_node: condition, then_node: then, typ: Type::Unresolved };
+        let if_branch = CondBranch { cond_node: condition, then_node: then, typ: Type::Unresolved, ctx: None };
 
         let else_branch = if self.peek().token_type != TLexical(Lex::RightParen) {
             Some(self.parse_expr_data()?)
         } else { None };
 
-        let data = IfData { if_branch, else_branch, else_type: Type::Unresolved };
+        let data = IfData { if_branch, else_branch, else_type: Type::Unresolved, ctx: None };
         Ok(ExprIf(Box::new(data)))
     }
 

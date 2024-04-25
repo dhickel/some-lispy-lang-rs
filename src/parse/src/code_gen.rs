@@ -134,7 +134,7 @@ fn gen_define_variable(data: Box<DefVarData>, comp_unit: &mut CompUnit) -> Resul
 
     //Is Global
     if ctx.scope < 100 {// todo fix this
-        let name_load = gen_name_load(data.name, comp_unit)?;
+        let name_load = gen_name_load(data.name.value, comp_unit)?;
         let value = gen_node(data.value, comp_unit)?;
         let heap_store = gen_heap_store(ctx.typ, 8_u16)?;
         code.append_gen_data(value); // calc value to stack
@@ -163,7 +163,7 @@ fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<G
     let mut code = GenData::empty();
     code.typ = 0; // TODO, types should be provided with calls as well for generation?
     // if ctx.scope < 100 {// todo fix this
-    let name_load = gen_name_load(data.name, comp_unit)?;
+    let name_load = gen_name_load(data.name.value, comp_unit)?;
     code.append_gen_data(name_load);
     code.append_op_code(OpCode::LoadGlobal);
     //  } else {
@@ -180,7 +180,7 @@ fn gen_assignment(data: Box<AssignData>, comp_unit: &mut CompUnit) -> Result<Gen
     code.typ = 0;
 
     if ctx.scope < 100 {// todo fix this
-        let name_load = gen_name_load(data.name, comp_unit)?;
+        let name_load = gen_name_load(data.name.value, comp_unit)?;
         let value = gen_node(data.value, comp_unit)?;
         let heap_store = gen_heap_store(0, 8)?;
         code.append_gen_data(value);

@@ -1,7 +1,8 @@
+use std::ffi::c_void;
 use crate::types::Type;
 use lang::util::SCACHE;
 use crate::ast::{AssignData, AstNode, CondData, ConsData, DefClassData, DefFuncData, DefLambdaData, DefStructData, DefVarData, DirectInst, FuncCallData, GenRandData, IfData, InnerFuncCallData, ListAccData, LiteralCallData, MultiExprData, ObjectAssignData, ObjectCallData, OpData, WhileData};
-use crate::environment::Environment;
+use crate::environment::{Context, Environment, ResData, TypeData};
 use crate::parser::ParseResult;
 
 
@@ -30,6 +31,7 @@ pub fn resolve_types(mut parse_result: &mut ParseResult, mut context: Environmen
 
 
 fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
+    if let Some(typ) = node.resolved_type() { return Ok(typ); }
     match node {
         AstNode::DefVariable(data) => resolve_def_var(data, env),
         AstNode::DefLambda(data) => resolve_def_lambda(data, env),
@@ -63,7 +65,7 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
         AstNode::LitObject => todo!(),
         AstNode::LitStruct() => todo!(),
         AstNode::LitNil => Ok(Type::Nil),
-        AstNode::LitVector => todo!(),
+        AstNode::LitArray => todo!(),
         AstNode::LitPair => todo!(),
         AstNode::LitLambda => todo!(),
     }
@@ -71,7 +73,6 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
 
 
 pub fn resolve_def_var(data: &mut Box<DefVarData>, env: &mut Environment) -> Result<Type, String> {
-
     let resolved_type = resolve(&mut data.value, env)?;
     if resolved_type == Type::Unresolved { return Ok(Type::Unresolved); }
 
@@ -86,14 +87,13 @@ pub fn resolve_def_var(data: &mut Box<DefVarData>, env: &mut Environment) -> Res
     }
 
     let mods = data.modifiers.as_ref().unwrap_or_else(|| &vec![]);
-    let ctx = env.add_var_symbol(data.name, resolved_type.clone(), mods)?;
-    data.ctx = Some(ctx.clone());
+    let res_data = env.add_var_symbol(data.name, resolved_type.clone(), mods)?;
+    data.res_data = Some(res_data.clone());
     Ok(resolved_type)
 }
 
 
 pub fn resolve_def_lambda(data: &mut Box<DefLambdaData>, env: &mut Environment) -> Result<Type, String> {
-    
     let resolved_type = resolve(&mut data.body, env)?;
     if let Some(d_type) = data.d_type {
         if resolved_type != *env.validate_type(d_type) {
@@ -122,12 +122,18 @@ pub fn resolve_def_class(data: &mut Box<DefClassData>, env: &mut Environment) ->
 pub fn resolve_expr_assign(data: &mut Box<AssignData>, env: &mut Environment) -> Result<Type, String> {
     let resolved_type = resolve(&mut data.value, env)?;
     if resolved_type == Type::Unresolved {
-        println!("Resolved false");
         return Ok(Type::Unresolved);
     } else {
         let ctx = env.get_symbol_ctx(data.name);
-        if let Some(ctx) = ctx {
-            data.ctx = Some(env.get_env_ctx());
+        let type_id = env.meta_space.types.get_type_id(&resolved_type);
+        if let Some(target_res) = ctx {
+            let res_data = ResData {
+                target_ctx: Some(target_res.self_ctx.clone()),
+                self_ctx: Context::Expr(env.get_env_ctx()),
+                type_data: TypeData { typ: resolved_type, type_id },
+            };
+
+            data.res_data = Some(res_data);
         } else {
             return Err(format!("Failed to resolve symbol: {}", SCACHE.resolve(data.name)));
         }
@@ -135,24 +141,24 @@ pub fn resolve_expr_assign(data: &mut Box<AssignData>, env: &mut Environment) ->
         println!("Assign Context added");
         match &data.value {
             AstNode::ExprIf(expr) => {
-                if !expr.all_types_same() {
+                if expr.res_data.unwrap().type_data.typ == Type::Void { // Above code ensure this will be resolved
                     Err("All branches in assignment must have same type".to_string())
                 } else {
                     let var_type = env.get_symbol_type(data.name);
                     if var_type == &resolved_type {
-                        Ok(resolved_type)
+                        Ok(resolved_type.clone())
                     } else {
                         Err(format!("Attempted to assign incorrect type for var: {}", SCACHE.resolve(data.name)))
                     }
                 }
             }
             AstNode::ExprCond(expr) => {
-                if !expr.all_types_same() {
+                if expr.res_data.unwrap().type_data.typ == Type::Void {// Above code ensure this will be resolved
                     Err("All branches in assignment must have same type".to_string())
                 } else {
                     let var_type = env.get_symbol_type(data.name);
                     if var_type == &resolved_type {
-                        Ok(resolved_type)
+                        Ok(resolved_type.clone())
                     } else {
                         Err(format!("Attempted to assign incorrect type for var: {}", SCACHE.resolve(data.name)))
                     }
@@ -189,58 +195,112 @@ pub fn resolve_expr_if(data: &mut Box<IfData>, env: &mut Environment) -> Result<
     }
 
     let if_type = resolve(&mut data.if_branch.then_node, env)?;
+    let if_type_id = env.meta_space.types.get_type_id(&if_type);
     if if_type != Type::Unresolved {
-        data.if_branch.typ = if_type.clone();
+        let ctx = env.get_env_ctx();
+        let type_data = TypeData { typ: if_type.clone(), type_id: if_type_id };
+        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        data.if_branch.res_data = Some(res_data);
     }
+
     env.pop_scope();
 
     if let Some(ref mut els) = data.else_branch {
         env.push_scope();
+
         let else_type = resolve(els, env)?;
         if else_type != Type::Unresolved {
-            data.else_type = else_type.clone();
+            data.else_type = Some(else_type.clone())
         }
+
         env.pop_scope();
 
         if if_type != Type::Unresolved && else_type != Type::Unresolved {
-            Ok(else_type) // Fixme, find a better way to represent conditional types as they vary
-        } else { Ok(Type::Unresolved) }
-    } else { Ok(if_type) }
+            let ctx = env.get_env_ctx();
+
+            if else_type != if_type {
+                let type_data = TypeData { typ: Type::Void, type_id: env.meta_space.types.void };
+                let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+                data.res_data = Some(res_data);
+                return Ok(Type::Void);
+            } // Fall through to end of func return if types are same, or no else branch
+        } else { return Ok(Type::Unresolved); }
+    }
+
+    let ctx = env.get_env_ctx();
+    let type_data = TypeData { typ: if_type.clone(), type_id: if_type_id };
+    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    data.res_data = Some(res_data);
+    Ok(if_type)
 }
 
 
 pub fn resolve_expr_cond(data: &mut Box<CondData>, env: &mut Environment) -> Result<Type, String> {
     let mut unresolved = false;
-    let mut cond_type = Type::Unresolved;
+
     for branch in data.cond_branches.iter_mut() {
+        if branch.res_data.is_some() { continue; }
         env.push_scope();
+
         let branch_type = resolve(&mut branch.then_node, env)?;
+        if branch_type == Type::Unresolved {
+            unresolved = true;
+            env.pop_scope(); // pop for early continue
+            continue;
+        }
+        let branch_type_id = env.meta_space.types.get_type_id(&branch_type);
+        branch.typ = Some(branch_type.clone());
 
-        if branch_type != Type::Unresolved {
-            branch.typ = branch_type.clone();
-        } else { unresolved = true; }
+        let ctx = env.get_env_ctx();
+        let type_data = TypeData { typ: branch_type.clone(), type_id: branch_type_id };
+        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        branch.res_data = Some(res_data);
 
-        cond_type = branch_type;
         env.pop_scope();
     }
 
     if let Some(ref mut els) = data.else_branch {
-        env.push_scope();
-        let else_type = resolve(els, env)?;
-        if else_type != Type::Unresolved {
-            data.else_type = else_type.clone();
-        }
-        env.pop_scope();
+        if els.resolved_type().is_none() {
+            env.push_scope();
 
-        if !unresolved && else_type != Type::Unresolved {
-            Ok(else_type) // Fixme, find a better way to represent conditional types as they vary
-        } else {
-            Ok(Type::Unresolved)
+            let else_type = resolve(els, env)?;
+            if else_type == Type::Unresolved {
+                env.pop_scope(); // pop for early return
+                return Ok(Type::Unresolved);
+            }
+
+            env.pop_scope();
         }
-    } else if unresolved {
-        Ok(Type::Unresolved)
+    }
+
+    if unresolved { return Ok(Type::Unresolved); }
+
+    let base_type = if let Some(els) = &data.else_branch {
+        els.resolved_type().unwrap() // safe to unwrap due to resolution branch above
+    } else if let Some(&branch) = data.cond_branches.get(0) {
+        branch.typ.unwrap()
+    } else { panic!("Fatal: If expression with no logic") };
+
+    let all_match = data.cond_branches.iter().all(|branch| {
+        if let Some(typ) = &branch.typ {
+            *typ == base_type
+        } else { false }
+    });
+
+    let ctx = env.get_env_ctx();
+
+    if all_match {
+        let type_id = env.meta_space.types.get_type_id(&base_type);
+        let type_data = TypeData { typ: base_type.clone(), type_id };
+        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        data.res_data = Some(res_data);
+        Ok(base_type)
     } else {
-        Ok(cond_type)
+        let type_id = env.meta_space.types.get_type_id(&Type::Void);
+        let type_data = TypeData { typ: Type::Void, type_id };
+        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        data.res_data = Some(res_data);
+        Ok(Type::Void)
     }
 }
 
@@ -272,24 +332,32 @@ pub fn resolve_expr_pair_list(data: &mut OpData, env: &mut Environment) -> Resul
 
 pub fn resolve_expr_array(data: &mut OpData, env: &mut Environment) -> Result<Type, String> {
     let mut resolved = true;
-    let mut typ: Type = Type::Unresolved;
+    let mut typ: Option<Type> = None;
+
     for i in 0..data.operands.len() {
         let r_type = resolve(data.operands.get_mut(i).unwrap(), env)?;
         if Type::Unresolved == r_type {
             resolved = false;
             continue;
-        } else if i == 0 {
-            typ = r_type
-        } else if typ != r_type {
-            return Err(format!("Array type mismatch, expected: {:?}, found: {:?}", typ, resolved));
+        } else if typ.is_none() {
+            typ = Some(r_type)
+        } else if let Some(typ) = &typ {
+            if *typ != r_type {
+                return Err(format!("Array type mismatch, expected: {:?}, found: {:?}", typ, resolved));
+            }
         }
     }
     if !resolved {
         return Ok(Type::Unresolved);
     } else {
-        let arr_type = Type::Array(Box::new(typ.clone()));
+        let ctx = env.get_env_ctx();
+        let typ = typ.unwrap();
+        let arr_type = Type::Array(Box::new(typ));
+        let type_id = env.define_type(arr_type.clone());
+        let type_data = TypeData { typ: arr_type.clone(), type_id };
         env.define_type(arr_type.clone());
-        data.typ = arr_type.clone();
+        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        data.res_data = Some(res_data);
         Ok(arr_type)
     }
 }
@@ -317,9 +385,13 @@ pub fn resolve_obj_call(data: &mut Box<ObjectCallData>, env: &mut Environment) -
 
 
 pub fn resolve_literal_call(data: &mut LiteralCallData, env: &mut Environment) -> Result<Type, String> {
-    if let Some(ctx) = env.get_symbol_ctx(data.name) {
-        data.ctx = Some(env.get_env_ctx());
-        Ok(env.get_symbol_type(data.name).clone())
+    if let Some(target_ctx) = env.get_symbol_ctx(data.name) {
+        let ctx = env.get_env_ctx();
+        let type_data = target_ctx.type_data.clone();
+        let typ = type_data.typ.clone();
+        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
+        data.res_data = Some(res_data);
+        Ok(typ)
     } else {
         return Err(format!("Failed to resolve symbol: {}", SCACHE.resolve(data.name)));
     }
@@ -357,6 +429,10 @@ pub fn resolve_operation(data: &mut OpData, env: &mut Environment) -> Result<Typ
             _ => return Err("Invalid type in operation expression".to_string()),
         }
     }
-    data.typ = typ.clone();
+    let ctx = env.get_env_ctx();
+    let type_id = env.meta_space.types.get_type_id(&typ);
+    let type_data = TypeData { typ: typ.clone(), type_id };
+    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    data.res_data = Some(res_data);
     Ok(typ)
 }

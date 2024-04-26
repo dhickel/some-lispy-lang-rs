@@ -12,6 +12,7 @@ pub enum Type {
     String,
     Pair,
     Nil,
+    Void,
     Quote,
     Object(ObjType),
     Lambda(FuncType),
@@ -43,6 +44,7 @@ pub struct TypeTable {
     pub float: u16,
     pub string: u16,
     pub pair: u16,
+    pub void: u16,
 }
 
 
@@ -83,6 +85,11 @@ impl Default for TypeTable {
         type_defs.insert(Type::Pair, pair);
         type_names.insert(SCACHE.const_pair, pair);
 
+        let void = type_ids.len() as u16;
+        type_ids.push(Type::Void);
+        type_defs.insert(Type::Void, void);
+        type_names.insert(SCACHE.const_void, void);
+
         TypeTable {
             type_defs,
             type_ids,
@@ -93,6 +100,7 @@ impl Default for TypeTable {
             float,
             string,
             pair,
+            void,
         }
     }
 }

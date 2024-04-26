@@ -98,6 +98,7 @@ pub struct SCache {
     pub const_string: IString,
     pub const_nil: IString,
     pub const_pair: IString,
+    pub const_void: IString
 }
 
 
@@ -118,6 +119,7 @@ impl Default for SCache {
         let const_string = cache.intern("string".to_string());
         let const_nil = cache.intern("#nil".to_string());
         let const_pair = cache.intern("pair".to_string());
+        let const_void = cache.intern("#void".to_string());
 
         SCache {
             cache: Mutex::new(cache),
@@ -135,6 +137,7 @@ impl Default for SCache {
             const_string,
             const_nil,
             const_pair,
+            const_void,
         }
     }
 }

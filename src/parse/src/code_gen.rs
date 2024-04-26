@@ -118,7 +118,7 @@ fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, Stri
         AstNode::LitObject => todo!(),
         AstNode::LitStruct() => todo!(),
         AstNode::LitNil => todo!(),
-        AstNode::LitVector => todo!(),
+        AstNode::LitArray => todo!(),
         AstNode::LitPair => todo!(),
         AstNode::LitLambda => todo!(),
     }

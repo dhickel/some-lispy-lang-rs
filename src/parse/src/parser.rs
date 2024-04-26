@@ -251,7 +251,7 @@ impl ParserState {
                 expr: expression,
                 accessors: None,
                 arguments: args,
-                ctx: None,
+                res_data: None,
             };
             return Ok(ExprFuncCalInner(Box::new(data)));
         }
@@ -273,7 +273,7 @@ impl ParserState {
             operands.push(self.parse_expr_data()?);
         }
 
-        let data = OpData { operation, operands, typ: Type::Unresolved, ctx: None };
+        let data = OpData { operation, operands, res_data: None };
         Ok(Operation(data))
     }
 
@@ -383,7 +383,7 @@ impl ParserState {
                     index_expr: None,
                     pattern: Some(vec![0]),
                     list: self.parse_list_head()?,
-                    ctx: None,
+                    res_data: None,
                 };
                 Ok(ExprListAccess(Box::new(data)))
             }
@@ -393,7 +393,7 @@ impl ParserState {
                     index_expr: None,
                     pattern: Some(vec![1]),
                     list: self.parse_list_head()?,
-                    ctx: None,
+                    res_data: None,
                 };
                 Ok(ExprListAccess(Box::new(data)))
             }
@@ -418,6 +418,7 @@ impl ParserState {
             is_float,
             upper,
             lower,
+            res_data: None,
         };
         Ok(ExprGenRand(Box::new(data)))
     }
@@ -431,7 +432,7 @@ impl ParserState {
                     _ => return Err("Expected a string identifier".to_string())
                 };
                 let value = self.parse_expr_data()?;
-                let data = AssignData { name, value, namespace: None, ctx: None };// FIXME ns
+                let data = AssignData { name, value, namespace: None, res_data: None };// FIXME ns
                 Ok(ExprAssignment(Box::new(data)))
             }
 
@@ -449,8 +450,8 @@ impl ParserState {
                 self.consume_right_paren()?;
                 let value = self.parse_expr_data()?;
 
-                let access = ObjectCallData { name, namespace: None, accessors, ctx: None }; //FIXME ns
-                let assign_data = ObjectAssignData { access, value, namespace: None, ctx: None }; // FIXME ns
+                let access = ObjectCallData { name, namespace: None, accessors, res_data: None }; //FIXME ns
+                let assign_data = ObjectAssignData { access, value, namespace: None, res_data: None }; // FIXME ns
                 Ok(ExprObjectAssignment(Box::new(assign_data)))
             }
 
@@ -465,13 +466,13 @@ impl ParserState {
     pub fn parse_if(&mut self) -> Result<AstNode, String> {
         let condition = self.parse_expr_data()?;
         let then = self.parse_expr_data()?;
-        let if_branch = CondBranch { cond_node: condition, then_node: then, typ: Type::Unresolved, ctx: None };
+        let if_branch = CondBranch { cond_node: condition, then_node: then, typ: None, res_data: None };
 
         let else_branch = if self.peek().token_type != TLexical(Lex::RightParen) {
             Some(self.parse_expr_data()?)
         } else { None };
 
-        let data = IfData { if_branch, else_branch, else_type: Type::Unresolved, ctx: None };
+        let data = IfData { if_branch, else_branch, else_type: None, res_data: None };
         Ok(ExprIf(Box::new(data)))
     }
 
@@ -496,7 +497,7 @@ impl ParserState {
         if cond_branches.is_empty() {
             Err(format!("Cond expression must have at least one branch, line: {}", self.peek().line))
         } else {
-            let data = CondData { cond_branches, else_branch, else_type: Type::Unresolved };
+            let data = CondData { cond_branches, else_branch, res_data: None };
             Ok(ExprCond(Box::new(data)))
         }
     }
@@ -509,7 +510,7 @@ impl ParserState {
         let then_node = self.parse_expr_data()?;
 
         self.consume_right_paren()?;
-        Ok(CondBranch { cond_node, then_node, typ: Type::Unresolved })
+        Ok(CondBranch { cond_node, then_node, typ: None, res_data: None })
     }
 
 
@@ -524,7 +525,7 @@ impl ParserState {
         } else if expressions.len() == 1 {
             Ok(Some(expressions.pop().unwrap()))
         } else {
-            let data = MultiExprData { expressions, typ: Type::Unresolved };
+            let data = MultiExprData { expressions, res_data: None };
             Ok(Some(ExprMulti(data)))
         }
     }
@@ -545,7 +546,7 @@ impl ParserState {
         if elements.is_empty() {
             Ok(LitNil)
         } else {
-            let data = OpData { operation: Op::List, operands: elements, typ: Type::Unresolved };
+            let data = OpData { operation: Op::List, operands: elements, res_data: None };
             Ok(ExprPairList(data))
         }
     }
@@ -559,7 +560,7 @@ impl ParserState {
         if elements.is_empty() {
             Ok(LitNil)
         } else {
-            let data = OpData { operation: Op::List, operands: elements, typ: Type::Unresolved };
+            let data = OpData { operation: Op::List, operands: elements, res_data: None };
             Ok(ExprArray(data))
         }
     }
@@ -598,6 +599,7 @@ impl ParserState {
                     index_expr: None,
                     pattern: Some(pattern),
                     list,
+                    res_data: None,
                 };
                 Ok(ExprListAccess(Box::new(data)))
             } else {
@@ -610,6 +612,7 @@ impl ParserState {
                 index_expr: Some(index),
                 pattern: None,
                 list,
+                res_data: None,
             };
             Ok(ExprListAccess(Box::new(data)))
         }
@@ -628,7 +631,7 @@ impl ParserState {
             Some(s) => s
         };
 
-        let data = WhileData { condition, body, is_do };
+        let data = WhileData { condition, body, is_do, res_data: None };
         Ok(ExprWhileLoop(Box::new(data)))
     }
 
@@ -640,7 +643,7 @@ impl ParserState {
         if self.peek().token_type != TLexical(Lex::RightParen) {
             Err("Cons expression may only have 2 arguments".to_string())
         } else {
-            let data = ConsData { car, cdr };
+            let data = ConsData { car, cdr, res_data: None };
             Ok(ExprCons(Box::new(data)))
         }
     }
@@ -681,10 +684,10 @@ impl ParserState {
             }
 
             if let Some(accessors) = accessors {
-                let data = ObjectCallData { name, accessors, ctx: None };
+                let data = ObjectCallData { name, accessors, namespace: None, res_data: None };
                 Ok(ExprObjectCall(Box::new(data)))
             } else {
-                let data = FuncCallData { name, arguments, ctx: None };
+                let data = FuncCallData { name, arguments, namespace: None, res_data: None };
                 Ok(ExprFuncCall(Box::new(data)))
             }
         } else {
@@ -692,7 +695,7 @@ impl ParserState {
                 return Err("All object access must be contained inside an expression,\
                 Ex: (<Object>:.field) not <Object>:.field".to_string());
             }
-            Ok(ExprLiteralCall(LiteralCallData { name, ctx: None }))
+            Ok(ExprLiteralCall(LiteralCallData { name, namespace: None, res_data: None }))
         }
     }
 
@@ -772,14 +775,14 @@ impl ParserState {
                     DefFunction(Box::new(data))
                 } else {
                     let value = self.parse_expr_data()?;
-                    let data = DefVarData { name, modifiers, value, d_type: var_type, ctx: None };
+                    let data = DefVarData { name, modifiers, value, d_type: var_type, res_data: None };
                     DefVariable(Box::new(data))
                 }
             }
 
             TLiteral(_) => {
                 let value = self.parse_literal()?;
-                let data = DefVarData { name, modifiers, value, d_type: var_type, ctx: None };
+                let data = DefVarData { name, modifiers, value, d_type: var_type, res_data: None };
                 DefVariable(Box::new(data))
             }
 
@@ -796,14 +799,14 @@ impl ParserState {
     pub fn parse_instance(&mut self, name: IString) -> Result<AstNode, String> {
         if self.previous_n(2).token_type == TLexical(Lex::LeftParen) {
             let arguments = self.parse_func_args()?;
-            let data = FuncCallData { name, arguments, ctx: None };
+            let data = FuncCallData { name, arguments, namespace: None, res_data: None };
             Ok(ExprInitInst(Box::new(data)))
         } else {
             self.consume(TLexical(Lex::LeftBracket))?; // post-fixed direct call, consume opening bracket
             let args = self.parse_named_args()?;
             self.consume(TLexical(Lex::RightBracket))?;
 
-            let data = DirectInst { name, args, ctx: None };
+            let data = DirectInst { name, args, namespace: None, res_data: None };
             Ok(ExprDirectInst(Box::new(data)))
         }
     }
@@ -849,7 +852,7 @@ impl ParserState {
         };
 
         let fields = self.parse_fields()?;
-        let data = DefStructData { name, fields, ctx: None };
+        let data = DefStructData { name, fields, res_data: None };
         Ok(DefStruct(Box::new(data)))
     }
 
@@ -967,7 +970,7 @@ impl ParserState {
             } else { None };
 
             self.consume_right_paren()?;
-            fields.push(Field { name, modifiers, p_type, default_value, c_type: Type::Unresolved })
+            fields.push(Field { name, modifiers, p_type, default_value })
         }
         if fields.is_empty() {
             Ok(None)
@@ -1003,7 +1006,7 @@ impl ParserState {
         };
 
         let rtn_type = self.parse_type_if_exists()?;
-        Ok(DefLambdaData { modifiers, parameters, body, d_type: rtn_type, typ: Type::Unresolved, ctx: None })
+        Ok(DefLambdaData { modifiers, parameters, body, d_type: rtn_type, res_data: None })
     }
 
 

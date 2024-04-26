@@ -1,7 +1,7 @@
 use std::collections::LinkedList;
 
 use lang::util::IString;
-use crate::environment::{ExprCtx, SymbolCtx};
+use crate::environment::{ExprContext, ResData, SymbolCtx};
 use crate::token::{Mod, Op};
 use crate::types::Type;
 
@@ -50,13 +50,147 @@ pub enum AstNode {
     LitObject,
     LitStruct(),
     LitNil,
-    LitVector,
+    LitArray,
     LitPair,
     LitLambda,
 
 }
 
 
+// TODO Fix this ugly mess refactor all to use a Node Type with {AstNode, ResData}
+impl AstNode {
+    pub fn resolved_type(&self) -> Option<Type> {
+        match self {
+            AstNode::DefVariable(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::DefLambda(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::DefFunction(data) => {
+                if let Some(res_data) = data.lambda.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::DefStruct(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::DefClass(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprAssignment(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprMulti(data) => {
+                if let Some(res_data) = &data.res_data {
+                    Some(res_data.type_data.typ.clone())
+                } else { None }
+            }
+            AstNode::ExprPrint(data) => data.resolved_type(),
+            AstNode::ExprIf(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprCond(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprWhileLoop(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprCons(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprPairList(data) => {
+                if let Some(res_data) = &data.res_data {
+                    Some(res_data.type_data.typ.clone())
+                } else { None }
+            }
+            AstNode::ExprArray(data) => {
+                if let Some(res_data) = &data.res_data {
+                    Some(res_data.type_data.typ.clone())
+                } else { None }
+            }
+            AstNode::ExprListAccess(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprFuncCall(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprFuncCalInner(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprObjectCall(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprLiteralCall(data) => {
+                if let Some(res_data) = &data.res_data {
+                    Some(res_data.type_data.typ.clone())
+                } else { None }
+            }
+            AstNode::ExprObjectAssignment(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprGenRand(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprDirectInst(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::ExprInitInst(data) => {
+                if let Some(res_data) = data.res_data {
+                    Some(res_data.type_data.typ)
+                } else { None }
+            }
+            AstNode::Operation(data) => {
+                if let Some(res_data) = &data.res_data {
+                    Some(res_data.type_data.typ.clone())
+                } else { None }
+            }
+            AstNode::LitInteger(data) => Some(Type::Integer),
+            AstNode::LitFloat(data) => Some(Type::Float),
+            AstNode::LitBoolean(data) => Some(Type::Boolean),
+            AstNode::LitString(data) => Some(Type::String),
+            AstNode::LitQuote => Some(Type::Unresolved),
+            AstNode::LitObject => Some(Type::Unresolved),
+            AstNode::LitStruct() => Some(Type::Unresolved),
+            AstNode::LitNil => Some(Type::Nil),
+            AstNode::LitArray => Some(Type::Unresolved),
+            AstNode::LitPair => Some(Type::Unresolved),
+            AstNode::LitLambda => Some(Type::Unresolved),
+        }
+    }
+}
 
 
 // Definition Data
@@ -67,7 +201,7 @@ pub struct DefVarData {
     pub modifiers: Option<Vec<Mod>>,
     pub value: AstNode,
     pub d_type: Option<IString>,
-    pub ctx: Option<SymbolCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -77,8 +211,7 @@ pub struct DefLambdaData {
     pub parameters: Option<Vec<Param>>,
     pub body: AstNode,
     pub d_type: Option<IString>,
-    pub typ: ,
-    pub ctx: Option<SymbolCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -96,8 +229,9 @@ pub struct Param {
     pub default_value: Option<AstNode>,
     pub dynamic: bool,
     pub mutable: bool,
-    pub d_type: Option<IString>,
     pub c_type: Type,
+    // TODO this need resolved to ensure existence
+    pub d_type: Option<IString>,
 }
 
 
@@ -105,7 +239,7 @@ pub struct Param {
 pub struct DefStructData {
     pub name: IString,
     pub fields: Option<Vec<Field>>,
-    pub ctx: Option<SymbolCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -120,7 +254,7 @@ pub struct DefClassData {
     pub post_init: Option<AstNode>,
     pub fin: Option<AstNode>,
     pub validate: Option<AstNode>,
-    pub ctx: Option<SymbolCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -136,7 +270,7 @@ impl DefClassData {
             post_init: None,
             fin: None,
             validate: None,
-            ctx: None,
+            res_data: None,
         }
     }
 }
@@ -147,7 +281,7 @@ pub struct DirectInst {
     pub name: IString,
     pub namespace: Option<IString>,
     pub args: Option<Vec<InstArgs>>,
-    pub ctx: Option<ExprCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -157,7 +291,6 @@ pub struct Field {
     pub modifiers: Option<Vec<Mod>>,
     pub p_type: Option<IString>,
     pub default_value: Option<AstNode>,
-    pub c_type: Type,
 }
 
 
@@ -166,8 +299,8 @@ pub struct Field {
 pub struct OpData {
     pub operation: Op,
     pub operands: Vec<AstNode>,
-    pub typ: Type,
-    pub ctx: Option<ExprCtx>,
+    pub res_data: Option<ResData>,
+
 }
 
 
@@ -175,8 +308,7 @@ pub struct OpData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MultiExprData {
     pub expressions: Vec<AstNode>,
-    pub typ: Type,
-    pub ctx: Option<ExprCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -185,7 +317,7 @@ pub struct AssignData {
     pub name: IString,
     pub namespace: Option<IString>,
     pub value: AstNode,
-    pub ctx: Option<ExprCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -193,24 +325,17 @@ pub struct AssignData {
 pub struct CondBranch {
     pub cond_node: AstNode,
     pub then_node: AstNode,
-    pub typ: Type,
-    pub ctx: Option<ExprCtx>,
+    pub typ: Option<Type>,
+    pub res_data: Option<ResData>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfData {
     pub if_branch: CondBranch,
+    pub else_type: Option<Type>,
     pub else_branch: Option<AstNode>,
-    pub else_type: Type,
-    pub ctx: Option<ExprCtx>,
-}
-
-
-impl IfData {
-    pub fn all_types_same(&self) -> bool {
-        self.if_branch.typ == self.else_type
-    }
+    pub res_data: Option<ResData>,
 }
 
 
@@ -218,21 +343,7 @@ impl IfData {
 pub struct CondData {
     pub cond_branches: Vec<CondBranch>,
     pub else_branch: Option<AstNode>,
-    pub else_type: Type,
-    pub ctx: Option<ExprCtx>,
-}
-
-
-impl CondData {
-    //todo ignore void for method call branching when implemented
-    pub fn all_types_same(&self) -> bool {
-        for branch in &self.cond_branches {
-            if branch.typ != self.else_type {
-                return false;
-            }
-        }
-        true
-    }
+    pub res_data: Option<ResData>,
 }
 
 
@@ -241,7 +352,7 @@ pub struct WhileData {
     pub condition: AstNode,
     pub body: AstNode,
     pub is_do: bool,
-    pub ctx: Option<ExprCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -249,7 +360,7 @@ pub struct WhileData {
 pub struct ConsData {
     pub car: AstNode,
     pub cdr: AstNode,
-    pub ctx: Option<ExprCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -258,7 +369,7 @@ pub struct ListAccData {
     pub index_expr: Option<AstNode>,
     pub pattern: Option<Vec<u8>>,
     pub list: AstNode,
-    pub ctx: Option<ExprCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -267,8 +378,7 @@ pub struct FuncCallData {
     pub name: IString,
     pub namespace: Option<IString>,
     pub arguments: Option<Vec<FuncArg>>,
-    pub ctx: Option<ExprCtx>,
-    
+    pub res_data: Option<ResData>,
 }
 
 
@@ -277,7 +387,7 @@ pub struct ObjectCallData {
     pub name: IString,
     pub namespace: Option<IString>,
     pub accessors: LinkedList<Accessor>,
-    pub ctx: Option<ExprCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -285,7 +395,7 @@ pub struct ObjectCallData {
 pub struct LiteralCallData {
     pub name: IString,
     pub namespace: Option<IString>,
-    pub ctx: Option<ExprCtx>
+    pub res_data: Option<ResData>,
 }
 
 
@@ -294,7 +404,7 @@ pub struct ObjectAssignData {
     pub access: ObjectCallData,
     pub namespace: Option<IString>,
     pub value: AstNode,
-    pub ctx: Option<ExprCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -304,7 +414,7 @@ pub struct InnerFuncCallData {
     pub namespace: Option<IString>,
     pub accessors: Option<Vec<Accessor>>,
     pub arguments: Option<Vec<FuncArg>>,
-    pub ctx: Option<SymbolCtx>,
+    pub res_data: Option<ResData>,
 }
 
 
@@ -335,4 +445,5 @@ pub struct GenRandData {
     pub is_float: bool,
     pub lower: AstNode,
     pub upper: AstNode,
+    pub res_data: Option<ResData>,
 }

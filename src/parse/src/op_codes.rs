@@ -10,8 +10,6 @@ pub enum OpCode {
     RtnF64,
     RtnBool,
     RtnRef,
-    LoadConst,
-    LoadConstW,
     AddI64,
     AddF64,
     SubI64,
@@ -70,6 +68,18 @@ pub enum OpCode {
     Cdr,
     NewArray,
     Aacc,
+    InvokeN,
+    InvokeL,
+    InvokeC,
+    LoadConstN,
+    LoadConstL,
+    LoadConstLWide,
+    LoadVarN,
+    LoadVarL,
+    LoadVarC,
+    StoreVarN,
+    StoreVarL,
+    StoreVarC,
 }
 
 
@@ -93,15 +103,6 @@ pub fn decode(code: &[u8]) -> Vec<String> {
             OpCode::RtnF64 => decoded.push("RtnF64".to_string()),
             OpCode::RtnBool => decoded.push("RtnBool".to_string()),
             OpCode::RtnRef => decoded.push("RtnRef".to_string()),
-            OpCode::LoadConst => {
-                let index = iter.next().unwrap();
-                decoded.push(format!("Ldc: {}", index))
-            }
-            OpCode::LoadConstW => {
-                // TODO decode wide operands
-                let index = iter.next().unwrap().to_string();
-                decoded.push(format!("LdcW: {}", index))
-            }
             OpCode::AddI64 => decoded.push("AddI64".to_string()),
             OpCode::AddF64 => decoded.push("AddF64".to_string()),
             OpCode::SubI64 => decoded.push("SubI64".to_string()),
@@ -233,7 +234,92 @@ pub fn decode(code: &[u8]) -> Vec<String> {
                 )
             }
 
-            OpCode::Aacc =>  decoded.push("Aacc".to_string()),
+            OpCode::Aacc => decoded.push("Aacc".to_string()),
+
+            OpCode::InvokeN => {
+                let ns1 = iter.next().unwrap();
+                let ns2 = iter.next().unwrap();
+                let index1 = iter.next().unwrap();
+                let index2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "InvokeN | NameSpace: {} | Index: {}",
+                    util::read_wide_bytes(*ns1, *ns2),
+                    util::read_wide_bytes(*index1, *index2))
+                )
+            }
+            OpCode::InvokeL => {
+                let index1 = iter.next().unwrap();
+                let index2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "InvokeL | Index: {}",
+                    util::read_wide_bytes(*index1, *index2))
+                )
+            }
+            OpCode::InvokeC => { todo!() }
+            OpCode::LoadConstN => {
+                let ns1 = iter.next().unwrap();
+                let ns2 = iter.next().unwrap();
+                let index1 = iter.next().unwrap();
+                let index2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "LoadConstN | NameSpace: {} | Index: {}",
+                    util::read_wide_bytes(*ns1, *ns2),
+                    util::read_wide_bytes(*index1, *index2))
+                )
+            }
+
+            OpCode::LoadConstL => {
+                let index = iter.next().unwrap();
+                decoded.push(format!("LoadConstL: {}", index))
+            }
+            OpCode::LoadConstLWide => {
+                let index1 = iter.next().unwrap();
+                let index2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "LoadConstLWide {}",
+                    util::read_wide_bytes(*index1, *index2))
+                )
+            }
+            OpCode::LoadVarN => {
+                let ns1 = iter.next().unwrap();
+                let ns2 = iter.next().unwrap();
+                let index1 = iter.next().unwrap();
+                let index2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "LoadVarN | NameSpace: {} | Index: {}",
+                    util::read_wide_bytes(*ns1, *ns2),
+                    util::read_wide_bytes(*index1, *index2))
+                )
+            }
+            OpCode::LoadVarL => {
+                let index1 = iter.next().unwrap();
+                let index2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "LoadVarL | Index: {}",
+                    util::read_wide_bytes(*index1, *index2))
+                )
+            }
+            OpCode::LoadVarC => { todo!() }
+            OpCode::StoreVarN => {
+                let ns1 = iter.next().unwrap();
+                let ns2 = iter.next().unwrap();
+                let index1 = iter.next().unwrap();
+                let index2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "StoreVarN | NameSpace: {} | Index: {}",
+                    util::read_wide_bytes(*ns1, *ns2),
+                    util::read_wide_bytes(*index1, *index2))
+                )
+            }
+            OpCode::StoreVarL => {
+                let index1 = iter.next().unwrap();
+                let index2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "StoreVarL | Index: {}",
+                    util::read_wide_bytes(*index1, *index2))
+                )
+            }
+            OpCode::StoreVarC => { todo!() }
         }
     }
     decoded

@@ -448,7 +448,7 @@ impl<'a> Environment<'a> {
         let type_id = self.meta_space.types.get_or_define_type(typ.clone());
         let def = VarMeta { name };
 
-        if self.curr_depth == 0 || (self.curr_func.is_none() && self.curr_class.is_none()) {
+        if (self.curr_func.is_none() && self.curr_class.is_none() {
             let index = self.meta_space.add_var_def(self.curr_ns, def);
             let symbol_data = SymbolCtx::new(self.get_env_ctx(), index, mods);
             let res_data = ResData {
@@ -486,7 +486,7 @@ impl<'a> Environment<'a> {
         let rtn_type_id = self.meta_space.types.get_or_define_type(rtn_type.clone());
         let def = FuncMeta::new(name, arg_type_ids, rtn_type_id);
 
-        if self.curr_depth == 0 || (self.curr_func.is_none() & &self.curr_class.is_none()) {
+        if self.curr_func.is_none() & &self.curr_class.is_none() {
             let index = self.meta_space.add_func_def(self.curr_ns, def);
             self.curr_func = Some(index); // Set curr func index for body resolutions
 
@@ -561,7 +561,7 @@ impl<'a> Environment<'a> {
 
         match found.unwrap() {
             Type::Unresolved | Type::Integer | Type::Float | Type::String | Type::Boolean |
-            Type::Array(_) | Type::Nil | Type::Pair => found.unwrap(),
+            Type::Array(_) | Type::Nil | Type::Pair | Type::Void => found.unwrap(),
             Type::Quote => todo!(),
             Type::Object(obj) => {
                 for typ in &obj.super_types {
@@ -580,23 +580,7 @@ impl<'a> Environment<'a> {
         self.meta_space.types.get_or_define_type(typ)
     }
 
-
-    pub fn get_type_id(&self, typ: &Type) -> IString {
-        match typ {
-            Type::Unresolved => panic!("Attempted to lookup unresolved type"),
-            Type::Integer => SCACHE.const_int,
-            Type::Float => SCACHE.const_float,
-            Type::Boolean => SCACHE.const_bool,
-            Type::Array(_) => todo!(),
-            Type::String => SCACHE.const_string,
-            Type::Pair => todo!(),
-            Type::Nil => SCACHE.const_nil,
-            Type::Quote => todo!(),
-            Type::Object(obj) => obj.name,
-            Type::Lambda(_) => todo!()
-        }
-    }
-
+    
     pub fn get_env_ctx(&self) -> ExprContext {
         ExprContext {
             scope: self.curr_scope,

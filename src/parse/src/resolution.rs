@@ -176,8 +176,16 @@ pub fn resolve_expr_multi(data: &mut MultiExprData, env: &mut Environment) -> Re
     for expr in data.expressions.iter_mut() {
         resolved_type = resolve(expr, env)?;
     }
+
+    let ctx = env.get_env_ctx();
+    let type_id = env.meta_space.types.get_or_define_type(resolved_type);
+    let type_data = TypeData { typ: resolved_type.clone(), type_id };
+    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    data.res_data = Some(res_data);
+    
     env.pop_scope();
-    Ok(resolved_type)
+    
+    Ok(resolved_type.clone())
 }
 
 
@@ -365,7 +373,7 @@ pub fn resolve_expr_array(data: &mut OpData, env: &mut Environment) -> Result<Ty
 
 pub fn resolve_expr_list_acc(data: &mut Box<ListAccData>, env: &mut Environment) -> Result<Type, String> {
     resolve(&mut data.list, env)?;
-    Ok(Type::Nil)
+    Ok(Type::Void)
 }
 
 
@@ -385,6 +393,7 @@ pub fn resolve_obj_call(data: &mut Box<ObjectCallData>, env: &mut Environment) -
 
 
 pub fn resolve_literal_call(data: &mut LiteralCallData, env: &mut Environment) -> Result<Type, String> {
+    // If symbol is not found it is non-existent or out of scope
     if let Some(target_ctx) = env.get_symbol_ctx(data.name) {
         let ctx = env.get_env_ctx();
         let type_data = target_ctx.type_data.clone();

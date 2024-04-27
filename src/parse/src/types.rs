@@ -55,10 +55,17 @@ impl Default for TypeTable {
         let mut type_names = AHashMap::<IString, u16>::with_capacity(50);
 
 
+        
+
         let nil = type_ids.len() as u16;
         type_ids.push(Type::Nil);
         type_defs.insert(Type::Nil, nil);
         type_names.insert(SCACHE.const_nil, nil);
+
+        let void = type_ids.len() as u16;
+        type_ids.push(Type::Void);
+        type_defs.insert(Type::Void, void);
+        type_names.insert(SCACHE.const_void, void);
 
         let bool = type_ids.len() as u16;
         type_ids.push(Type::Boolean);
@@ -85,10 +92,7 @@ impl Default for TypeTable {
         type_defs.insert(Type::Pair, pair);
         type_names.insert(SCACHE.const_pair, pair);
 
-        let void = type_ids.len() as u16;
-        type_ids.push(Type::Void);
-        type_defs.insert(Type::Void, void);
-        type_names.insert(SCACHE.const_void, void);
+     
 
         TypeTable {
             type_defs,

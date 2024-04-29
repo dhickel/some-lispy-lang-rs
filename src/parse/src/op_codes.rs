@@ -6,10 +6,8 @@ use lang::util;
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum OpCode {
     Exit,
-    RtnI64,
-    RtnF64,
-    RtnBool,
-    RtnRef,
+    ReturnVal,
+    Return,
     AddI64,
     AddF64,
     SubI64,
@@ -59,19 +57,15 @@ pub enum OpCode {
     IConst4,
     IConst5,
     Pop,
-    AssignGlobal,
-    DefGlobal,
-    LoadGlobal,
-    HeapStore,
     Cons,
     Car,
     Cdr,
     NewArray,
     Aacc,
     InvokeN,
-    InvokeL,
     InvokeC,
     LoadConstN,
+    LoadConstNWide,
     LoadConstL,
     LoadConstLWide,
     LoadVarN,
@@ -99,10 +93,8 @@ pub fn decode(code: &[u8]) -> Vec<String> {
     while let Some(next) = iter.next() {
         match OpCode::from_byte(*next) {
             OpCode::Exit => decoded.push("Exit".to_string()),
-            OpCode::RtnI64 => decoded.push("RtnI64".to_string()),
-            OpCode::RtnF64 => decoded.push("RtnF64".to_string()),
-            OpCode::RtnBool => decoded.push("RtnBool".to_string()),
-            OpCode::RtnRef => decoded.push("RtnRef".to_string()),
+            OpCode::ReturnVal => decoded.push("ReturnVal".to_string()),
+            OpCode::Return => decoded.push("Return".to_string()),
             OpCode::AddI64 => decoded.push("AddI64".to_string()),
             OpCode::AddF64 => decoded.push("AddF64".to_string()),
             OpCode::SubI64 => decoded.push("SubI64".to_string()),
@@ -196,27 +188,27 @@ pub fn decode(code: &[u8]) -> Vec<String> {
             OpCode::IConst4 => decoded.push("IConst4".to_string()),
             OpCode::IConst5 => decoded.push("IConst5".to_string()),
             OpCode::Pop => decoded.push("Pop".to_string()),
-            OpCode::AssignGlobal => {
-                decoded.push(format!("AssignGlobal"))
-            }
-            OpCode::DefGlobal => {
-                decoded.push(format!("DefGlobal"))
-            }
-            OpCode::LoadGlobal => {
-                decoded.push(format!("LoadGlobal"))
-            }
-
-            OpCode::HeapStore => {
-                let typ1 = iter.next().unwrap();
-                let typ2 = iter.next().unwrap();
-                let size1 = iter.next().unwrap();
-                let size2 = iter.next().unwrap();
-                decoded.push(format!(
-                    "HeapStore | TypeId: {} | Size: {}",
-                    util::read_wide_bytes(*typ1, *typ2),
-                    util::read_wide_bytes(*size1, *size2))
-                )
-            }
+            // OpCode::AssignGlobal => {
+            //     decoded.push(format!("AssignGlobal"))
+            // }
+            // OpCode::DefGlobal => {
+            //     decoded.push(format!("DefGlobal"))
+            // }
+            // OpCode::LoadGlobal => {
+            //     decoded.push(format!("LoadGlobal"))
+            // }
+            // 
+            // OpCode::HeapStore => {
+            //     let typ1 = iter.next().unwrap();
+            //     let typ2 = iter.next().unwrap();
+            //     let size1 = iter.next().unwrap();
+            //     let size2 = iter.next().unwrap();
+            //     decoded.push(format!(
+            //         "HeapStore | TypeId: {} | Size: {}",
+            //         util::read_wide_bytes(*typ1, *typ2),
+            //         util::read_wide_bytes(*size1, *size2))
+            //     )
+            // }
 
             OpCode::Cons => decoded.push("Cons".to_string()),
             OpCode::Car => decoded.push("Car".to_string()),
@@ -247,22 +239,33 @@ pub fn decode(code: &[u8]) -> Vec<String> {
                     util::read_wide_bytes(*index1, *index2))
                 )
             }
-            OpCode::InvokeL => {
-                let index1 = iter.next().unwrap();
-                let index2 = iter.next().unwrap();
-                decoded.push(format!(
-                    "InvokeL | Index: {}",
-                    util::read_wide_bytes(*index1, *index2))
-                )
-            }
+            // OpCode::InvokeL => {
+            //     let index1 = iter.next().unwrap();
+            //     let index2 = iter.next().unwrap();
+            //     decoded.push(format!(
+            //         "InvokeL | Index: {}",
+            //         util::read_wide_bytes(*index1, *index2))
+            //     )
+            // }
             OpCode::InvokeC => { todo!() }
             OpCode::LoadConstN => {
                 let ns1 = iter.next().unwrap();
                 let ns2 = iter.next().unwrap();
                 let index1 = iter.next().unwrap();
-                let index2 = iter.next().unwrap();
                 decoded.push(format!(
                     "LoadConstN | NameSpace: {} | Index: {}",
+                    util::read_wide_bytes(*ns1, *ns2),
+                    index1
+                ))
+            }
+
+            OpCode::LoadConstNWide => {
+                let ns1 = iter.next().unwrap();
+                let ns2 = iter.next().unwrap();
+                let index1 = iter.next().unwrap();
+                let index2 = iter.next().unwrap();
+                decoded.push(format!(
+                    "LoadConstNWide | NameSpace: {} | Index: {}",
                     util::read_wide_bytes(*ns1, *ns2),
                     util::read_wide_bytes(*index1, *index2))
                 )

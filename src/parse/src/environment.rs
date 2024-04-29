@@ -1,6 +1,7 @@
 use intmap::IntMap;
 use lang::util::{IString, SCACHE};
 use crate::ast::DefLambdaData;
+use crate::op_codes::OpCode;
 use crate::token::Mod;
 use crate::types::{Type, TypeTable};
 
@@ -145,28 +146,26 @@ impl MetaSpace {
 
 
             let size = std::mem::size_of::<T>();
-            if size > 8 {
+            if size != 8 {
                 panic!("Attempted to add constant of more than 8 bytes");
             }
 
             let value_ptr = value as *const T as *const u8;
-            let bytes_slice = std::slice::from_raw_parts(value_ptr, size);
+            let bytes = std::ptr::read(value_ptr as *const [u8; 8]);
 
-            let mut padded_bytes = [0u8; 8];
-            if size < 8 {
-                padded_bytes[8 - size..].copy_from_slice(bytes_slice);
-            } else {
-                padded_bytes.copy_from_slice(bytes_slice);
+
+            let hash = u64::from_ne_bytes(bytes);
+            if let Some(&index) = ns.existing_consts.get(hash) {
+                return index;
             }
 
             let curr_index = ns.constants.len();
-            if curr_index == u16::MAX as usize {
-                panic!("Exceeded size of constant pool")
+            if curr_index >= u16::MAX as usize {
+                panic!("Exceeded size of constant pool");
             }
 
-            let hash = u64::from_ne_bytes(padded_bytes);
             ns.existing_consts.insert(hash, curr_index as u16);
-            ns.constants.push(padded_bytes);
+            ns.constants.extend_from_slice(&bytes);
             curr_index as u16
         }
     }
@@ -204,6 +203,14 @@ impl MetaSpace {
     }
 }
 
+// TODO, REPL and dynamicism is WIP, namespace should store index/count for var/func/constants
+//  then data can get added to the RunTimeSpace, and the actual namespace data reset, then
+//  when adding new data via the repl dynamically the indexs persists for code gen to match
+//  with the run time structure updates. This way data is copied but only in one structure at a time.
+//  Pointers are used for efficient copy operations, which is fine as long as code is single thread
+//  since the dynamic structures can re allocate, but this wont happen mid copy in a ST environment
+// The more I think about it only the const vector needs to be drained, and the bytecode for the
+// functions zeroed after being copied, this way metadata can persist at runtime.
 
 #[derive(Debug)]
 pub struct NameSpace {
@@ -213,9 +220,103 @@ pub struct NameSpace {
     pub variables: Vec<VarMeta>,
     pub functions: Vec<FuncMeta>,
     pub obj_metadata: Vec<ObjectMeta>,
-    pub constants: Vec<[u8; 8]>,
+    pub constants: Vec<u8>,
     pub existing_consts: IntMap<u16>,
     pub code: Vec<u8>,
+}
+
+
+#[derive(Debug)]
+pub struct StackFrame {
+    pub local_count: u16,
+    pub code_ptr: *const u8,
+    pub code_size: u16,
+    pub constant_ptr: *const u8,
+}
+
+
+#[derive(Debug)]
+pub struct PermNameSpace {
+    pub func_data: Vec<u8>,
+    pub func_table: Vec<(u32, u16, u16)>,
+    // start, size, locals count
+    pub var_data: Vec<u8>,
+    pub constants: Vec<u8>,
+}
+
+
+#[derive(Debug)]
+pub struct PermaSpace {
+    pub namespaces: Vec<PermNameSpace>,
+    pub init_code: Vec<u8>,
+}
+
+
+impl PermaSpace {
+    pub fn new(meta_space: &mut MetaSpace) -> PermaSpace {
+        let mut init_code = Vec::<u8>::with_capacity(meta_space.namespaces.len() * 30);
+        let mut namespaces = Vec::<PermNameSpace>::with_capacity(meta_space.namespaces.len());
+        for ns in meta_space.namespaces.iter_mut() {
+            namespaces.push(PermNameSpace::new(ns));
+            init_code.append(&mut ns.code);
+        }
+        init_code.push(OpCode::Exit as u8);
+        PermaSpace { namespaces, init_code }
+    }
+}
+
+
+impl PermNameSpace {
+    pub fn get_func(&self, index: u16) -> StackFrame {
+        unsafe {
+            let meta = *self.func_table.get_unchecked(index as usize);
+            StackFrame {
+                local_count: meta.2,
+                code_ptr: self.func_data.as_ptr().add(meta.0 as usize),
+                code_size: meta.1,
+                constant_ptr: self.constants.as_ptr(),
+            }
+        }
+    }
+
+    pub fn set_var_data(&mut self, index: u16, copy_from: *const u8) {
+        unsafe {
+            let copy_to = self.var_data.as_mut_ptr().add(index as usize * 8);
+            std::ptr::copy_nonoverlapping(copy_from, copy_to, 8)
+        }
+    }
+
+    pub fn get_var_data(&mut self, index: u16) -> *const u8 {
+        unsafe {
+            self.var_data.as_ptr().add(index as usize * 8)
+        }
+    }
+
+    pub fn get_constants(&self, index: u16) -> *const u8 {
+        unsafe {
+            self.constants.as_ptr().add(index as usize * 8)
+        }
+    }
+
+    pub fn new(ns: &mut NameSpace) -> PermNameSpace {
+        let mut func_data = Vec::<u8>::with_capacity(ns.functions.len() * 32);
+        let mut func_table = Vec::<(u32, u16, u16)>::with_capacity(ns.functions.len());
+        for func in ns.functions.iter_mut() {
+            func_table.push((func_data.len() as u32, func.code.len() as u16, func.local_indices));
+            func_data.append(&mut func.code);
+        }
+
+        let var_data = vec![0u8; ns.variables.len() * 8];
+        let mut constants = Vec::<u8>::with_capacity(ns.constants.len());
+        constants.append(&mut ns.constants);
+
+        PermNameSpace {
+            func_data,
+            func_table,
+            var_data,
+            constants,
+        }
+    }
 }
 
 
@@ -228,7 +329,7 @@ impl NameSpace {
             variables: Vec::<VarMeta>::with_capacity(20),
             functions: Vec::<FuncMeta>::with_capacity(20),
             obj_metadata: Vec::<ObjectMeta>::new(),
-            constants: Vec::<[u8; 8]>::with_capacity(50),
+            constants: Vec::<u8>::with_capacity(50 * 8),
             existing_consts: IntMap::<u16>::with_capacity(50),
             code: Vec::<u8>::with_capacity(100),
         }
@@ -445,10 +546,10 @@ impl<'a> Environment<'a> {
     // If not currently resolve a function body, and not a top level ns def, symbol must be
     // a top level class definition
     pub fn add_var_symbol(&mut self, name: IString, typ: Type, mods: &[Mod]) -> Result<&ResData, String> {
-        let type_id = self.meta_space.types.get_or_define_type(typ.clone());
+        let type_id = self.meta_space.types.get_or_define_type(&typ);
         let def = VarMeta { name };
 
-        if (self.curr_func.is_none() && self.curr_class.is_none() {
+        if self.curr_func.is_none() && self.curr_class.is_none() {
             let index = self.meta_space.add_var_def(self.curr_ns, def);
             let symbol_data = SymbolCtx::new(self.get_env_ctx(), index, mods);
             let res_data = ResData {
@@ -479,11 +580,11 @@ impl<'a> Environment<'a> {
     pub fn add_func_symbol(&mut self, name: IString, lambda: DefLambdaData, rtn_type: Type) -> Result<&ResData, String> {
         let arg_type_ids = if let Some(params) = lambda.parameters {
             params.iter()
-                .map(|p| self.meta_space.types.get_or_define_type(p.c_type.clone()))
+                .map(|p| self.meta_space.types.get_or_define_type(&p.c_type))
                 .collect()
         } else { vec![] };
 
-        let rtn_type_id = self.meta_space.types.get_or_define_type(rtn_type.clone());
+        let rtn_type_id = self.meta_space.types.get_or_define_type(&rtn_type);
         let def = FuncMeta::new(name, arg_type_ids, rtn_type_id);
 
         if self.curr_func.is_none() & &self.curr_class.is_none() {
@@ -575,12 +676,6 @@ impl<'a> Environment<'a> {
         }
     }
 
-
-    pub fn define_type(&mut self, typ: Type) -> u16 {
-        self.meta_space.types.get_or_define_type(typ)
-    }
-
-    
     pub fn get_env_ctx(&self) -> ExprContext {
         ExprContext {
             scope: self.curr_scope,

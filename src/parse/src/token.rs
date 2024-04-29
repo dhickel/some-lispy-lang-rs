@@ -260,6 +260,6 @@ pub enum TokenData {
 pub struct Token {
     pub token_type: TokenType,
     pub data: Option<TokenData>,
-    pub line: i32,
-    pub char: i32,
+    pub line: u32,
+    pub char: u32,
 }

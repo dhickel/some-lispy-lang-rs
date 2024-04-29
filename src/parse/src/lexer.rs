@@ -10,8 +10,8 @@ use crate::token::TokenType::*;
 
 struct LexicalState<'a> {
     pub tokens: Vec<Token>,
-    pub line_num: i32,
-    pub line_char: i32,
+    pub line_num: u32,
+    pub line_char: u32,
     char_iter: Peekable<Chars<'a>>,
     pub curr_char: char,
     pub last_char: char,

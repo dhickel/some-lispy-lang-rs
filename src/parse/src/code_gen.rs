@@ -1,9 +1,6 @@
 use std::cmp::PartialEq;
-use lang::util;
-
-
-use crate::ast::{AssignData, AstNode, ConsData, DefVarData, IfData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
-use crate::environment::{Context, MetaSpace};
+use crate::ast::{AssignData, AstData, AstNode, ConsData, DefVarData, IfData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
+use crate::environment::{Context, MetaSpace, ResData};
 use crate::op_codes::OpCode;
 use crate::token::Op;
 use crate::types::Type;
@@ -77,7 +74,7 @@ impl GenData {
 
 
 // Code that is not in the body of a class or function will be returned to here to be added to the
-// top level name space code. 
+// top level name space code.
 // TODO should top level code even be allowed other than definitions, other than in the main ns?
 pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result<(), String> {
     for node in program_nodes {
@@ -89,56 +86,56 @@ pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result
 
 
 fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    match node {
-        AstNode::DefVariable(data) => gen_define_variable(data, comp_unit),
-        AstNode::DefLambda(_) => todo!(),
-        AstNode::DefFunction(_) => todo!(),
-        AstNode::DefStruct(_) => todo!(),
-        AstNode::DefClass(_) => todo!(),
-        AstNode::ExprAssignment(data) => gen_assignment(data, comp_unit),
-        AstNode::ExprMulti(data) => gen_multi_expr(data, comp_unit),
-        AstNode::ExprPrint(_) => todo!(),
-        AstNode::ExprIf(data) => gen_if_expr(data, comp_unit),
-        AstNode::ExprCond(_) => todo!(),
-        AstNode::ExprWhileLoop(data) => gen_while_loop(data, comp_unit),
-        AstNode::ExprCons(data) => gen_cons(data, comp_unit),
-        AstNode::ExprPairList(data) => gen_list_new(data, comp_unit),
-        AstNode::ExprArray(data) => gen_array_new(data, comp_unit),
-        AstNode::ExprListAccess(data) => gen_list_access(data, comp_unit),
-        AstNode::ExprFuncCall(_) => todo!(),
-        AstNode::ExprFuncCalInner(_) => todo!(),
-        AstNode::ExprObjectCall(_) => todo!(),
-        AstNode::ExprLiteralCall(data) => gen_literal_call(data, comp_unit),
-        AstNode::ExprObjectAssignment(_) => todo!(),
-        AstNode::ExprGenRand(_) => todo!(),
-        AstNode::ExprDirectInst(_) => todo!(),
-        AstNode::ExprInitInst(_) => todo!(),
-        AstNode::Operation(op_data) => gen_operation(op_data, comp_unit),
-        AstNode::LitInteger(_) | AstNode::LitFloat(_) | AstNode::LitBoolean(_) => {
-            gen_numerical_lit(node, comp_unit)
-        }
-        AstNode::LitString(_) => todo!(),
-        AstNode::LitQuote => todo!(),
-        AstNode::LitObject => todo!(),
-        AstNode::LitStruct() => todo!(),
-        AstNode::LitNil => todo!(),
-        AstNode::LitArray => todo!(),
-        AstNode::LitPair => todo!(),
-        AstNode::LitLambda => todo!(),
+    let res_data = node.res_data.expect("Fatal: Missing res data for resolved node");
+    match node.node_data {
+        AstData::DefVariable(data) => gen_define_variable(data, res_data, comp_unit),
+        AstData::DefLambda(_) => todo!(),
+        AstData::DefFunction(_) => todo!(),
+        AstData::DefStruct(_) => todo!(),
+        AstData::DefClass(_) => todo!(),
+        AstData::ExprAssignment(data) => gen_assignment(data, res_data, comp_unit),
+        AstData::ExprMulti(data) => gen_multi_expr(data, res_data, comp_unit),
+        AstData::ExprPrint(_) => todo!(),
+        AstData::ExprIf(data) => gen_if_expr(data, res_data, comp_unit),
+        AstData::ExprCond(_) => todo!(),
+        AstData::ExprWhileLoop(data) => gen_while_loop(data, res_data, comp_unit),
+        AstData::ExprCons(data) => gen_cons(data, res_data, comp_unit),
+        AstData::ExprPairList(data) => gen_list_new(data, res_data, comp_unit),
+        AstData::ExprArray(data) => gen_array_new(data, res_data, comp_unit),
+        AstData::ExprListAccess(data) => gen_list_access(data, res_data, comp_unit),
+        AstData::ExprFuncCall(_) => todo!(),
+        AstData::ExprFuncCalInner(_) => todo!(),
+        AstData::ExprObjectCall(_) => todo!(),
+        AstData::ExprLiteralCall(data) => gen_literal_call(data, res_data, comp_unit),
+        AstData::ExprObjectAssignment(_) => todo!(),
+        AstData::ExprGenRand(_) => todo!(),
+        AstData::ExprDirectInst(_) => todo!(),
+        AstData::ExprInitInst(_) => todo!(),
+        AstData::Operation(data) => gen_operation(data, res_data, comp_unit),
+        AstData::LitInteger(data) => gen_numerical_lit(node.node_data, res_data, comp_unit),
+        AstData::LitFloat(data) => gen_numerical_lit(node.node_data, res_data, comp_unit),
+        AstData::LitBoolean(data) => gen_numerical_lit(node.node_data, res_data, comp_unit),
+        AstData::LitString(_) => todo!(),
+        AstData::LitQuote => todo!(),
+        AstData::LitObject => todo!(),
+        AstData::LitStruct() => todo!(),
+        AstData::LitNil => todo!(),
+        AstData::LitArray => todo!(),
+        AstData::LitPair => todo!(),
+        AstData::LitLambda => todo!(),
     }
 }
 
-// TODO push modifiers as well as a byte vec where each byte = mod (allows up to 8 modifiers)
+// TODO push modifiers as well as a byte vec where each byte = mod (allows up to 8 modifiers)?
 
-fn gen_define_variable(data: Box<DefVarData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let res_data = data.res_data.expect("Fatal: Unresolved data in code gen");
+fn gen_define_variable(data: DefVarData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let ctx = if let Context::Symbol(symbol) = &res_data.self_ctx {
         symbol
     } else { return Err("Invalid context".to_string()); };
 
     let mut code = GenData::new(res_data.type_data.type_id);
     let value = gen_node(data.value, comp_unit)?;
-    
+
     code.append_gen_data(value);
     code.append_wide_operand(ctx.index);
 
@@ -167,8 +164,7 @@ fn gen_heap_store(typ: u16, size: u16) -> Result<GenData, String> {
 }
 
 
-fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let res_data = data.res_data.expect("Fatal: Unresolved data in code gen");
+fn gen_literal_call(data: LiteralCallData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let self_ctx = if let Context::Expr(expr) = &res_data.self_ctx {
         expr
     } else { return Err("Invalid context".to_string()); };
@@ -179,7 +175,7 @@ fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<G
 
     let mut code = GenData::new(res_data.type_data.type_id);
     code.append_wide_operand(target_ctx.index);
-    
+
     if self_ctx.class.is_none() && self_ctx.func.is_none() {
         code.append_wide_operand(self_ctx.ns);
         code.append_op_code(OpCode::LoadVarN);
@@ -194,8 +190,7 @@ fn gen_literal_call(data: LiteralCallData, comp_unit: &mut CompUnit) -> Result<G
 }
 
 
-fn gen_assignment(data: Box<AssignData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let res_data = data.res_data.expect("Fatal: Unresolved data in code gen");
+fn gen_assignment(data: AssignData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let self_ctx = if let Context::Expr(expr) = &res_data.self_ctx {
         expr
     } else { return Err("Invalid context".to_string()); };
@@ -209,7 +204,7 @@ fn gen_assignment(data: Box<AssignData>, comp_unit: &mut CompUnit) -> Result<Gen
 
     code.append_gen_data(value);
     code.append_wide_operand(target_ctx.index);
-    
+
     if self_ctx.class.is_none() && self_ctx.func.is_none() {
         code.append_wide_operand(self_ctx.ns);
         code.append_op_code(OpCode::StoreVarN);
@@ -226,7 +221,7 @@ fn gen_assignment(data: Box<AssignData>, comp_unit: &mut CompUnit) -> Result<Gen
 
 // fn gen_name_load(name: u64, comp_unit: &mut CompUnit) -> Result<GenData, String> {
 //     let mut code = GenData::new();
-// 
+//
 //     let name_index = if let Some(str) = comp_unit.existing_str.get(&name) {
 //         *str
 //     } else {
@@ -234,7 +229,7 @@ fn gen_assignment(data: Box<AssignData>, comp_unit: &mut CompUnit) -> Result<Gen
 //         comp_unit.existing_str.insert(name, idx);
 //         idx
 //     };
-// 
+//
 //     if name_index > u8::MAX as u16 {
 //         code.append_op_code(OpCode::LoadConstW);
 //         code.append_wide_operand(name_index);
@@ -246,14 +241,13 @@ fn gen_assignment(data: Box<AssignData>, comp_unit: &mut CompUnit) -> Result<Gen
 // }
 
 
-fn gen_cons(data: Box<ConsData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_cons(data: ConsData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let car_code = gen_node(data.car, comp_unit)?;
     // let car_code = append_heap_store_if_needed(car_code, comp_unit)?;
     let cdr_code = gen_node(data.cdr, comp_unit)?;
     // let cdr_code = append_heap_store_if_needed(cdr_code, comp_unit)?;
 
     let mut code = GenData::new(comp_unit.meta_space.types.pair);
-    
 
     code.append_gen_data(cdr_code);
     code.append_gen_data(car_code);
@@ -263,7 +257,7 @@ fn gen_cons(data: Box<ConsData>, comp_unit: &mut CompUnit) -> Result<GenData, St
 }
 
 
-fn gen_list_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_list_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut operands = Vec::<GenData>::with_capacity(data.operands.len());
     let mut code = GenData::new(comp_unit.meta_space.types.pair);
 
@@ -285,17 +279,16 @@ fn gen_list_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Strin
 }
 
 
-fn gen_array_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_array_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let size = data.operands.len();
     if size > u16::MAX as usize {
         return Err("Too many array literals (> 65,535".to_string());
     }
 
-    let res_data = data.res_data.expect("Fatal: Unresolved data in code gen");
     let ctx = if let Context::Symbol(symbol) = &res_data.self_ctx {
         symbol
     } else { return Err("Invalid context".to_string()); };
-    
+
     let mut code = GenData::new(res_data.type_data.type_id);
 
     for op in data.operands {
@@ -310,10 +303,8 @@ fn gen_array_new(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
 }
 
 
-fn gen_list_access(data: Box<ListAccData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let res_data = data.res_data.expect("Fatal: Unresolved data in code gen");
+fn gen_list_access(data: ListAccData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::new(res_data.type_data.type_id);
-   
 
     let list_code = gen_node(data.list, comp_unit)?;
     code.append_gen_data(list_code);
@@ -342,10 +333,9 @@ fn gen_list_access(data: Box<ListAccData>, comp_unit: &mut CompUnit) -> Result<G
 //     }
 //     Ok(data)
 // }
-// 
+//
 
-fn gen_multi_expr(mut data: MultiExprData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let res_data = data.res_data.expect("Fatal: Unresolved data in code gen");
+fn gen_multi_expr(mut data: MultiExprData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::new(res_data.type_data.type_id);
     while let Some(expr) = data.expressions.pop() {
         let result = gen_node(expr, comp_unit)?;
@@ -355,10 +345,9 @@ fn gen_multi_expr(mut data: MultiExprData, comp_unit: &mut CompUnit) -> Result<G
 }
 
 
-fn gen_if_expr(data: Box<IfData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let res_data = data.res_data.expect("Fatal: Unresolved data in code gen");
+fn gen_if_expr(data: IfData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::new(res_data.type_data.type_id);
-    
+
     let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
     code.append_gen_data(cond_data);
 
@@ -378,19 +367,14 @@ fn gen_if_expr(data: Box<IfData>, comp_unit: &mut CompUnit) -> Result<GenData, S
 }
 
 
-fn gen_while_loop(data: Box<WhileData>, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let res_data = data.res_data.expect("Fatal: Unresolved data in code gen");
+fn gen_while_loop(data: WhileData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut code = GenData::new(res_data.type_data.type_id);
 
-
     let body = gen_node(data.body, comp_unit)?;
-    println!("Body: {:?}", body);
     if data.is_do {
         code.append_gen_data(body.clone());
     }
     let loop_start = code.code.len();
-    println!("Loop Start{}", loop_start);
-
     let loop_cond = gen_node(data.condition, comp_unit)?;
     code.append_gen_data(loop_cond);
     let jump_index = emit_jump_empty(OpCode::JumpFalse, &mut code);
@@ -402,31 +386,50 @@ fn gen_while_loop(data: Box<WhileData>, comp_unit: &mut CompUnit) -> Result<GenD
 }
 
 
-fn gen_numerical_lit(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_numerical_lit(node: AstData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let ctx = if let Context::Expr(expr) = &res_data.self_ctx {
+        expr
+    } else { return Err("Invalid context".to_string()); };
+
+
     let value = match node {
-        AstNode::LitInteger(value) => (comp_unit.push_constant(&value), Type::Integer),
-        AstNode::LitFloat(value) => (comp_unit.push_constant(&value), Type::Float),
-        AstNode::LitBoolean(value) => (comp_unit.push_constant(&value), Type::Boolean),
+        AstData::LitInteger(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Integer),
+        AstData::LitFloat(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Float),
+        AstData::LitBoolean(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Boolean),
         _ => return Err("Fatal: Invalid literal in gen_node".to_string())
     };
 
-   
-   
 
-    let code = GenData::new(comp_unit.meta_space.types.get_type_id(&value.1));
-    
-    if value.0 as usize ?
-    
+    let mut code = GenData::new(comp_unit.meta_space.types.get_type_id(&value.1));
 
-    let data = GenData {
-        code,
-        typ: comp_unit.meta_space.types.get_type_id(&value.1),
-    };
-    Ok(data)
+    if ctx.class.is_none() && ctx.func.is_none() {
+        if value.0 < u8::MAX as u16 {
+            code.append_operand(value.0 as u8);
+            code.append_wide_operand(ctx.ns);
+            code.append_op_code(OpCode::LoadConstN);
+        } else {
+            code.append_wide_operand(value.0);
+            code.append_wide_operand(ctx.ns);
+            code.append_op_code(OpCode::LoadConstNWide);
+        }
+    } else if ctx.func.is_some() {
+        if value.0 < u8::MAX as u16 {
+            code.append_operand(value.0 as u8);
+            code.append_op_code(OpCode::LoadConstL);
+        } else {
+            code.append_wide_operand(value.0);
+            code.append_op_code(OpCode::LoadConstLWide);
+        }
+    } else if ctx.class.is_some() {
+        todo!();
+    } else {
+        return Err("Fatal: Invalid resolution data passed to codegen".to_string());
+    }
+    Ok(code)
 }
 
 
-fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_operation(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut operands = Vec::<GenData>::with_capacity(data.operands.len());
     let mut is_float = false;
 
@@ -452,7 +455,6 @@ fn gen_operation(data: OpData, comp_unit: &mut CompUnit) -> Result<GenData, Stri
         code: Vec::<u8>::with_capacity(capacity),
         typ: if is_float { comp_unit.meta_space.types.float } else { comp_unit.meta_space.types.int },
     };
-
 
     match &data.operation {
         Op::List => todo!(),

@@ -52,7 +52,7 @@ fn main() {
     parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
 
 
-    comp_unit.write_op_code(OpCode::RtnI64);
+    comp_unit.write_op_code(OpCode::ReturnVal);
     //comp_unit.write_op_code(OpCode::RtnI64);
     comp_unit.write_op_code(OpCode::Exit);
 

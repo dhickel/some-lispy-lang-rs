@@ -1,10 +1,9 @@
 use std::fmt::Debug;
+use std::ops;
 use std::ops::{Add, Div, Mul, Sub};
 use parser::op_codes::{decode, OpCode};
 use std::time::{SystemTime, UNIX_EPOCH};
-use intmap::IntMap;
-use lang::util::SCACHE;
-use parser::code_gen::CompUnit;
+use parser::environment::{MetaSpace, PermaSpace, PermNameSpace, StackFrame};
 
 use crate::heap::Heap;
 
@@ -25,23 +24,27 @@ pub enum InterpResult {
 
 
 #[derive(Debug)]
-pub struct Vm<'a> {
-    comp_unit: CompUnit<'a>,
-    ip: *mut u8,
+pub struct Vm {
+    ip: *const u8,
     stack: [u8; 1048576],
     stack_top: *mut u8,
     int_cache: [i64; 256],
     float_cache: [f64; 256],
     byte_cache: [u8; 2048],
     heap: Heap,
-    global_defs: IntMap<u64>,
+    meta: MetaSpace,
+    perm: PermaSpace,
+    curr_frame: *const u8,
+    curr_meta: *const u8,
+    curr_code: *const u8,
+    curr_const: *const u8,
 }
 
 
-impl<'a> Vm<'a> {
-    pub fn new(chunk: CompUnit<'a>) -> Self {
+impl Vm {
+    pub fn new(mut meta_space: MetaSpace) -> Self {
+        let perm = PermaSpace::new(&mut meta_space);
         Vm {
-            comp_unit: chunk,
             ip: std::ptr::null_mut(),
             stack: [0; 1048576],
             stack_top: std::ptr::null_mut(),
@@ -49,7 +52,12 @@ impl<'a> Vm<'a> {
             float_cache: [0.0; 256],
             byte_cache: [0; 2048],
             heap: Heap::new(1.049e+8 as usize),
-            global_defs: IntMap::<u64>::with_capacity(50),
+            meta: meta_space,
+            perm: perm,
+            curr_frame: std::ptr::null(),
+            curr_meta: std::ptr::null(),
+            curr_code: std::ptr::null(),
+            curr_const: std::ptr::null(),
         }
     }
 
@@ -83,16 +91,54 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn load_constant(&mut self, index: usize, size: usize) {
+    fn load_ns_constant(&mut self, ns: u16, index: u16) {
         unsafe {
-            let data_ptr = self.comp_unit.constants.get_unchecked(index).as_ptr();
-            let new_stack_top = self.stack_top.add(8);
+            let data_ptr = self.perm.namespaces.get_unchecked(ns as usize).get_constants(index);
             std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
-            self.stack_top = new_stack_top;
+            self.stack_top = self.stack_top.add(8);
         }
     }
 
-    fn push_8_bytes(&mut self, bytes: [u8; 8]) {
+    fn load_local_constant(&mut self, index: u16) {
+        unsafe {
+            let data_ptr = self.curr_const.add(index as usize);
+            std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
+            self.stack_top = self.stack_top.add(8);
+        }
+    }
+
+    fn load_ns_var(&mut self, ns: u16, index: u16) {
+        unsafe {
+            let data_ptr = self.perm.namespaces.get_unchecked(ns as usize).get_var_data(index);
+            std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
+            self.stack_top = self.stack_top.add(8);
+        }
+    }
+
+    fn load_local_var(&mut self, index: u16) {
+        unsafe {
+            let data_ptr = self.curr_frame.add(index as usize);
+            std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
+            self.stack_top = self.stack_top.add(8);
+        }
+    }
+
+    fn store_ns_var(&mut self, ns: u16, index: u16) {
+        unsafe {
+            self.perm.namespaces.get_unchecked(ns as usize).set_var_data(index, self.stack_top.sub(8));
+            self.stack_top = self.stack_top.sub(8);
+        }
+    }
+
+    fn store_local_var(&mut self, index: u16) {
+        unsafe {
+            let index_ptr = self.curr_frame.add(index as usize) as *mut u8;
+            std::ptr::copy_nonoverlapping(index_ptr, self.stack_top.sub(8), 8);
+            self.stack_top = self.stack_top.sub(8);
+        }
+    }
+
+    fn push_word(&mut self, bytes: [u8; 8]) {
         unsafe {
             let new_stack_top = self.stack_top.add(8);
             let byte_ptr = bytes.as_ptr();
@@ -112,21 +158,21 @@ impl<'a> Vm<'a> {
     fn push_i64(&mut self, value: i64) {
         unsafe {
             let bytes: [u8; 8] = std::mem::transmute(value);
-            self.push_8_bytes(bytes);
+            self.push_word(bytes);
         }
     }
 
     fn push_ref(&mut self, value: u64) {
         unsafe {
             let bytes: [u8; 8] = std::mem::transmute(value);
-            self.push_8_bytes(bytes);
+            self.push_word(bytes);
         }
     }
 
     fn push_f64(&mut self, value: f64) {
         unsafe {
             let bytes: [u8; 8] = std::mem::transmute(value);
-            self.push_8_bytes(bytes);
+            self.push_word(bytes);
         }
     }
 
@@ -134,49 +180,26 @@ impl<'a> Vm<'a> {
         self.push_i64(if value { 1 } else { 0 })
     }
 
-    fn replace_top_bytes(&mut self, bytes: [u8; 8]) {
+    fn pop_word(&mut self) -> *const u8 {
         unsafe {
-            let byte_ptr = bytes.as_ptr();
-            std::ptr::copy_nonoverlapping(byte_ptr, self.stack_top.sub(8), 8);
-        }
-    }
-
-    fn replace_top_i64(&mut self, value: i64) {
-        unsafe {
-            let bytes: [u8; 8] = std::mem::transmute(value);
-            self.replace_top_bytes(bytes);
-        }
-    }
-
-    fn replace_top_f64(&mut self, value: f64) {
-        unsafe {
-            let bytes: [u8; 8] = std::mem::transmute(value);
-            self.replace_top_bytes(bytes);
-        }
-    }
-
-    fn pop_bytes(&mut self, n: usize) -> *const u8 {
-        unsafe {
-            if n != 8 { panic!("Invalid pop amount"); }
-            if self.stack_top.sub(n) < self.stack.as_mut_ptr() {
+            if self.stack_top.sub(8) < self.stack.as_mut_ptr() {
                 panic!("Attempted to pop stack less than start index")
             }
-            self.stack_top = self.stack_top.offset(-(n as isize));
+            self.stack_top = self.stack_top.sub(8);
             self.stack_top as *const u8
-            // std::slice::from_raw_parts(self.stack_top, n)
         }
     }
 
-    // fn print_stack_location(&self) {
-    //     let start_ptr = self.stack.as_ptr();
-    //     let end_ptr = unsafe { start_ptr.add(self.stack.len()) };
-    //     println!("Array starts at: {:p}", start_ptr);
-    //     println!("Array ends at: {:p}", end_ptr);
-    // }
+    fn pop_word_to_bytes(&mut self) -> [u8; 8] {
+        unsafe {
+            let ptr = self.pop_word();
+            std::mem::transmute(ptr)
+        }
+    }
 
     pub fn pop_f64(&mut self) -> f64 {
         unsafe {
-            let ptr = self.pop_bytes(std::mem::size_of::<f64>());
+            let ptr = self.pop_word();
             let value = std::ptr::read(ptr as *const f64);
             value
         }
@@ -184,7 +207,7 @@ impl<'a> Vm<'a> {
 
     pub fn pop_i64(&mut self) -> i64 {
         unsafe {
-            let ptr = self.pop_bytes(std::mem::size_of::<i64>());
+            let ptr = self.pop_word();
             let value = std::ptr::read(ptr as *const i64);
             value
         }
@@ -192,12 +215,11 @@ impl<'a> Vm<'a> {
 
     pub fn pop_ref(&mut self) -> u64 {
         unsafe {
-            let ptr = self.pop_bytes(std::mem::size_of::<u64>());
+            let ptr = self.pop_word();
             let value = std::ptr::read(ptr as *const u64);
             value
         }
     }
-
 
     fn pop_bool(&mut self) -> bool {
         let val = self.pop_i64();
@@ -206,37 +228,11 @@ impl<'a> Vm<'a> {
 
     fn discard_n_words(&mut self, n: u8) {
         if n > self.stack_top_index() as u8 {
-            panic!("Popped more than stack size") // FIXME debug, remove on release
+            panic!("Popped more than stack size")
         }
         unsafe {
             self.stack_top = self.stack_top.offset(-((n * 8) as isize));
         }
-    }
-
-    pub fn peek_bytes(&self, index: usize) -> &[u8] {
-        unsafe {
-            let ptr = self.stack_top.offset(-((index as isize + 1) * 8));
-            std::slice::from_raw_parts(ptr, 8)
-        }
-    }
-
-    pub fn peek_f64(&self, index: usize) -> f64 {
-        unsafe {
-            let ptr = self.stack_top.offset(-((index as isize + 1) * std::mem::size_of::<f64>() as isize));
-            std::ptr::read(ptr as *const f64)
-        }
-    }
-
-    pub fn peek_i64(&self, index: usize) -> i64 {
-        unsafe {
-            let ptr = self.stack_top.offset(-((index as isize + 1) * std::mem::size_of::<i64>() as isize));
-            std::ptr::read(ptr as *const i64)
-        }
-    }
-
-    pub fn peek_bool(&self, index: usize) -> bool {
-        let val = self.peek_i64(index);
-        val != 0
     }
 
     pub fn print_stack(&self) {
@@ -256,17 +252,77 @@ impl<'a> Vm<'a> {
         println!("Value: {:?}", value)
     }
 
-    pub fn print_remaining_ops(&self) {
+    /* 
+    Construct frame on stack, stack frame is locals count + 5 words for metadata + operands
+       [--- Stack Frame ---]
+           locals....
+           byte code ptr
+           constant pool ptr
+           previous frame start
+           previous frame meta start
+           previous frame ip return address
+           operands.....
+       [--------------------]
+    */
+
+    fn push_stack_frame(&mut self, frame: StackFrame) {
         unsafe {
-            let offset = self.ip.offset_from(self.comp_unit.code.as_ptr()) as usize;
-            println!("Remaining Ops{:?}", decode(&self.comp_unit.code[offset..]))
+            self.curr_frame = self.stack_top;
+            self.stack_top = self.stack_top.add(frame.local_count as usize);
+            self.curr_meta = self.stack_top;
+            self.curr_code = frame.code_ptr;
+            self.curr_const = frame.constant_ptr;
+
+            // ptr to bytecode for frame
+            std::ptr::copy_nonoverlapping(frame.code_ptr, self.stack_top, 8);
+            //  ptr to constant pool for frame
+            std::ptr::copy_nonoverlapping(frame.constant_ptr, self.stack_top.add(8), 8);
+            // store curr(previous) frame start
+            std::ptr::copy_nonoverlapping(self.curr_frame, self.stack_top.add(16), 8);
+            // store curr(previous) frame meta start
+            std::ptr::copy_nonoverlapping(self.curr_meta, self.stack_top.add(24), 8);
+            // return address
+            std::ptr::copy_nonoverlapping(self.ip, self.stack_top.add(32), 8);
+
+            // set ip to current bytecode address
+            self.ip = self.curr_code;
+            self.stack_top = self.stack_top.add(40);
         }
     }
 
-    
+    fn pop_stack_frame(&mut self, rtn_val: bool) {
+        unsafe {
+            let last_frame_start = self.curr_meta.add(16);
+            let last_frame_meta = self.curr_meta.add(24);
+            let last_frame_rtn_addr = self.curr_meta.add(32);
+            let new_stack_top = self.curr_frame as *mut u8;
+
+            // return value if needed
+            if rtn_val {
+                std::ptr::copy_nonoverlapping(self.stack_top.sub(8), new_stack_top, 8);
+                self.stack_top = new_stack_top.add(8) as *mut u8;
+            } else {
+                self.stack_top = self.curr_frame as *mut u8;
+            }
+
+            // restore frame pointers
+            self.curr_frame = last_frame_start;
+            self.curr_meta = last_frame_meta;
+            self.curr_code = self.curr_meta;
+            self.curr_const = self.curr_meta.add(8);
+            self.ip = last_frame_rtn_addr;
+        }
+    }
+
+    // pub fn print_remaining_ops(&self) {
+    //     unsafe {
+    //         let offset = self.ip.offset_from(self.comp_unit.code.as_ptr()) as usize;
+    //         println!("Remaining Ops{:?}", decode(&self.comp_unit.code[offset..]))
+    //     }
+    // }
+
+
     pub fn run(&mut self) -> InterpResult {
-        self.stack_top = self.stack.as_mut_ptr();
-        self.ip = self.comp_unit.code.as_mut_ptr();
         let t = nano_time!();
 
         let mut i = 0;
@@ -282,33 +338,12 @@ impl<'a> Vm<'a> {
                     break;
                 }
 
-                OpCode::RtnI64 => {
-                    let val = self.pop_i64();
-                      self.print_value(&val);
+                OpCode::ReturnVal => {
+                    self.pop_stack_frame(true)
                 }
 
-                OpCode::RtnF64 => {
-                    let val = self.pop_f64();
-                    self.print_value(&val);
-                }
-
-                OpCode::RtnBool => {
-                    let val = self.pop_bool();
-                    self.print_value(&val);
-                }
-
-                OpCode::RtnRef => {
-                    let val = self.pop_bytes(8);
-                }
-
-                OpCode::LoadConst => {
-                    let index = self.read_inst() as usize;
-                    self.load_constant(index, 8);
-                }
-
-                OpCode::LoadConstW => {
-                    let index = self.read_wide_inst() as usize;
-                    self.load_constant(index, 8);
+                OpCode::Return => {
+                    self.pop_stack_frame(false)
                 }
 
                 OpCode::AddI64 => {
@@ -511,7 +546,7 @@ impl<'a> Vm<'a> {
                     }
                     self.push_bool(true)
                 }
-                
+
                 OpCode::LogicXor => {
                     let mut truths = 0;
                     let n = self.read_inst();
@@ -645,49 +680,49 @@ impl<'a> Vm<'a> {
                 OpCode::IConst3 => self.push_i64(3),
                 OpCode::IConst4 => self.push_i64(4),
                 OpCode::IConst5 => self.push_i64(5),
-                OpCode::Pop => { self.pop_bytes(8); }
+                OpCode::Pop => { self.pop_word(); }
 
-                OpCode::DefGlobal => {
-                    let name_id = self.pop_ref();
-                    let value = self.pop_ref();
-                    self.global_defs.insert(name_id, value);
-                }
-                OpCode::AssignGlobal => {
-                    let name_id = self.pop_ref();
-                    let value = self.pop_ref();
-                    self.global_defs.insert(name_id, value);
-                }
-
-                OpCode::LoadGlobal => {
-                    self.print_remaining_ops();
-                    let name_id = self.pop_ref();
-                    let item_ref = if let Some(val) = self.global_defs.get(name_id) {
-                        *val
-                    } else {
-                        println!("{}", SCACHE.resolve_value(14));
-                        println!("Global defs: {:?}", self.global_defs);
-                        println!("SCache: {:?}", SCACHE.cache.lock().unwrap().print_cache());
-                        println!("name_id: {}", SCACHE.resolve_value(name_id));
-                        panic!("Failed to resolve variable binding {}", name_id)
-                    };
-                    unsafe {
-                        let item_bytes = self.heap.get_item(item_ref);
-                        self.push_arbitrary_bytes(item_bytes);
-                    }
-                    self.print_remaining_ops();
-                }
-
-                OpCode::HeapStore => {
-                    let typ = self.read_wide_inst();
-                    println!("type {:?}", self.comp_unit.ctx.types.get_type_by_id(typ));
-                    let size = self.read_wide_inst() as usize;
-                    println!("size: {}", size);
-                    let ptr = self.pop_bytes(size);
-                    unsafe {
-                        let tag_ref = self.heap.insert_bytes(ptr, size, 0);
-                        self.push_ref(tag_ref);
-                    }
-                }
+                // OpCode::DefGlobal => {
+                //     let name_id = self.pop_ref();
+                //     let value = self.pop_ref();
+                //     self.global_defs.insert(name_id, value);
+                // }
+                // OpCode::AssignGlobal => {
+                //     let name_id = self.pop_ref();
+                //     let value = self.pop_ref();
+                //     self.global_defs.insert(name_id, value);
+                // }
+                //
+                // OpCode::LoadGlobal => {
+                //     self.print_remaining_ops();
+                //     let name_id = self.pop_ref();
+                //     let item_ref = if let Some(val) = self.global_defs.get(name_id) {
+                //         *val
+                //     } else {
+                //         println!("{}", SCACHE.resolve_value(14));
+                //         println!("Global defs: {:?}", self.global_defs);
+                //         println!("SCache: {:?}", SCACHE.cache.lock().unwrap().print_cache());
+                //         println!("name_id: {}", SCACHE.resolve_value(name_id));
+                //         panic!("Failed to resolve variable binding {}", name_id)
+                //     };
+                //     unsafe {
+                //         let item_bytes = self.heap.get_item(item_ref);
+                //         self.push_arbitrary_bytes(item_bytes);
+                //     }
+                //     self.print_remaining_ops();
+                // }
+                //
+                // OpCode::HeapStore => {
+                //     let typ = self.read_wide_inst();
+                //     println!("type {:?}", self.comp_unit.ctx.types.get_type_by_id(typ));
+                //     let size = self.read_wide_inst() as usize;
+                //     println!("size: {}", size);
+                //     let ptr = self.pop_bytes(size);
+                //     unsafe {
+                //         let tag_ref = self.heap.insert_bytes(ptr, size, 0);
+                //         self.push_ref(tag_ref);
+                //     }
+                // }
 
                 OpCode::Cons => {
                     unsafe {
@@ -695,7 +730,7 @@ impl<'a> Vm<'a> {
                             self.stack_top.sub(8), // car
                             self.stack_top.sub(16), // cdr
                             8,
-                            self.comp_unit.ctx.types.pair,
+                            self.meta.types.pair,
                         );
                         self.stack_top = self.stack_top.sub(16); // "pop" items
                         self.push_ref(cell);
@@ -713,7 +748,7 @@ impl<'a> Vm<'a> {
                         self.push_arbitrary_bytes((meta.loc, 8));
                     }
                 }
-                
+
                 OpCode::Cdr => {
                     unsafe {
                         let pair_ref = self.pop_ref();
@@ -725,7 +760,7 @@ impl<'a> Vm<'a> {
                         self.push_arbitrary_bytes((meta.loc.add(8), 8));
                     }
                 }
-                
+
                 OpCode::NewArray => {
                     let typ = self.read_wide_inst();
                     let size = self.read_wide_inst() as usize * 8;
@@ -737,20 +772,71 @@ impl<'a> Vm<'a> {
                         self.push_ref(heap_ref);
                     }
                 }
-                
+
                 OpCode::Aacc => {
                     let arr_ref = self.pop_ref();
                     let index = self.pop_i64() as usize;
                     let arr_meta = self.heap.get_item_meta(arr_ref);
-                    if index < 0 || index * 8 > arr_meta.size{
+                    if index < 0 || index * 8 > arr_meta.size {
                         panic!("Invalid index for  access, index: {}, array length: {}", index, arr_meta.size / 8)
                     }
                     unsafe {
                         self.push_arbitrary_bytes((arr_meta.loc.add(index * 8), 8))
                     }
                 }
+
+                OpCode::InvokeN => {
+                    let ns = self.read_wide_inst() as usize;
+                    let idx = self.read_wide_inst();
+                    unsafe {
+                        let frame = self.perm.namespaces.get_unchecked(ns).get_func(idx);
+                        self.push_stack_frame(frame);
+                    }
+                }
+                OpCode::InvokeC => {
+                    todo!()
+                }
+                OpCode::LoadConstN => {
+                    let ns = self.read_wide_inst();
+                    let idx = self.read_inst() as u16;
+                    self.load_ns_constant(ns, idx);
+                }
+                OpCode::LoadConstNWide => {
+                    let ns = self.read_wide_inst();
+                    let idx = self.read_wide_inst();
+                    self.load_ns_constant(ns, idx);
+                }
+                OpCode::LoadConstL => {
+                    let idx = self.read_inst() as u16;
+                    self.load_local_constant(idx);
+                }
+                OpCode::LoadConstLWide => {
+                    let idx = self.read_wide_inst();
+                    self.load_local_constant(idx);
+                }
+                OpCode::LoadVarN => {
+                    let ns = self.read_wide_inst();
+                    let idx = self.read_wide_inst();
+                    self.load_ns_var(ns, idx);
+                }
+                OpCode::LoadVarL => {
+                    let idx = self.read_wide_inst();
+                    self.load_local_var(idx);
+                }
+                OpCode::LoadVarC => {
+                    todo!()
+                }
+                OpCode::StoreVarN => {
+                    let ns = self.read_wide_inst();
+                    let idx = self.read_wide_inst();
+                    self.store_ns_var(ns, idx);
+                }
+                OpCode::StoreVarL => {
+                    let idx = self.read_wide_inst();
+                    self.store_local_var(idx);
+                }
+                OpCode::StoreVarC => {}
             }
-            
         }
         InterpResult::Ok
     }

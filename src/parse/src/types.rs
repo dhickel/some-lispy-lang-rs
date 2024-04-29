@@ -55,8 +55,6 @@ impl Default for TypeTable {
         let mut type_names = AHashMap::<IString, u16>::with_capacity(50);
 
 
-        
-
         let nil = type_ids.len() as u16;
         type_ids.push(Type::Nil);
         type_defs.insert(Type::Nil, nil);
@@ -92,7 +90,6 @@ impl Default for TypeTable {
         type_defs.insert(Type::Pair, pair);
         type_names.insert(SCACHE.const_pair, pair);
 
-     
 
         TypeTable {
             type_defs,
@@ -111,8 +108,8 @@ impl Default for TypeTable {
 
 
 impl TypeTable {
-    pub fn get_or_define_type(&mut self, typ: Type) -> u16 {
-        if typ == Type::Unresolved {
+    pub fn get_or_define_type(&mut self, typ: &Type) -> u16 {
+        if matches!(typ, Type::Unresolved) {
             panic!("Passed unresolved type to define_type");
         }
         if self.type_defs.contains_key(&typ) {
@@ -130,7 +127,7 @@ impl TypeTable {
 
         if id > u16::MAX as usize { panic!("Exceeded maximum type definitions (65,535)"); }
         self.type_ids.push(typ.clone());
-        self.type_defs.insert(typ, id as u16);
+        self.type_defs.insert(typ.clone(), id as u16);
         id as u16
     }
 

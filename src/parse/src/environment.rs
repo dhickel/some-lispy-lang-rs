@@ -57,28 +57,30 @@ impl MetaSpace {
 
     pub fn get_func(&mut self, env_ctx: &ExprContext) -> &mut FuncMeta {
         let ns = self.get_ns_by_id(env_ctx.ns);
+
         if let Some(class_id) = env_ctx.class {
-            let mut obj = &ns.obj_metadata[class_id as usize];
-            if let ObjectMeta::Class(mut class) = obj {
-                class.functions
-                    .get_mut(env_ctx.func.expect("Expected class id") as usize)
-                    .expect("Fatal: Failed to resolve function definition")
-            } else { panic!("Fatal: Definition is not class") }
+            if let ObjectMeta::Class(ref mut class) = ns.obj_metadata[class_id as usize] {
+                return class.functions
+                    .get_mut(env_ctx.func.expect("Expected function index") as usize)
+                    .expect("Fatal: Failed to resolve function definition");
+            } else {
+                panic!("Fatal: Definition is not class");
+            }
         } else {
-            ns.functions.get_mut(env_ctx.func.expect("Expected class id") as usize)
-                .expect("Fatal: Failed to resolve function definition")
+            return ns.functions
+                .get_mut(env_ctx.func.expect("Expected function index") as usize)
+                .expect("Fatal: Failed to resolve function definition");
         }
     }
 
 
     pub fn add_local_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString, data: ResData) -> &ResData {
-        let mut ns = &self.namespaces.get_mut(ns_id as usize)
+        let mut ns = self.namespaces.get_mut(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
-        if let Some(existing) = ns.local_symbols.get_mut(scope_id as u64) {
-            let valid = existing.insert_checked(name.value, data);
-            if !valid { panic!("Attempted to redefine existing symbol") }
-            existing.get(name.value).unwrap()
+        if ns.local_symbols.contains_key(scope_id as u64) {
+            ns.local_symbols.get_mut(scope_id as u64).unwrap().insert_checked(name.value, data);
+            ns.local_symbols.get(scope_id as u64).unwrap().get(name.value).unwrap()
         } else {
             let mut scope_map = IntMap::<ResData>::with_capacity(5);
             scope_map.insert(name.value, data);
@@ -89,30 +91,27 @@ impl MetaSpace {
 
 
     pub fn get_local_symbol(&self, ns_id: u16, scope_id: u32, name_val: u64) -> Option<&ResData> {
-        let mut ns = &self.namespaces.get(ns_id as usize)
+        let mut ns = self.namespaces.get(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
         ns.local_symbols.get(scope_id as u64)
             .expect("Fatal: Failed to resolve scope").get(name_val)
     }
 
-
     pub fn add_global_symbol(&mut self, ns_id: u16, name: IString, data: ResData) -> &ResData {
-        let mut ns = &self.namespaces.get_mut(ns_id as usize)
+        let mut ns = self.namespaces.get_mut(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
         ns.global_symbols.insert(name.value, data);
         ns.global_symbols.get(name.value).unwrap()
     }
 
-
     pub fn get_global_symbol(&self, ns_id: u16, name_val: u64) -> Option<&ResData> {
         self.namespaces[ns_id as usize].global_symbols.get(name_val)
     }
 
-
     pub fn add_var_def(&mut self, ns_id: u16, var_def: VarMeta) -> u16 {
-        let mut ns = &self.namespaces.get_mut(ns_id as usize)
+        let mut ns = self.namespaces.get_mut(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
         let idx = ns.variables.len();
@@ -124,9 +123,8 @@ impl MetaSpace {
         }
     }
 
-
     pub fn add_func_def(&mut self, ns_id: u16, func_def: FuncMeta) -> u16 {
-        let mut ns = &self.namespaces.get_mut(ns_id as usize)
+        let mut ns = self.namespaces.get_mut(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
         let idx = ns.functions.len();
@@ -138,10 +136,9 @@ impl MetaSpace {
         }
     }
 
-
     pub fn add_constant<T>(&mut self, value: &T, env_ctx: &ExprContext) -> u16 {
         unsafe {
-            let mut ns = &self.namespaces.get_mut(env_ctx.ns as usize)
+            let mut ns = self.namespaces.get_mut(env_ctx.ns as usize)
                 .expect("Fatal: Failed to resolve namespace");
 
 
@@ -153,7 +150,6 @@ impl MetaSpace {
             let value_ptr = value as *const T as *const u8;
             let bytes = std::ptr::read(value_ptr as *const [u8; 8]);
 
-
             let hash = u64::from_ne_bytes(bytes);
             if let Some(&index) = ns.existing_consts.get(hash) {
                 return index;
@@ -164,15 +160,14 @@ impl MetaSpace {
                 panic!("Exceeded size of constant pool");
             }
 
-            ns.existing_consts.insert(hash, curr_index as u16);
+            ns.existing_consts.insert(hash,  (curr_index / 8) as u16); // index by word
             ns.constants.extend_from_slice(&bytes);
-            curr_index as u16
+            (curr_index / 8) as u16 // index by word
         }
     }
 
-
     pub fn add_object_meta(&mut self, ns_id: u16, obj_meta: ObjectMeta) -> u16 {
-        let mut ns = &self.namespaces.get_mut(ns_id as usize)
+        let mut ns = self.namespaces.get_mut(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
         let idx = ns.obj_metadata.len();
@@ -182,7 +177,6 @@ impl MetaSpace {
         ns.obj_metadata.push(obj_meta);
         idx as u16
     }
-
 
     pub fn push_code(&mut self, env_ctx: ExprContext, code: &mut Vec<u8>) {
         let ns = self.namespaces.get_mut(env_ctx.ns as usize)
@@ -279,7 +273,7 @@ impl PermNameSpace {
         }
     }
 
-    pub fn set_var_data(&mut self, index: u16, copy_from: *const u8) {
+    pub unsafe fn set_var_data(&mut self, index: u16, copy_from: *const u8) {
         unsafe {
             let copy_to = self.var_data.as_mut_ptr().add(index as usize * 8);
             std::ptr::copy_nonoverlapping(copy_from, copy_to, 8)
@@ -294,7 +288,7 @@ impl PermNameSpace {
 
     pub fn get_constants(&self, index: u16) -> *const u8 {
         unsafe {
-            self.constants.as_ptr().add(index as usize * 8)
+            self.constants.as_ptr().add(index as usize * 8) // expand to word length
         }
     }
 
@@ -604,7 +598,7 @@ impl<'a> Environment<'a> {
 
             Ok(self.meta_space.add_global_symbol(self.curr_ns, name, res_data))
         } else if self.curr_func.is_some() {
-            let mut func = self.meta_space.get_func(&self.get_env_ctx());
+            let func = self.meta_space.get_func(&self.get_env_ctx());
             let index = func.next_local();
             self.curr_func = Some(index); // Set curr func index for body resolutions
             let symbol_data = SymbolCtx::new(
@@ -642,7 +636,7 @@ impl<'a> Environment<'a> {
     }
 
 
-    pub fn get_symbol_ctx(&mut self, name: IString) -> Option<&ResData> {
+    pub fn get_symbol_ctx(&self, name: IString) -> Option<&ResData> {
         for &scope_id in self.active_scopes.iter().rev() {
             if let Some(data) = self.meta_space.get_local_symbol(self.curr_ns, scope_id, name.value) {
                 return Some(data);

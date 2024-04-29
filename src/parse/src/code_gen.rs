@@ -1,7 +1,7 @@
 use std::cmp::PartialEq;
 use crate::ast::{AssignData, AstData, AstNode, ConsData, DefVarData, IfData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
 use crate::environment::{Context, MetaSpace, ResData};
-use crate::op_codes::OpCode;
+use crate::op_codes::{decode, OpCode};
 use crate::token::Op;
 use crate::types::Type;
 
@@ -13,20 +13,22 @@ pub struct CompUnit<'a> {
     pub ns_code: Vec<u8>,
 }
 
+// TODO: right now code outside of functions allocates/access global vars for the namespace
+//  with out any scope checks
 
 impl<'a> CompUnit<'a> {
     pub fn push_op_code(&mut self, op: OpCode) {
         self.ns_code.push(op as u8)
     }
 
-    pub fn push_operand(&mut self, val: u8) {
-        self.ns_code.push(val);
-    }
-
-    pub fn push_wide_inst(&mut self, val: u16) {
-        self.ns_code.push((val & 0xFF) as u8);
-        self.ns_code.push(((val >> 8) & 0xFF) as u8);
-    }
+    // pub fn push_operand(&mut self, val: u8) {
+    //     self.ns_code.push(val);
+    // }
+    // 
+    // pub fn push_wide_inst(&mut self, val: u16) {
+    //     self.ns_code.push((val & 0xFF) as u8);
+    //     self.ns_code.push(((val >> 8) & 0xFF) as u8);
+    // }
 
     pub fn push_code_gen(&mut self, mut other: GenData) {
         self.ns_code.append(&mut other.code);
@@ -59,7 +61,7 @@ impl GenData {
         self.code.push(((val >> 8) & 0xFF) as u8);
     }
 
-    pub fn patch_wide_inst(&mut self, offset: usize, val: u16) {
+    pub fn patch_wide_operand(&mut self, offset: usize, val: u16) {
         self.code[offset] = (val & 0xFF) as u8;
         self.code[offset + 1] = ((val >> 8) & 0xFF) as u8;
     }
@@ -81,13 +83,15 @@ pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result
         let code = gen_node(node, comp_unit)?;
         comp_unit.push_code_gen(code);
     }
+    let mut ns = comp_unit.meta_space.get_ns_by_id(comp_unit.curr_ns);
+    ns.code.append(&mut comp_unit.ns_code);
     Ok(())
 }
 
 
-fn gen_node(node: AstNode, mut comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let res_data = node.res_data.expect("Fatal: Missing res data for resolved node");
-    match node.node_data {
+fn gen_node(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let res_data = node.res_data.expect("Fatal: Missing res data for resolved node: {:?}");
+    match *node.node_data {
         AstData::DefVariable(data) => gen_define_variable(data, res_data, comp_unit),
         AstData::DefLambda(_) => todo!(),
         AstData::DefFunction(_) => todo!(),
@@ -350,10 +354,11 @@ fn gen_if_expr(data: IfData, res_data: ResData, comp_unit: &mut CompUnit) -> Res
 
     let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
     code.append_gen_data(cond_data);
-
+    
     let then_jump = emit_jump_empty(OpCode::JumpFalse, &mut code);
     let then_data = gen_node(data.if_branch.then_node, comp_unit)?;
     code.append_gen_data(then_data);
+
 
     let else_jump = emit_jump_empty(OpCode::JumpFWd, &mut code);
     patch_jump(then_jump, &mut code);
@@ -363,6 +368,7 @@ fn gen_if_expr(data: IfData, res_data: ResData, comp_unit: &mut CompUnit) -> Res
         code.append_gen_data(else_data);
         patch_jump(else_jump, &mut code);
     }
+
     Ok(code)
 }
 
@@ -386,39 +392,45 @@ fn gen_while_loop(data: WhileData, res_data: ResData, comp_unit: &mut CompUnit) 
 }
 
 
-fn gen_numerical_lit(node: AstData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+   
     let ctx = if let Context::Expr(expr) = &res_data.self_ctx {
         expr
     } else { return Err("Invalid context".to_string()); };
 
 
-    let value = match node {
+    let value = match *node {
         AstData::LitInteger(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Integer),
         AstData::LitFloat(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Float),
         AstData::LitBoolean(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Boolean),
         _ => return Err("Fatal: Invalid literal in gen_node".to_string())
     };
 
+    
 
     let mut code = GenData::new(comp_unit.meta_space.types.get_type_id(&value.1));
 
     if ctx.class.is_none() && ctx.func.is_none() {
         if value.0 < u8::MAX as u16 {
-            code.append_operand(value.0 as u8);
-            code.append_wide_operand(ctx.ns);
             code.append_op_code(OpCode::LoadConstN);
-        } else {
-            code.append_wide_operand(value.0);
             code.append_wide_operand(ctx.ns);
+            code.append_operand(value.0 as u8);
+        } else {
             code.append_op_code(OpCode::LoadConstNWide);
+            code.append_wide_operand(ctx.ns);
+            code.append_wide_operand(value.0);
+
+      
         }
     } else if ctx.func.is_some() {
         if value.0 < u8::MAX as u16 {
-            code.append_operand(value.0 as u8);
             code.append_op_code(OpCode::LoadConstL);
+            code.append_operand(value.0 as u8);
+    
         } else {
-            code.append_wide_operand(value.0);
             code.append_op_code(OpCode::LoadConstLWide);
+            code.append_wide_operand(value.0);
+   
         }
     } else if ctx.class.is_some() {
         todo!();
@@ -523,9 +535,10 @@ fn gen_boolean_negate(mut operands: Vec<GenData>, mut code: GenData,
 fn gen_arithmetic(operation: Op, mut operands: Vec<GenData>, mut code: GenData, is_float: bool,
 ) -> Result<GenData, String> {
     if operands.len() < 2 { return Err("Expected at least 2 operands for arithmetic operation".to_string()); }
-
+    
     let op_code = get_arithmetic_op(operation, is_float)?;
     let size = operands.len() - 1;
+
 
     while let Some(operand) = operands.pop() {
         code.append_gen_data(operand);
@@ -534,6 +547,8 @@ fn gen_arithmetic(operation: Op, mut operands: Vec<GenData>, mut code: GenData, 
     for _ in 0..size {
         code.append_op_code(op_code);
     }
+  
+    
     Ok(code)
 }
 
@@ -627,5 +642,5 @@ fn patch_jump(offset: usize, gen_data: &mut GenData) {
     if jump > u16::MAX as usize {
         panic!("Too large of jump encountered (> 65,535 instructions)")
     }
-    gen_data.patch_wide_inst(offset, jump as u16);
+    gen_data.patch_wide_operand(offset, jump as u16);
 }

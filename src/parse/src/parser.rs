@@ -18,7 +18,7 @@ struct ParserState {
     pub name_space: IString,
 }
 
-
+#[derive(Debug)]
 pub struct ParseResult {
     pub name_space: IString,
     pub root_expressions: Vec<AstNode>,
@@ -43,6 +43,7 @@ impl ParserState {
     pub fn process(&mut self) -> Result<ParseResult, String> {
         let mut root_expressions = Vec::<AstNode>::new();
         while self.have_next() {
+           // root_expressions.push(self.parse_expr_data()?);
             root_expressions.push(self.parse_expr_data()?);
         }
         Ok(ParseResult { name_space: self.name_space, root_expressions })
@@ -176,6 +177,7 @@ impl ParserState {
         self.current += 1;
         Ok(())
     }
+    
 
 
     pub fn parse_expr_data(&mut self) -> Result<AstNode, String> {

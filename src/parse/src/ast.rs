@@ -8,17 +8,15 @@ use crate::types::Type;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AstNode {
-    pub node_data: AstData,
+    pub node_data: Box<AstData>,
     pub line_char: (u32, u32),
-    pub(crate) res_data: Option<ResData>,
+    pub res_data: Option<ResData>,
 }
 
 
 impl AstNode {
     pub fn resolved_type(&self) -> Option<Type> {
-        if let Some(res_data) = &self.res_data {
-            Some(*res_data.type_data.typ)
-        } else { None }
+        self.res_data.as_ref().map(|res_data| res_data.type_data.typ.clone())
     }
 }
 
@@ -26,7 +24,7 @@ impl AstNode {
 impl AstNode {
     pub fn new(node_data: AstData, line_char: (u32, u32)) -> Self {
         AstNode {
-            node_data,
+            node_data: Box::new(node_data),
             line_char,
             res_data: None,
         }

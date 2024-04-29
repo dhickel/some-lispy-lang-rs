@@ -67,6 +67,7 @@ impl Vm {
             self.ip = self.ip.add(1);
             let code: OpCode = std::mem::transmute(code);
             println!("At Inst: {:?}", code);
+            self.print_stack();
             code
         }
     }
@@ -109,7 +110,7 @@ impl Vm {
 
     fn load_ns_var(&mut self, ns: u16, index: u16) {
         unsafe {
-            let data_ptr = self.perm.namespaces.get_unchecked(ns as usize).get_var_data(index);
+            let data_ptr = self.perm.namespaces[ns as usize].get_var_data(index);
             std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
             self.stack_top = self.stack_top.add(8);
         }
@@ -125,7 +126,7 @@ impl Vm {
 
     fn store_ns_var(&mut self, ns: u16, index: u16) {
         unsafe {
-            self.perm.namespaces.get_unchecked(ns as usize).set_var_data(index, self.stack_top.sub(8));
+            self.perm.namespaces[ns as usize].set_var_data(index, self.stack_top.sub(8));
             self.stack_top = self.stack_top.sub(8);
         }
     }
@@ -314,16 +315,20 @@ impl Vm {
         }
     }
 
-    // pub fn print_remaining_ops(&self) {
-    //     unsafe {
-    //         let offset = self.ip.offset_from(self.comp_unit.code.as_ptr()) as usize;
-    //         println!("Remaining Ops{:?}", decode(&self.comp_unit.code[offset..]))
-    //     }
-    // }
+    pub fn print_remaining_ops(&self) {
+        unsafe {
+            let offset = self.ip.offset_from(self.perm.init_code.as_ptr()) as usize;
+            println!("Remaining Ops{:?}", decode(&self.perm.init_code[offset..]))
+        }
+    }
 
 
     pub fn run(&mut self) -> InterpResult {
         let t = nano_time!();
+        println!("code: {:?}", self.perm.init_code);
+        self.ip = self.perm.init_code.as_mut_ptr();
+        self.stack_top = self.stack.as_mut_ptr();
+        self.print_remaining_ops();
 
         let mut i = 0;
 
@@ -334,7 +339,9 @@ impl Vm {
             }
             match self.read_op_code() {
                 OpCode::Exit => {
-                    println!("Exec Time: {}ns", nano_time!() - t);
+                    self.print_stack();
+                    let val = self.pop_i64();
+                    println!("val: {}", val);
                     break;
                 }
 
@@ -741,7 +748,7 @@ impl Vm {
                     unsafe {
                         let pair_ref = self.pop_ref();
                         let meta = self.heap.get_item_meta(pair_ref);
-                        if meta.typ != self.comp_unit.ctx.types.pair {
+                        if meta.typ != self.meta.types.pair {
                             panic!("car called on non-pair item")
                         }
                         // Only push first 8 bytes for car
@@ -753,7 +760,7 @@ impl Vm {
                     unsafe {
                         let pair_ref = self.pop_ref();
                         let meta = self.heap.get_item_meta(pair_ref);
-                        if meta.typ != self.comp_unit.ctx.types.pair {
+                        if meta.typ != self.meta.types.pair {
                             panic!("car called on non-pair item")
                         }
                         // Only push last 8 bytes for cdr
@@ -775,13 +782,13 @@ impl Vm {
 
                 OpCode::Aacc => {
                     let arr_ref = self.pop_ref();
-                    let index = self.pop_i64() as usize;
+                    let index = self.pop_i64();
                     let arr_meta = self.heap.get_item_meta(arr_ref);
-                    if index < 0 || index * 8 > arr_meta.size {
+                    if index < 0 || (index * 8) as usize > arr_meta.size {
                         panic!("Invalid index for  access, index: {}, array length: {}", index, arr_meta.size / 8)
                     }
                     unsafe {
-                        self.push_arbitrary_bytes((arr_meta.loc.add(index * 8), 8))
+                        self.push_arbitrary_bytes((arr_meta.loc.add(index as usize * 8), 8))
                     }
                 }
 

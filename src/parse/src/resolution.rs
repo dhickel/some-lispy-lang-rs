@@ -1,3 +1,4 @@
+use lang::format_error;
 use crate::types::Type;
 use lang::util::SCACHE;
 use crate::ast::{AssignData, AstData, AstNode, CondData, ConsData, DefClassData, DefFuncData,
@@ -6,6 +7,8 @@ use crate::ast::{AssignData, AstData, AstNode, CondData, ConsData, DefClassData,
     OpData, WhileData};
 use crate::environment::{Context, Environment, ResData, TypeData};
 use crate::parser::ParseResult;
+use crate::token::Op;
+
 
 
 // TODO handle type hierarchies, current type checking check for the concrete type only, inference
@@ -17,8 +20,13 @@ pub fn resolve_types(mut parse_result: &mut ParseResult, mut context: Environmen
     for _ in 0..2 {
         fully_resolved = true;
         for node in parse_result.root_expressions.iter_mut() {
-            if resolve(node, &mut context) == Ok(Type::Unresolved) {
-                fully_resolved = false;
+            match resolve(node, &mut context) {
+                Ok(Type::Unresolved) => { fully_resolved = false; }
+                Err(err) => {
+                    fully_resolved = false;
+                    println!("{}", format_error!(node.line_char, err));
+                }
+                _ => {}
             }
         }
     }
@@ -28,7 +36,7 @@ pub fn resolve_types(mut parse_result: &mut ParseResult, mut context: Environmen
 
 fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
     if let Some(typ) = node.resolved_type() { return Ok(typ); }
-    let res_data = match &mut node.node_data {
+    let res_data = match &mut *node.node_data {
         AstData::DefVariable(data) => resolve_def_var(data, env),
         AstData::DefLambda(data) => resolve_def_lambda(data, env),
         AstData::DefFunction(data) => resolve_def_func(data, env),
@@ -66,10 +74,11 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
         AstData::LitLambda => todo!(),
     };
 
-    return if let Some(data) = &res_data? {
-        node.res_data = res_data?;
-        Ok(data.type_data.typ.clone())
-    } else { Ok(Type::Unresolved) };
+    if let Some(data) = res_data? {
+        let typ = data.type_data.typ.clone();
+        node.res_data = Some(data);
+        Ok(typ)
+    } else { Ok(Type::Unresolved) }
 }
 
 
@@ -87,8 +96,10 @@ pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<O
         }
     }
 
-    let mods = data.modifiers.as_ref().unwrap_or_else(|| &vec![]);
-    let res_data = env.add_var_symbol(data.name, resolved_type.clone(), mods)?;
+    let mods = if let Some(mods) = data.modifiers.clone() {
+        mods
+    } else { vec![] };
+    let res_data = env.add_var_symbol(data.name, resolved_type.clone(), &mods)?;
     Ok(Some(res_data.clone()))
 }
 
@@ -133,20 +144,20 @@ pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Resu
         return Ok(None);
     } else if resolved_type == Type::Void {
         return Err("Assign data must have non void type".to_string());
-    } else {
-        let ctx = env.get_symbol_ctx(data.name);
-        let type_id = env.meta_space.types.get_or_define_type(&resolved_type);
+    }
 
-        if let Some(target_res) = ctx {
-            let res_data = ResData {
-                target_ctx: Some(target_res.self_ctx.clone()),
-                self_ctx: Context::Expr(env.get_env_ctx()),
-                type_data: TypeData { typ: resolved_type, type_id },
-            };
-            Ok(Some(res_data))
-        } else {
-            return Err(format!("Failed to resolve symbol: {}", SCACHE.resolve(data.name)));
-        }
+    let type_id = env.meta_space.types.get_or_define_type(&resolved_type);
+    let ctx = env.get_symbol_ctx(data.name);
+
+    if let Some(target_res) = ctx {
+        let res_data = ResData {
+            target_ctx: Some(target_res.self_ctx.clone()),
+            self_ctx: Context::Expr(env.get_env_ctx()),
+            type_data: TypeData { typ: resolved_type, type_id },
+        };
+        Ok(Some(res_data))
+    } else {
+        Err(format!("Failed to resolve symbol: {}", SCACHE.resolve(data.name)))
     }
 }
 
@@ -196,25 +207,29 @@ pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Optio
     let cond_type = resolve(&mut data.if_branch.cond_node, env)?;
     env.pop_scope();
 
-    if cond_type == Type::Unresolved { return Ok(None); }
-    if cond_type != Type::Boolean {
-        return Err("Condition did not evaluate to boolean".to_string());
+    if cond_type == Type::Unresolved {
+        return Ok(None);
     }
+    if cond_type != Type::Boolean {
+        return Err(format!("If condition resolved to: {:?}, instead of boolean", cond_type).to_string());
+    }
+    
+
 
     env.push_scope();
     let then_type = resolve(&mut data.if_branch.then_node, env)?;
     env.pop_scope();
 
     if then_type == Type::Unresolved { return Ok(None); }
-
+  
     let expr_type = if let Some(ref mut els) = data.else_branch {
         env.push_scope();
         let else_type = resolve(els, env)?;
         env.pop_scope();
-
-        if else_type != Type::Unresolved {
+        
+        if else_type == Type::Unresolved {
             return Ok(None);
-        } else if (else_type != then_type) {
+        } else if else_type != then_type {
             Type::Void
         } else {
             else_type
@@ -424,21 +439,39 @@ pub fn resolve_init_inst(data: &mut FuncCallData, env: &mut Environment) -> Resu
 
 
 pub fn resolve_operation(data: &mut OpData, env: &mut Environment) -> Result<Option<ResData>, String> {
-    let mut typ = Type::Integer;
     let mut resolved = true;
+    let mut op_infer = Type::Integer;
+
     for op in data.operands.iter_mut() {
         let op_typ = resolve(op, env)?;
         match op_typ {
-            Type::Float => typ = Type::Float,
+            Type::Float => op_infer = Type::Float,
             Type::Integer | Type::Boolean => continue,
             Type::Unresolved => resolved = false,
-            _ => return Err("Invalid type in operation expression".to_string()),
+            _ => {}
+        }
+        if op_typ == Type::Unresolved {
+            resolved = false;
         }
     }
+
+    let typ = match data.operation {
+        Op::List => Type::Pair,
+        Op::And | Op::Or | Op::Nor | Op::Xor | Op::Xnor | Op::Nand | Op::Negate | Op::Greater
+        | Op::Less | Op::GreaterEqual | Op::LessEqual | Op::Equals | Op::BangEquals | Op::RefEqual => {
+            Type::Boolean
+        }
+        Op::Plus | Op::Minus | Op::Asterisk | Op::Slash | Op::Caret
+        | Op::Percent | Op::PlusPlus | Op::MinusMinus => {
+            op_infer
+        }
+    };
+    
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_type_id(&typ);
     let type_data = TypeData { typ, type_id };
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+ 
     Ok(Some(res_data))
 }
 

@@ -2,11 +2,12 @@ extern crate core;
 
 
 use std::time::{SystemTime, UNIX_EPOCH};
-use ahash::AHashMap;
+use parser::code_gen::CompUnit;
+use parser::environment::{Environment, MetaSpace};
 
 use parser::op_codes::OpCode;
 
-use parser::util::{CompUnit, SCACHE};
+
 use vm;
 
 use vm::vm::*;
@@ -24,12 +25,11 @@ macro_rules! nano_time {
 
 #[allow(dead_code)]
 fn main() {
-    let mut ctx = Context::default();
 
-    let env = Environment::new(&mut ctx);
-
-
-    let input = "(define x (array 0 11 22 33 44 55 66 77 88 99)) (* (lacc x 2)(lacc x 4))".to_string();
+    let mut meta_space = MetaSpace::default();
+    let env = Environment::new(& mut meta_space);
+   // let input = "(define x (array 0 11 22 33 44 55 66 77 88 99)) (* (lacc x 2)(lacc x 4))".to_string();
+    let input = "(if (> 1 1) (* 10 10) (* 20 20))".to_string();
 
     let t = nano_time!();
     let tokens = parser::lexer::process(input).expect("Token Err");
@@ -39,32 +39,25 @@ fn main() {
     println!("ast: {:?}", &ast);
 
     let resolved = parser::resolution::resolve_types(&mut ast, env);
-
-    let mut comp_unit = CompUnit {
-        code: vec![],
-        constants: Vec::<[u8; 8]>::with_capacity(100),
-        existing_str: AHashMap::<u64, u16>::with_capacity(50),
-        ctx: &mut ctx,
-    };
-
-
+    
     println!("Resolved: {}", resolved);
-    parser::code_gen::code_gen(ast, &mut comp_unit).expect("gen Err");
+    
+    let mut comp_unit = CompUnit{
+        meta_space: &mut meta_space,
+        curr_ns: 0,
+        ns_code: Vec::<u8>::with_capacity(100)
+    };
+    
+
+    
+    
+    parser::code_gen::code_gen(ast.root_expressions, &mut comp_unit).expect("gen Err");
+    comp_unit.ns_code.push(OpCode::Exit as u8);
 
 
-    comp_unit.write_op_code(OpCode::ReturnVal);
-    //comp_unit.write_op_code(OpCode::RtnI64);
-    comp_unit.write_op_code(OpCode::Exit);
-
-    //  comp_unit.write_op_code(OpCode::Exit);
-
-    //comp_unit.write_op_code(OpCode::Exit);
-    println!("Proc Time: {} ns", nano_time!() - t);
-    println!("comp unit: {:?}", comp_unit);
-    println!("Decoded: {:?}", parser::op_codes::decode(comp_unit.code.as_slice()));
 
 
-    let mut vm = Vm::new(comp_unit);
+    let mut vm = Vm::new(meta_space);
     vm.run();
     vm.print_stack();
 

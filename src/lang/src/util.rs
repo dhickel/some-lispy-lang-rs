@@ -192,3 +192,8 @@ pub fn get_byte_array(size: usize) -> *mut u8 {
     }
 }
 
+#[macro_export] macro_rules! format_error {
+    ($loc:expr, $err:expr) => {
+        format!("ERROR | Line: {}, Char: {} | {}", $loc.0, $loc.1, $err)
+    };
+}

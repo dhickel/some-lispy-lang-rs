@@ -28,8 +28,8 @@ fn main() {
 
     let mut meta_space = MetaSpace::default();
     let env = Environment::new(& mut meta_space);
-   // let input = "(define x (array 0 11 22 33 44 55 66 77 88 99)) (* (lacc x 2)(lacc x 4))".to_string();
-    let input = "(if (> 1 1) (* 10 10) (* 20 20))".to_string();
+    let input = "(define x 10) (define val 0) (while (> x  0) (:= x (-- x)) (:= val (+ val x))) val ".to_string();
+    //let input = "(define x 10) (define y 100) (:= y 50) (* y x)".to_string();
 
     let t = nano_time!();
     let tokens = parser::lexer::process(input).expect("Token Err");
@@ -48,15 +48,9 @@ fn main() {
         ns_code: Vec::<u8>::with_capacity(100)
     };
     
-
-    
-    
     parser::code_gen::code_gen(ast.root_expressions, &mut comp_unit).expect("gen Err");
     comp_unit.ns_code.push(OpCode::Exit as u8);
-
-
-
-
+    
     let mut vm = Vm::new(meta_space);
     vm.run();
     vm.print_stack();

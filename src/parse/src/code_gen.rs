@@ -1,4 +1,6 @@
 use std::cmp::PartialEq;
+use lang::format_error;
+use lang::util::SCACHE;
 use crate::ast::{AssignData, AstData, AstNode, ConsData, DefVarData, IfData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
 use crate::environment::{Context, MetaSpace, ResData};
 use crate::op_codes::{decode, OpCode};
@@ -80,8 +82,11 @@ impl GenData {
 // TODO should top level code even be allowed other than definitions, other than in the main ns?
 pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result<(), String> {
     for node in program_nodes {
-        let code = gen_node(node, comp_unit)?;
-        comp_unit.push_code_gen(code);
+        let line_char = node.line_char;
+        match gen_node(node, comp_unit) {
+            Ok(code) => { comp_unit.push_code_gen(code); }
+            Err(err) => { println!("{}", format_error!(line_char, err)); }
+        }
     }
     let mut ns = comp_unit.meta_space.get_ns_by_id(comp_unit.curr_ns);
     ns.code.append(&mut comp_unit.ns_code);
@@ -90,7 +95,11 @@ pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result
 
 
 fn gen_node(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let res_data = node.res_data.expect("Fatal: Missing res data for resolved node: {:?}");
+    let res_data = if let Some(res_data) = node.res_data {
+        res_data
+    } else {
+        return Err(format!("Fatal: Missing res data for resolved node {:?}", node));
+    };
     match *node.node_data {
         AstData::DefVariable(data) => gen_define_variable(data, res_data, comp_unit),
         AstData::DefLambda(_) => todo!(),
@@ -135,24 +144,25 @@ fn gen_node(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData, String> 
 fn gen_define_variable(data: DefVarData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let ctx = if let Context::Symbol(symbol) = &res_data.self_ctx {
         symbol
-    } else { return Err("Invalid context".to_string()); };
+    } else { return Err("Fatal: Invalid codegen context for variable definition expected symbol.".to_string()); };
 
     let mut code = GenData::new(res_data.type_data.type_id);
     let value = gen_node(data.value, comp_unit)?;
-
     code.append_gen_data(value);
-    code.append_wide_operand(ctx.index);
 
     if ctx.class.is_none() && ctx.func.is_none() {
-        code.append_wide_operand(ctx.ns);
         code.append_op_code(OpCode::StoreVarN);
+        code.append_wide_operand(ctx.ns);
     } else if ctx.func.is_some() {
         code.append_op_code(OpCode::StoreVarL)
     } else if ctx.class.is_some() {
         todo!();
     } else {
-        return Err("Fatal: Invalid resolution data passed to codegen".to_string());
+        return Err("Fatal: Invalid codegen resolution data for variable definition".to_string());
     }
+
+    code.append_wide_operand(ctx.index);
+
     Ok(code)
 }
 
@@ -171,25 +181,27 @@ fn gen_heap_store(typ: u16, size: u16) -> Result<GenData, String> {
 fn gen_literal_call(data: LiteralCallData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let self_ctx = if let Context::Expr(expr) = &res_data.self_ctx {
         expr
-    } else { return Err("Invalid context".to_string()); };
+    } else { return Err(format!("Fatal: Missing self context for literal call: {:?}", SCACHE.resolve(data.name))); };
 
-    let target_ctx = if let Context::Symbol(symbol) = &res_data.self_ctx {
+    let target_ctx = if let Some(Context::Symbol(symbol)) = &res_data.target_ctx {
         symbol
-    } else { return Err("Invalid context".to_string()); };
+    } else { return Err(format!("Fatal:  Missing target context for literal call: {:?}", SCACHE.resolve(data.name))); };
 
     let mut code = GenData::new(res_data.type_data.type_id);
-    code.append_wide_operand(target_ctx.index);
+
 
     if self_ctx.class.is_none() && self_ctx.func.is_none() {
-        code.append_wide_operand(self_ctx.ns);
         code.append_op_code(OpCode::LoadVarN);
+        code.append_wide_operand(self_ctx.ns);
     } else if self_ctx.func.is_some() {
         code.append_op_code(OpCode::LoadVarL)
     } else if self_ctx.class.is_some() {
         todo!();
     } else {
-        return Err("Fatal: Invalid resolution data passed to codegen".to_string());
+        return Err(format!("Invalid resolution for literal call: {:?}", SCACHE.resolve(data.name)));
     }
+
+    code.append_wide_operand(target_ctx.index);
     Ok(code)
 }
 
@@ -197,28 +209,29 @@ fn gen_literal_call(data: LiteralCallData, res_data: ResData, comp_unit: &mut Co
 fn gen_assignment(data: AssignData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let self_ctx = if let Context::Expr(expr) = &res_data.self_ctx {
         expr
-    } else { return Err("Invalid context".to_string()); };
+    } else { return Err(format!("Fatal: Missing self context for assignment: {:?}", SCACHE.resolve(data.name))); };
 
-    let target_ctx = if let Context::Symbol(symbol) = &res_data.self_ctx {
+    let target_ctx = if let Some(Context::Symbol(symbol)) = &res_data.target_ctx {
         symbol
-    } else { return Err("Invalid context".to_string()); };
+    } else { return Err(format!("Fatal: Missing target context for assignment: {:?}", SCACHE.resolve(data.name))); };
 
     let mut code = GenData::new(res_data.type_data.type_id);
     let value = gen_node(data.value, comp_unit)?;
-
     code.append_gen_data(value);
-    code.append_wide_operand(target_ctx.index);
 
     if self_ctx.class.is_none() && self_ctx.func.is_none() {
-        code.append_wide_operand(self_ctx.ns);
         code.append_op_code(OpCode::StoreVarN);
+        code.append_wide_operand(self_ctx.ns);
     } else if self_ctx.func.is_some() {
         code.append_op_code(OpCode::StoreVarL)
     } else if self_ctx.class.is_some() {
         todo!();
     } else {
-        return Err("Fatal: Invalid resolution data passed to codegen".to_string());
+        return Err(format!("Invalid resolution for assignment: {:?}", SCACHE.resolve(data.name)));
     }
+
+    code.append_wide_operand(target_ctx.index);
+
     Ok(code)
 }
 
@@ -255,7 +268,6 @@ fn gen_cons(data: ConsData, res_data: ResData, comp_unit: &mut CompUnit) -> Resu
 
     code.append_gen_data(cdr_code);
     code.append_gen_data(car_code);
-
     code.append_op_code(OpCode::Cons);
     Ok(code)
 }
@@ -289,9 +301,10 @@ fn gen_array_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> R
         return Err("Too many array literals (> 65,535".to_string());
     }
 
-    let ctx = if let Context::Symbol(symbol) = &res_data.self_ctx {
-        symbol
-    } else { return Err("Invalid context".to_string()); };
+    
+    // let ctx = if let Context::Symbol(symbol) = &res_data.self_ctx {
+    //     symbol
+    // } else { return Err("Invalid/Missing context for instancing array".to_string()); };
 
     let mut code = GenData::new(res_data.type_data.type_id);
 
@@ -354,7 +367,7 @@ fn gen_if_expr(data: IfData, res_data: ResData, comp_unit: &mut CompUnit) -> Res
 
     let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
     code.append_gen_data(cond_data);
-    
+
     let then_jump = emit_jump_empty(OpCode::JumpFalse, &mut code);
     let then_data = gen_node(data.if_branch.then_node, comp_unit)?;
     code.append_gen_data(then_data);
@@ -393,7 +406,6 @@ fn gen_while_loop(data: WhileData, res_data: ResData, comp_unit: &mut CompUnit) 
 
 
 fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-   
     let ctx = if let Context::Expr(expr) = &res_data.self_ctx {
         expr
     } else { return Err("Invalid context".to_string()); };
@@ -406,7 +418,6 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
         _ => return Err("Fatal: Invalid literal in gen_node".to_string())
     };
 
-    
 
     let mut code = GenData::new(comp_unit.meta_space.types.get_type_id(&value.1));
 
@@ -419,18 +430,14 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
             code.append_op_code(OpCode::LoadConstNWide);
             code.append_wide_operand(ctx.ns);
             code.append_wide_operand(value.0);
-
-      
         }
     } else if ctx.func.is_some() {
         if value.0 < u8::MAX as u16 {
             code.append_op_code(OpCode::LoadConstL);
             code.append_operand(value.0 as u8);
-    
         } else {
             code.append_op_code(OpCode::LoadConstLWide);
             code.append_wide_operand(value.0);
-   
         }
     } else if ctx.class.is_some() {
         todo!();
@@ -535,7 +542,7 @@ fn gen_boolean_negate(mut operands: Vec<GenData>, mut code: GenData,
 fn gen_arithmetic(operation: Op, mut operands: Vec<GenData>, mut code: GenData, is_float: bool,
 ) -> Result<GenData, String> {
     if operands.len() < 2 { return Err("Expected at least 2 operands for arithmetic operation".to_string()); }
-    
+
     let op_code = get_arithmetic_op(operation, is_float)?;
     let size = operands.len() - 1;
 
@@ -547,8 +554,8 @@ fn gen_arithmetic(operation: Op, mut operands: Vec<GenData>, mut code: GenData, 
     for _ in 0..size {
         code.append_op_code(op_code);
     }
-  
-    
+
+
     Ok(code)
 }
 

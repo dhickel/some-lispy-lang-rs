@@ -10,7 +10,6 @@ use crate::parser::ParseResult;
 use crate::token::Op;
 
 
-
 // TODO handle type hierarchies, current type checking check for the concrete type only, inference
 //  for hierarchical types and conversions needs implemented (add a matching function to Type?)  
 
@@ -150,6 +149,7 @@ pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Resu
     let ctx = env.get_symbol_ctx(data.name);
 
     if let Some(target_res) = ctx {
+        println!("target ctx: {:?}", target_res);
         let res_data = ResData {
             target_ctx: Some(target_res.self_ctx.clone()),
             self_ctx: Context::Expr(env.get_env_ctx()),
@@ -213,7 +213,6 @@ pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Optio
     if cond_type != Type::Boolean {
         return Err(format!("If condition resolved to: {:?}, instead of boolean", cond_type).to_string());
     }
-    
 
 
     env.push_scope();
@@ -221,12 +220,12 @@ pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Optio
     env.pop_scope();
 
     if then_type == Type::Unresolved { return Ok(None); }
-  
+
     let expr_type = if let Some(ref mut els) = data.else_branch {
         env.push_scope();
         let else_type = resolve(els, env)?;
         env.pop_scope();
-        
+
         if else_type == Type::Unresolved {
             return Ok(None);
         } else if else_type != then_type {
@@ -347,8 +346,10 @@ pub fn resolve_expr_array(data: &mut OpData, env: &mut Environment) -> Result<Op
     for op in data.operands.iter_mut() {
         let resolved_type = resolve(op, env)?;
         if resolved_type == Type::Unresolved { resolved = false; }
+        types.push(resolved_type);
     }
     if !resolved { return Ok(None); }
+    
 
     let base_type = types.get(0).unwrap();
     let all_match = types.iter().all(|t| t == base_type);
@@ -367,6 +368,22 @@ pub fn resolve_expr_array(data: &mut OpData, env: &mut Environment) -> Result<Op
 
 // Fixme Need to either makes cons list only contain the same type, or add sometime of runtime inference
 pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> Result<Option<ResData>, String> {
+    let index_type = if let Some(expr) = &mut data.index_expr {
+        resolve(expr, env)?
+    } else {
+        return Err("No access pattern/index specified".to_string());
+    };
+    
+    if index_type == Type::Unresolved { return Ok(None) }
+    
+    let list_type = resolve(&mut data.list, env)?;
+    if list_type == Type::Unresolved {
+        return Ok(None)
+    } else if matches!(list_type,  Type::Pair | Type::Array(_)) {
+        return Err("Attempted access on non list/pair item".to_string())
+    }
+
+    
     let ctx = env.get_env_ctx();
     let type_data = TypeData { typ: Type::Void, type_id: env.meta_space.types.void };
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
@@ -405,6 +422,7 @@ pub fn resolve_literal_call(data: &mut LiteralCallData, env: &mut Environment) -
     if let Some(target_ctx) = env.get_symbol_ctx(data.name) {
         let ctx = env.get_env_ctx();
         let type_data = target_ctx.type_data.clone();
+
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
         Ok(Some(res_data))
     } else {
@@ -466,12 +484,12 @@ pub fn resolve_operation(data: &mut OpData, env: &mut Environment) -> Result<Opt
             op_infer
         }
     };
-    
+
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_type_id(&typ);
     let type_data = TypeData { typ, type_id };
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
- 
+
     Ok(Some(res_data))
 }
 

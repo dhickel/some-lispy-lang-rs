@@ -94,8 +94,12 @@ impl MetaSpace {
         let mut ns = self.namespaces.get(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
-        ns.local_symbols.get(scope_id as u64)
-            .expect("Fatal: Failed to resolve scope").get(name_val)
+        println!("Scope id query: {}", scope_id);
+        println!("Namespace: {}", ns_id);
+        println!("Local symbol table: {:?}", ns.local_symbols);
+        if let Some(locals) = ns.local_symbols.get(scope_id as u64){
+            locals.get(name_val)
+        } else {None}
     }
 
     pub fn add_global_symbol(&mut self, ns_id: u16, name: IString, data: ResData) -> &ResData {
@@ -160,7 +164,7 @@ impl MetaSpace {
                 panic!("Exceeded size of constant pool");
             }
 
-            ns.existing_consts.insert(hash,  (curr_index / 8) as u16); // index by word
+            ns.existing_consts.insert(hash, (curr_index / 8) as u16); // index by word
             ns.constants.extend_from_slice(&bytes);
             (curr_index / 8) as u16 // index by word
         }

@@ -1,7 +1,9 @@
 use std::cmp::PartialEq;
+use std::fmt::format;
+use std::ops::Deref;
 use lang::format_error;
 use lang::util::SCACHE;
-use crate::ast::{AssignData, AstData, AstNode, ConsData, DefVarData, IfData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
+use crate::ast::{AssignData, AstData, AstNode, ConsData, DefFuncData, DefVarData, FuncCallData, IfData, InnerFuncCallData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
 use crate::environment::{Context, MetaSpace, ResData};
 use crate::op_codes::{decode, OpCode};
 use crate::token::Op;
@@ -83,13 +85,16 @@ impl GenData {
 pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result<(), String> {
     for node in program_nodes {
         let line_char = node.line_char;
+
         match gen_node(node, comp_unit) {
             Ok(code) => { comp_unit.push_code_gen(code); }
             Err(err) => { println!("{}", format_error!(line_char, err)); }
         }
     }
     let mut ns = comp_unit.meta_space.get_ns_by_id(comp_unit.curr_ns);
+    println!("Comp unit code: {:?}", decode(&comp_unit.ns_code));
     ns.code.append(&mut comp_unit.ns_code);
+    println!("Namespace code: {:?}", decode(&ns.code));
     Ok(())
 }
 
@@ -103,7 +108,7 @@ fn gen_node(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData, String> 
     match *node.node_data {
         AstData::DefVariable(data) => gen_define_variable(data, res_data, comp_unit),
         AstData::DefLambda(_) => todo!(),
-        AstData::DefFunction(_) => todo!(),
+        AstData::DefFunction(data) => gen_define_func(data, res_data, comp_unit),
         AstData::DefStruct(_) => todo!(),
         AstData::DefClass(_) => todo!(),
         AstData::ExprAssignment(data) => gen_assignment(data, res_data, comp_unit),
@@ -116,7 +121,7 @@ fn gen_node(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData, String> 
         AstData::ExprPairList(data) => gen_list_new(data, res_data, comp_unit),
         AstData::ExprArray(data) => gen_array_new(data, res_data, comp_unit),
         AstData::ExprListAccess(data) => gen_list_access(data, res_data, comp_unit),
-        AstData::ExprFuncCall(_) => todo!(),
+        AstData::ExprFuncCall(data) => gen_func_call(data, res_data, comp_unit),
         AstData::ExprFuncCalInner(_) => todo!(),
         AstData::ExprObjectCall(_) => todo!(),
         AstData::ExprLiteralCall(data) => gen_literal_call(data, res_data, comp_unit),
@@ -164,6 +169,19 @@ fn gen_define_variable(data: DefVarData, res_data: ResData, comp_unit: &mut Comp
     code.append_wide_operand(ctx.index);
 
     Ok(code)
+}
+
+
+fn gen_define_func(data: DefFuncData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let ctx = if let Context::Symbol(symbol) = &res_data.self_ctx {
+        symbol
+    } else { return Err("Fatal: Invalid codegen context for variable definition expected symbol.".to_string()); };
+
+    let mut code = gen_node(data.lambda.body, comp_unit)?;
+    comp_unit.meta_space.push_func_code(ctx, &mut code.code);
+
+    let nil_code = GenData::new(code.typ);
+    Ok(nil_code)
 }
 
 
@@ -301,7 +319,7 @@ fn gen_array_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> R
         return Err("Too many array literals (> 65,535".to_string());
     }
 
-    
+
     // let ctx = if let Context::Symbol(symbol) = &res_data.self_ctx {
     //     symbol
     // } else { return Err("Invalid/Missing context for instancing array".to_string()); };
@@ -334,6 +352,62 @@ fn gen_list_access(data: ListAccData, res_data: ResData, comp_unit: &mut CompUni
         let index_code = gen_node(index, comp_unit)?;
         code.append_gen_data(index_code);
         code.append_op_code(OpCode::Aacc);
+    }
+    Ok(code)
+}
+
+
+fn gen_inner_func_call(data: InnerFuncCallData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    todo!()
+}
+
+
+fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+    let self_ctx = if let Context::Expr(ctx) = res_data.self_ctx {
+        ctx
+    } else { return Err("Fatal: Missing self context for function call".to_string()); };
+
+    let target_ctx = if let Some(Context::Symbol(target)) = res_data.target_ctx {
+        target
+    } else { return Err("Fatal: Missing target context for function call".to_string()); };
+    
+    let (param_types, rtn_type) = {
+        let func_meta = comp_unit.meta_space.get_func(&target_ctx);
+        (func_meta.param_types.clone(), func_meta.rtn_type)
+    };
+
+    let mut code = GenData::new(rtn_type);
+    
+    if param_types.len() > 0 {
+        if let Some(args) = data.arguments {
+            if args.len() != param_types.len() {
+                return Err(format!("Invalid argument count for function call: {:?} | Found: {}, Expected: {}",
+                    SCACHE.resolve(data.name), args.len(), param_types.len()));
+            }
+            
+            for (arg, param_type) in args.into_iter().zip(param_types.iter()) {
+                let resolved_arg = gen_node(arg.value, comp_unit)?;
+                if resolved_arg.typ != *param_type {
+                    return Err(format!("Invalid argument type for function call: {:?} |Found: {:?}, Expected: {:?}",
+                        SCACHE.resolve(data.name),
+                        comp_unit.meta_space.types.get_type_by_id(resolved_arg.typ),
+                        comp_unit.meta_space.types.get_type_by_id(*param_type)
+                    ));
+                }
+                code.append_gen_data(resolved_arg);
+            }
+        } else {
+            return Err(format!("Invalid argument count for function call: {:?} | Found: 0, Expected: {}",
+                SCACHE.resolve(data.name), param_types.len()));
+        }
+    }
+    
+    if self_ctx.class.is_some() {
+        todo!("Class not implemented")
+    } else {
+        code.append_op_code(OpCode::InvokeN);
+        code.append_wide_operand(target_ctx.ns);
+        code.append_wide_operand(target_ctx.index);
     }
     Ok(code)
 }

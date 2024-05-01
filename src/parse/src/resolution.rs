@@ -21,16 +21,20 @@ pub fn resolve_types(mut parse_result: &mut ParseResult, mut env: Environment) -
     env.push_scope();
 
     let mut fully_resolved = true;
-    for _ in 0..2 {
-        fully_resolved = true;
+    for _ in 0..1 {
+        //fully_resolved = true;
         for node in parse_result.root_expressions.iter_mut() {
             match resolve(node, &mut env) {
-                Ok(Type::Unresolved) => { fully_resolved = false; }
+                Ok(typ) => {
+                    match typ {
+                        Type::Unresolved => { fully_resolved = false; }
+                        _ => { println!("{:?}", typ) }
+                    }
+                }
                 Err(err) => {
                     fully_resolved = false;
                     println!("{}", format_error!(node.line_char, err));
                 }
-                _ => {}
             }
         }
     }
@@ -116,37 +120,15 @@ pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<O
             return Err(format!("Resolved type: {:?} does not equal declared type: {:?}", resolved_type, resolved_d_type));
         }
     }
-    
+
     let res_data = env.add_var_symbol(data.name, resolved_type.clone(), data.modifiers.clone())?;
     Ok(Some(res_data.clone()))
 }
 
 
 pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Environment) -> Result<Option<ResData>, String> {
-    if env.curr_func.is_none() {
-        
-        env.ad
-        
-        if let Some(params) = &data.parameters {
-            // TODO handle &mut modifiers, the pass parameter could be a reference that is define as immutable, in which case there should be an error
-            for param in params {
-                let mods = if let Some(mods) = data.modifiers.clone() {
-                    mods
-                } else { vec![] };
-
-                let typ = env.meta_space.types.get_type_by_name(param.d_type)
-                    .expect("Failed to resolve param type");
-
-                env.add_var_symbol(param.name, typ.clone(), &mods);
-            }
-        }
-    }
-    
-    
-    
     let resolved_type = resolve(&mut data.body, env)?;
     if resolved_type == Type::Unresolved { return Ok(None); }
-    
 
     if let Some(d_type) = data.d_type {
         if resolved_type != *env.validate_type(d_type) {
@@ -154,28 +136,25 @@ pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Env
         }
     }
 
-
-    let ctx = env.get_env_ctx();
-    let type_id = env.meta_space.types.get_or_define_type(&resolved_type);
-    let type_data = TypeData { typ: resolved_type, type_id };
-    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-
+    let res_data = env.add_func_symbol(name, data, resolved_type)?.clone();
+    env.pop_func();
     Ok(Some(res_data))
 }
 
 
 pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result<Option<ResData>, String> {
-    let lambda_res = if let Some(lambda) = resolve_def_lambda(&mut data.lambda, data.name, env)? {
-        lambda
-    } else { return Ok(None); };
+    let d_type = env.meta_space.types.get_type_by_name(data.d_type)
+        .ok_or_else(|| "Failed to resolve declared return type".to_string())?.clone();
 
+    let res_data = env.add_func_symbol(data.name, &data.lambda, d_type.clone())?.clone();
+    let resolved_type = resolve(&mut data.lambda.body, env)?;
+    env.pop_func();
 
-    let mods = if let Some(mods) = data.lambda.modifiers.clone() {
-        mods
-    } else { vec![] };
+    if d_type != resolved_type {
+        return Err("Declared type does not match actual type for lambda".to_string());
+    }
 
-    let res_data = env.add_var_symbol(data.name, lambda_res.type_data.typ.clone(), &mods)?;
-    Ok(Some(res_data.clone()))
+    Ok(Some(res_data))
 }
 
 
@@ -445,13 +424,19 @@ pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> R
 
 
 pub fn resolve_func_call(data: &mut FuncCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+    if let Some(args) = &mut data.arguments {
+        args.iter_mut().for_each(|arg| {
+            let _ = resolve(&mut arg.value, env);
+        });
+    }
+    
     if let Some(target_ctx) = env.get_symbol_ctx(data.name) {
         let ctx = env.get_env_ctx();
         let type_data = target_ctx.type_data.clone();
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
         Ok(Some(res_data))
     } else {
-        return Err(format!("Failed to resolve func call symbol: {}", SCACHE.resolve(data.name)));
+        Err(format!("Failed to resolve func call symbol: {}", SCACHE.resolve(data.name)))
     }
 }
 

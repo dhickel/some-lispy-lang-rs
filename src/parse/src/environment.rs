@@ -55,7 +55,7 @@ impl MetaSpace {
         *self.ns_map.get(name.value).expect("Fatal: Namespace failed to resolve")
     }
 
-    pub fn get_func(&mut self, env_ctx: &ExprContext) -> &mut FuncMeta {
+    pub fn get_func(&mut self, env_ctx: &SymbolCtx) -> &mut FuncMeta {
         let ns = self.get_ns_by_id(env_ctx.ns);
 
         if let Some(class_id) = env_ctx.class {
@@ -74,42 +74,31 @@ impl MetaSpace {
     }
 
 
-    fn add_local_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString, data: ResData) -> &ResData {
+    fn add_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString, data: ResData) -> &ResData {
         let mut ns = self.namespaces.get_mut(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
-        if ns.local_symbols.contains_key(scope_id as u64) {
-            ns.local_symbols.get_mut(scope_id as u64).unwrap().insert_checked(name.value, data);
-            ns.local_symbols.get(scope_id as u64).unwrap().get(name.value).unwrap()
+        if ns.symbol_table.contains_key(scope_id as u64) {
+            ns.symbol_table.get_mut(scope_id as u64).unwrap().insert_checked(name.value, data);
+            ns.symbol_table.get(scope_id as u64).unwrap().get(name.value).unwrap()
         } else {
             let mut scope_map = IntMap::<ResData>::with_capacity(5);
             scope_map.insert(name.value, data);
-            ns.local_symbols.insert(scope_id as u64, scope_map);
-            ns.local_symbols.get(scope_id as u64).unwrap().get(name.value).unwrap()
+            ns.symbol_table.insert(scope_id as u64, scope_map);
+            ns.symbol_table.get(scope_id as u64).unwrap().get(name.value).unwrap()
         }
     }
 
 
-    pub fn get_local_symbol(&self, ns_id: u16, scope_id: u32, name_val: u64) -> Option<&ResData> {
+    pub fn get_symbol(&self, ns_id: u16, scope_id: u32, name_val: u64) -> Option<&ResData> {
         let mut ns = self.namespaces.get(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
-        if let Some(locals) = ns.local_symbols.get(scope_id as u64) {
+        if let Some(locals) = ns.symbol_table.get(scope_id as u64) {
             locals.get(name_val)
         } else { None }
     }
 
-    fn add_global_symbol(&mut self, ns_id: u16, name: IString, data: ResData) -> &ResData {
-        let mut ns = self.namespaces.get_mut(ns_id as usize)
-            .expect("Fatal: Failed to resolve namespace");
-
-        ns.global_symbols.insert(name.value, data);
-        ns.global_symbols.get(name.value).unwrap()
-    }
-
-    pub fn get_global_symbol(&self, ns_id: u16, name_val: u64) -> Option<&ResData> {
-        self.namespaces[ns_id as usize].global_symbols.get(name_val)
-    }
 
     fn add_var_def(&mut self, ns_id: u16, var_def: VarMeta) -> u16 {
         let mut ns = self.namespaces.get_mut(ns_id as usize)
@@ -179,7 +168,7 @@ impl MetaSpace {
         idx as u16
     }
 
-    pub fn push_code(&mut self, env_ctx: ExprContext, code: &mut Vec<u8>) {
+    pub fn push_func_code(&mut self, env_ctx: &SymbolCtx, code: &mut Vec<u8>) {
         let ns = self.namespaces.get_mut(env_ctx.ns as usize)
             .expect("Failed ro resolve namespace");
 
@@ -188,13 +177,11 @@ impl MetaSpace {
             ) = ns.obj_metadata.get_mut(class_id as usize) {
                 class
             } else { panic!("Fatal: Failed to resolve class") };
-
-            if let Some(func_id) = env_ctx.func {
-                let func = ns.functions.get_mut(func_id as usize)
-                    .expect("Fatal: Failed to resolve function");
-                func.code.append(code);
-            } else { class.code.append(code) }
-        } else { ns.code.append(code) }
+        } else {
+            ns.functions.get_mut(env_ctx.index as usize)
+                .expect("Fatal: Failed to resolve func for code push")
+                .code.append(code);
+        }
     }
 }
 
@@ -210,8 +197,7 @@ impl MetaSpace {
 #[derive(Debug)]
 pub struct NameSpace {
     pub name: IString,
-    pub global_symbols: IntMap<ResData>,
-    pub local_symbols: IntMap<IntMap<ResData>>,
+    pub symbol_table: IntMap<IntMap<ResData>>,
     pub variables: Vec<VarMeta>,
     pub functions: Vec<FuncMeta>,
     pub obj_metadata: Vec<ObjectMeta>,
@@ -319,8 +305,7 @@ impl NameSpace {
     pub fn new(name: IString) -> Self {
         NameSpace {
             name,
-            global_symbols: IntMap::<ResData>::with_capacity(20),
-            local_symbols: IntMap::<IntMap::<ResData>>::with_capacity(35),
+            symbol_table: IntMap::<IntMap::<ResData>>::with_capacity(35),
             variables: Vec::<VarMeta>::with_capacity(20),
             functions: Vec::<FuncMeta>::with_capacity(20),
             obj_metadata: Vec::<ObjectMeta>::new(),
@@ -350,7 +335,7 @@ pub struct FuncMeta {
     pub name: IString,
     pub local_indices: u16,
     pub arity: u16,
-    pub arg_types: Vec<u16>,
+    pub param_types: Vec<u16>,
     pub rtn_type: u16,
     pub code: Vec<u8>,
 }
@@ -371,7 +356,7 @@ impl FuncMeta {
             name,
             local_indices: 1,
             arity: arg_types.len() as u16,
-            arg_types,
+            param_types: arg_types,
             rtn_type,
             code: Vec::<u8>::new(),
         }
@@ -547,11 +532,11 @@ impl<'a> Environment<'a> {
         self.pop_scope();
     }
 
-    pub fn add_func_symbol(&mut self, name: IString, lambda: DefLambdaData, rtn_type: Type) -> Result<&ResData, String> {
+    pub fn add_func_symbol(&mut self, name: IString, lambda: &DefLambdaData, rtn_type: Type) -> Result<&ResData, String> {
         self.push_scope();
 
-        let param_types = if let Some(params) = lambda.parameters {
-            let mut param_types = Vec::<u16>::with_capacity(params.len());
+        let param_types = if let Some(params) = &lambda.parameters {
+            let mut param_types = Vec::<Type>::with_capacity(params.len());
             for param in params {
                 let typ = if let Some(typ) = self.meta_space.types.get_type_by_name(param.d_type) {
                     typ
@@ -559,14 +544,16 @@ impl<'a> Environment<'a> {
                     self.pop_scope();
                     panic!("Non defined type encountered in parameter")
                 }; // FIXME multiple type resolution, maybe make a method that returns (id,type)
-
-                let _ = self.add_var_symbol(param.name, typ.clone(), param.modifiers);
-                param_types.push(self.meta_space.types.get_type_id(typ));
+                param_types.push(typ.clone());
             }
-            param_types
+            for (param, typ) in params.into_iter().zip(param_types.iter()) {
+                let _ = self.add_var_symbol(param.name, typ.clone(), param.modifiers.clone());
+            }
+            param_types.iter().map(|t| self.meta_space.types.get_type_id(t)).collect()
         } else { vec![] };
 
-        let rtn_type_id = self.meta_space.types.get_or_define_type(&rtn_type);
+
+        let rtn_type_id = self.meta_space.types.get_type_id(&rtn_type);
         let def = FuncMeta::new(name, param_types, rtn_type_id);
 
         if self.in_class_scope() {
@@ -578,10 +565,15 @@ impl<'a> Environment<'a> {
         // adding to Local or global symbols for scoping constraints
 
         let index = self.meta_space.add_func_def(self.curr_ns, def);
+        self.curr_func.push(index);
+
+        let mut self_ctx = self.get_env_ctx();
+        self_ctx.scope -= 1; // Adjust to outer scope where symbol is defined
+
         let symbol_data = SymbolCtx::new(
-            self.get_env_ctx(),
+            self_ctx,
             index,
-            lambda.modifiers
+            lambda.modifiers.clone(),
         );
 
         let res_data = ResData {
@@ -590,13 +582,10 @@ impl<'a> Environment<'a> {
             type_data: TypeData { type_id: rtn_type_id, typ: rtn_type },
         };
 
-        if self.in_func_scope() { // FIXME simplify scoping, I think only one table is needed
-            let data = self.meta_space.add_local_symbol(self.curr_ns, self.curr_scope, name, res_data);
-            Ok(data)
-        } else {
-            let data = self.meta_space.add_global_symbol(self.curr_ns, name, res_data);
-            Ok(data)
-        }
+        // curr_scope - 1 is used to get the outer scope where the symbol is declared, as the curr
+        // scope is the inner scope of the function
+        let data = self.meta_space.add_symbol(self.curr_ns, self.curr_scope - 1, name, res_data);
+        Ok(data)
     }
 
 
@@ -609,7 +598,10 @@ impl<'a> Environment<'a> {
         let type_id = self.meta_space.types.get_or_define_type(&typ);
         let def = VarMeta { name };
 
-        if !self.in_func_scope() && !self.in_class_scope() {
+
+        if self.in_class_scope() {
+            todo!("Classes not implemented")
+        } else {
             let index = self.meta_space.add_var_def(self.curr_ns, def);
             let symbol_data = SymbolCtx::new(self.get_env_ctx(), index, mods);
             let res_data = ResData {
@@ -617,37 +609,16 @@ impl<'a> Environment<'a> {
                 target_ctx: None,
                 type_data: TypeData { type_id, typ },
             };
-
-            Ok(self.meta_space.add_global_symbol(self.curr_ns, name, res_data))
-        } else if self.in_func_scope() {
-            let func = self.meta_space.get_func(&self.get_env_ctx());
-            let index = func.next_local();
-            let symbol_data = SymbolCtx::new(self.get_env_ctx(), index, mods);
-            let res_data = ResData {
-                self_ctx: Context::Symbol(symbol_data),
-                target_ctx: None,
-                type_data: TypeData { type_id, typ },
-            };
-
-            Ok(self.meta_space.add_local_symbol(self.curr_ns, self.curr_scope, name, res_data))
-        } else if self.in_class_scope() {
-            todo!("Classes no implemented")
-        } else { panic!("Fatal: Condition for resolution not met") }
+            Ok(self.meta_space.add_symbol(self.curr_ns, self.curr_scope, name, res_data))
+        }
     }
-
-    // Implicitly pushes a new curr_func id which need to always be popped with pop_func after
-    // evaluating the body of the function
 
 
     pub fn get_symbol_type(&mut self, name: IString) -> &Type {
         for &scope_id in self.active_scopes.iter().rev() {
-            if let Some(symbol) = self.meta_space.get_local_symbol(self.curr_ns, scope_id, name.value) {
+            if let Some(symbol) = self.meta_space.get_symbol(self.curr_ns, scope_id, name.value) {
                 return &symbol.type_data.typ;
             }
-        }
-
-        if let Some(symbol) = self.meta_space.get_global_symbol(self.curr_ns, name.value) {
-            return &symbol.type_data.typ;
         }
         &self.unresolved
     }
@@ -655,21 +626,9 @@ impl<'a> Environment<'a> {
 
     pub fn get_symbol_ctx(&self, name: IString) -> Option<&ResData> {
         for &scope_id in self.active_scopes.iter().rev() {
-            if let Some(data) = self.meta_space.get_local_symbol(self.curr_ns, scope_id, name.value) {
+            if let Some(data) = self.meta_space.get_symbol(self.curr_ns, scope_id, name.value) {
                 return Some(data);
             }
-        }
-
-        if let Some(symbol) = self.meta_space.get_global_symbol(self.curr_ns, name.value) {
-            if let Context::Symbol(ctx) = &symbol.self_ctx {
-                if self.active_scopes.contains(&ctx.scope) {
-                    return Some(symbol);
-                } else {
-                    panic!("Symbol {:?} out of scope | symbol scope: {} | curr scopes: {:?}",
-                        SCACHE.resolve(name), ctx.scope, self.active_scopes)
-                }
-            }
-            return Some(symbol);
         }
         None
     }
@@ -698,13 +657,12 @@ impl<'a> Environment<'a> {
 
 
     pub fn get_env_ctx(&self) -> ExprContext {
-     
         ExprContext {
             scope: self.curr_scope,
             depth: self.curr_depth,
             ns: self.curr_ns,
             class: self.curr_class.last().copied(),
-            func: self.curr_func.last().copied()
+            func: self.curr_func.last().copied(),
         }
     }
 }

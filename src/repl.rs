@@ -27,8 +27,9 @@ macro_rules! nano_time {
 fn main() {
     let mut meta_space = MetaSpace::default();
     let env = Environment::new(&mut meta_space);
-    //let input = "(define x 10) (define val 0) (while (> x  0) (:= x (-- x)) (:= val (+ val x)) (define meh val)) val".to_string();
-    let input = "(defunc fib [n] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))".to_string();
+    // let input = "(define x 10) (define val 0) (while (> x  0) (:= x (-- x)) (:= val (+ val x)) (define meh val)) meh".to_string();
+    //let input = "(defunc fib ::int [n ::int] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))".to_string();
+    let input = "(defunc dbl ::int [n ::int] (* n 2)) (dbl 10)".to_string();
     //let input = "(define x 10) (define y 100) (:= y 50) (* y x)".to_string();
 
     let t = nano_time!();

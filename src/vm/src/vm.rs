@@ -102,8 +102,12 @@ impl Vm {
 
     fn load_local_constant(&mut self, index: u16) {
         unsafe {
+            println!("load1");
+            println!("IsNull: {}", self.curr_const.is_null());
             let data_ptr = self.curr_const.add(index as usize);
+            println!("Load2");
             std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
+            println!("Load3");
             self.stack_top = self.stack_top.add(8);
         }
     }
@@ -267,6 +271,7 @@ impl Vm {
     */
 
     fn push_stack_frame(&mut self, frame: StackFrame) {
+        println!("Pushing Frame{:?}",frame);
         unsafe {
             self.curr_frame = self.stack_top;
             self.stack_top = self.stack_top.add(frame.local_count as usize);
@@ -325,7 +330,7 @@ impl Vm {
 
     pub fn run(&mut self) -> InterpResult {
         let t = nano_time!();
-        println!("code: {:?}", self.perm.init_code);
+        println!("init code: {:?}", decode(&self.perm.init_code));
         self.ip = self.perm.init_code.as_mut_ptr();
         self.stack_top = self.stack.as_mut_ptr();
         self.print_remaining_ops();
@@ -745,15 +750,13 @@ impl Vm {
                 }
 
                 OpCode::Car => {
-                    unsafe {
                         let pair_ref = self.pop_ref();
                         let meta = self.heap.get_item_meta(pair_ref);
                         if meta.typ != self.meta.types.pair {
                             panic!("car called on non-pair item")
                         }
                         // Only push first 8 bytes for car
-                        self.push_arbitrary_bytes((meta.loc, 8));
-                    }
+                        self.push_arbitrary_bytes((meta.loc, 8))
                 }
 
                 OpCode::Cdr => {

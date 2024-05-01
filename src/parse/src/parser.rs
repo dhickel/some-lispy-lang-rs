@@ -771,7 +771,7 @@ impl ParserState {
                     let lambda = self.parse_lambda(false, false)?;
                     self.consume_right_paren()?;
 
-                    let data = DefFuncData { name, lambda };
+                    let data = DefFuncData { name, lambda, d_type: var_type.unwrap() };
                     AstNode::new(DefFunction(data), self.line_char())
                 } else {
                     let value = self.parse_expr_data()?;
@@ -1092,13 +1092,12 @@ impl ParserState {
             
             let d_type = if let Some(typ) = self.parse_type_if_exists()? {
                 typ
-            } else { return Err("Expected type for parameter".to_string()); }
+            } else { return Err("Expected type for parameter".to_string()); };
             
             params.push(Param {
                 name,
                 d_type,
                 modifiers,
-                c_type: Type::Unresolved,
             });
         }
         if bracketed { self.consume_right_bracket()?; } else { self.consume_right_paren()?; }

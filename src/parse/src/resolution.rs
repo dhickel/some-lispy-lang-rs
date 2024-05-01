@@ -1,6 +1,6 @@
 use lang::format_error;
 use crate::types::Type;
-use lang::util::SCACHE;
+use lang::util::{IString, SCACHE};
 use crate::ast::{AssignData, AstData, AstNode, CondData, ConsData, DefClassData, DefFuncData,
     DefLambdaData, DefStructData, DefVarData, DirectInst, FuncCallData, GenRandData, IfData,
     InnerFuncCallData, ListAccData, LiteralCallData, MultiExprData, ObjectAssignData, ObjectCallData,
@@ -14,12 +14,17 @@ use crate::token::Op;
 //  for hierarchical types and conversions needs implemented (add a matching function to Type?)  
 
 
-pub fn resolve_types(mut parse_result: &mut ParseResult, mut context: Environment) -> bool {
+pub fn resolve_types(mut parse_result: &mut ParseResult, mut env: Environment) -> bool {
+    // Need a starting scope for resolution to properly work, also add a quick depth check as
+    // this will signal resolutions errors where a scope is not popped
+    let start_depth = env.get_env_ctx().depth;
+    env.push_scope();
+
     let mut fully_resolved = true;
     for _ in 0..2 {
         fully_resolved = true;
         for node in parse_result.root_expressions.iter_mut() {
-            match resolve(node, &mut context) {
+            match resolve(node, &mut env) {
                 Ok(Type::Unresolved) => { fully_resolved = false; }
                 Err(err) => {
                     fully_resolved = false;
@@ -29,6 +34,16 @@ pub fn resolve_types(mut parse_result: &mut ParseResult, mut context: Environmen
             }
         }
     }
+    env.pop_scope();
+    let end_depth = env.get_env_ctx().depth;
+    if start_depth != end_depth {
+        let msg = format!(
+            "Fatal: Compilation Error |  Ending scope dpeth: ({}) != starting scope depth: ({})",
+            start_depth, end_depth
+        );
+        panic!("{:?}", msg);
+    }
+
     fully_resolved
 }
 
@@ -37,7 +52,13 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
     if let Some(typ) = node.resolved_type() { return Ok(typ); }
     let res_data = match &mut *node.node_data {
         AstData::DefVariable(data) => resolve_def_var(data, env),
-        AstData::DefLambda(data) => resolve_def_lambda(data, env),
+        AstData::DefLambda(data) => {
+            resolve_def_lambda(
+                data,
+                SCACHE.intern(format!("Lambda:{}:{}:{}", env.curr_ns, node.line_char.0, node.line_char.1).to_string()),
+                env,
+            )
+        }
         AstData::DefFunction(data) => resolve_def_func(data, env),
         AstData::DefStruct(data) => resolve_def_struct(data, env),
         AstData::DefClass(data) => resolve_def_class(data, env),
@@ -80,6 +101,7 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
     } else { Ok(Type::Unresolved) }
 }
 
+// FIXME need to refactor defs to take modifiers as an optional, vs initing empty arrays
 
 pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<Option<ResData>, String> {
     let resolved_type = resolve(&mut data.value, env)?;
@@ -94,23 +116,44 @@ pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<O
             return Err(format!("Resolved type: {:?} does not equal declared type: {:?}", resolved_type, resolved_d_type));
         }
     }
-
-    let mods = if let Some(mods) = data.modifiers.clone() {
-        mods
-    } else { vec![] };
-    let res_data = env.add_var_symbol(data.name, resolved_type.clone(), &mods)?;
+    
+    let res_data = env.add_var_symbol(data.name, resolved_type.clone(), data.modifiers.clone())?;
     Ok(Some(res_data.clone()))
 }
 
 
-pub fn resolve_def_lambda(data: &mut DefLambdaData, env: &mut Environment) -> Result<Option<ResData>, String> {
-    // No Need to push a scope, as the body of a lambda is always an implicit multi-expr, which pushes its own scope
+pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Environment) -> Result<Option<ResData>, String> {
+    if env.curr_func.is_none() {
+        
+        env.ad
+        
+        if let Some(params) = &data.parameters {
+            // TODO handle &mut modifiers, the pass parameter could be a reference that is define as immutable, in which case there should be an error
+            for param in params {
+                let mods = if let Some(mods) = data.modifiers.clone() {
+                    mods
+                } else { vec![] };
+
+                let typ = env.meta_space.types.get_type_by_name(param.d_type)
+                    .expect("Failed to resolve param type");
+
+                env.add_var_symbol(param.name, typ.clone(), &mods);
+            }
+        }
+    }
+    
+    
+    
     let resolved_type = resolve(&mut data.body, env)?;
+    if resolved_type == Type::Unresolved { return Ok(None); }
+    
+
     if let Some(d_type) = data.d_type {
         if resolved_type != *env.validate_type(d_type) {
             return Err("Declared type does not match actual type for lambda".to_string());
         }
     }
+
 
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_or_define_type(&resolved_type);
@@ -122,7 +165,17 @@ pub fn resolve_def_lambda(data: &mut DefLambdaData, env: &mut Environment) -> Re
 
 
 pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result<Option<ResData>, String> {
-    todo!()
+    let lambda_res = if let Some(lambda) = resolve_def_lambda(&mut data.lambda, data.name, env)? {
+        lambda
+    } else { return Ok(None); };
+
+
+    let mods = if let Some(mods) = data.lambda.modifiers.clone() {
+        mods
+    } else { vec![] };
+
+    let res_data = env.add_var_symbol(data.name, lambda_res.type_data.typ.clone(), &mods)?;
+    Ok(Some(res_data.clone()))
 }
 
 
@@ -157,7 +210,7 @@ pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Resu
         };
         Ok(Some(res_data))
     } else {
-        Err(format!("Failed to resolve symbol: {}", SCACHE.resolve(data.name)))
+        Err(format!("Failed to resolve assign target symbol: {}", SCACHE.resolve(data.name)))
     }
 }
 
@@ -349,7 +402,7 @@ pub fn resolve_expr_array(data: &mut OpData, env: &mut Environment) -> Result<Op
         types.push(resolved_type);
     }
     if !resolved { return Ok(None); }
-    
+
 
     let base_type = types.get(0).unwrap();
     let all_match = types.iter().all(|t| t == base_type);
@@ -373,17 +426,17 @@ pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> R
     } else {
         return Err("No access pattern/index specified".to_string());
     };
-    
-    if index_type == Type::Unresolved { return Ok(None) }
-    
+
+    if index_type == Type::Unresolved { return Ok(None); }
+
     let list_type = resolve(&mut data.list, env)?;
     if list_type == Type::Unresolved {
-        return Ok(None)
+        return Ok(None);
     } else if matches!(list_type,  Type::Pair | Type::Array(_)) {
-        return Err("Attempted access on non list/pair item".to_string())
+        return Err("Attempted access on non list/pair item".to_string());
     }
 
-    
+
     let ctx = env.get_env_ctx();
     let type_data = TypeData { typ: Type::Void, type_id: env.meta_space.types.void };
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
@@ -398,7 +451,7 @@ pub fn resolve_func_call(data: &mut FuncCallData, env: &mut Environment) -> Resu
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
         Ok(Some(res_data))
     } else {
-        return Err(format!("Failed to resolve symbol: {}", SCACHE.resolve(data.name)));
+        return Err(format!("Failed to resolve func call symbol: {}", SCACHE.resolve(data.name)));
     }
 }
 
@@ -426,7 +479,7 @@ pub fn resolve_literal_call(data: &mut LiteralCallData, env: &mut Environment) -
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
         Ok(Some(res_data))
     } else {
-        return Err(format!("Failed to resolve symbol: {}", SCACHE.resolve(data.name)));
+        return Err(format!("Failed to resolve literal symbol: {}", SCACHE.resolve(data.name)));
     }
 }
 

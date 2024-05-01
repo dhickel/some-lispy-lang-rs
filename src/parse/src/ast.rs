@@ -107,6 +107,7 @@ pub struct DefLambdaData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefFuncData {
     pub name: IString,
+    pub d_type: IString,
     pub lambda: DefLambdaData,
 }
 
@@ -114,13 +115,8 @@ pub struct DefFuncData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: IString,
-    pub optional: bool,
-    pub default_value: Option<AstNode>,
-    pub dynamic: bool,
-    pub mutable: bool,
-    pub c_type: Type,
-    // TODO this need resolved to ensure existence
-    pub d_type: Option<IString>,
+    pub modifiers: Option<Vec<Mod>>,
+    pub d_type: IString,
 }
 
 

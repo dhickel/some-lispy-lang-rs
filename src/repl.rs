@@ -25,10 +25,10 @@ macro_rules! nano_time {
 
 #[allow(dead_code)]
 fn main() {
-
     let mut meta_space = MetaSpace::default();
-    let env = Environment::new(& mut meta_space);
-    let input = "(define x 10) (define val 0) (while (> x  0) (:= x (-- x)) (:= val (+ val x))) val ".to_string();
+    let env = Environment::new(&mut meta_space);
+    //let input = "(define x 10) (define val 0) (while (> x  0) (:= x (-- x)) (:= val (+ val x)) (define meh val)) val".to_string();
+    let input = "(defunc fib [n] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))".to_string();
     //let input = "(define x 10) (define y 100) (:= y 50) (* y x)".to_string();
 
     let t = nano_time!();
@@ -39,18 +39,18 @@ fn main() {
     println!("ast: {:?}", &ast);
 
     let resolved = parser::resolution::resolve_types(&mut ast, env);
-    
+
     println!("Resolved: {}", resolved);
-    
-    let mut comp_unit = CompUnit{
+
+    let mut comp_unit = CompUnit {
         meta_space: &mut meta_space,
         curr_ns: 0,
-        ns_code: Vec::<u8>::with_capacity(100)
+        ns_code: Vec::<u8>::with_capacity(100),
     };
-    
+
     parser::code_gen::code_gen(ast.root_expressions, &mut comp_unit).expect("gen Err");
     comp_unit.ns_code.push(OpCode::Exit as u8);
-    
+
     let mut vm = Vm::new(meta_space);
     vm.run();
     vm.print_stack();

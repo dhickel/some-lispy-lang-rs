@@ -36,8 +36,8 @@ pub struct Vm {
     perm: PermaSpace,
     curr_frame: *const u8,
     curr_meta: *const u8,
-    curr_code: *const u8,
     curr_const: *const u8,
+
 }
 
 
@@ -56,18 +56,21 @@ impl Vm {
             perm: perm,
             curr_frame: std::ptr::null(),
             curr_meta: std::ptr::null(),
-            curr_code: std::ptr::null(),
             curr_const: std::ptr::null(),
+
         }
     }
 
     fn read_op_code(&mut self) -> OpCode {
         unsafe {
+            // println!("before Op Code");
+            // self.print_stack();
+            // println!("ip is null? {:?}", self.ip.is_null());
             let code = *self.ip;
             self.ip = self.ip.add(1);
             let code: OpCode = std::mem::transmute(code);
-            println!("At Inst: {:?}", code);
-            self.print_stack();
+            //println!("Executing: {:?}", code);
+
             code
         }
     }
@@ -94,7 +97,7 @@ impl Vm {
 
     fn load_ns_constant(&mut self, ns: u16, index: u16) {
         unsafe {
-            let data_ptr = self.perm.namespaces.get_unchecked(ns as usize).get_constants(index);
+            let data_ptr = self.perm.namespaces.get_unchecked(ns as usize * 8).get_constants(index);
             std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
             self.stack_top = self.stack_top.add(8);
         }
@@ -102,12 +105,10 @@ impl Vm {
 
     fn load_local_constant(&mut self, index: u16) {
         unsafe {
-            println!("load1");
-            println!("IsNull: {}", self.curr_const.is_null());
-            let data_ptr = self.curr_const.add(index as usize);
-            println!("Load2");
+            // println!("load1");
+            // println!("IsNull: {}", self.curr_const.is_null());
+            let data_ptr = self.curr_const.add(index as usize * 8);
             std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
-            println!("Load3");
             self.stack_top = self.stack_top.add(8);
         }
     }
@@ -123,6 +124,7 @@ impl Vm {
     fn load_local_var(&mut self, index: u16) {
         unsafe {
             let data_ptr = self.curr_frame.add(index as usize);
+
             std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
             self.stack_top = self.stack_top.add(8);
         }
@@ -241,6 +243,7 @@ impl Vm {
     }
 
     pub fn print_stack(&self) {
+        println!();
         for i in (0..self.stack_top_index()).step_by(8) {
             println!("Stack[{}]: {:?}", i, &self.stack[i..i + 8])
         }
@@ -261,7 +264,6 @@ impl Vm {
     Construct frame on stack, stack frame is locals count + 5 words for metadata + operands
        [--- Stack Frame ---]
            locals....
-           byte code ptr
            constant pool ptr
            previous frame start
            previous frame meta start
@@ -271,59 +273,72 @@ impl Vm {
     */
 
     fn push_stack_frame(&mut self, frame: StackFrame) {
-        println!("Pushing Frame{:?}",frame);
+        println!("Pushing Frame{:?}", frame);
         unsafe {
-            self.curr_frame = self.stack_top;
-            self.stack_top = self.stack_top.add(frame.local_count as usize);
-            self.curr_meta = self.stack_top;
-            self.curr_code = frame.code_ptr;
-            self.curr_const = frame.constant_ptr;
+            // Shift frame down by param count to being in passed parameters on top of stack
 
-            // ptr to bytecode for frame
-            std::ptr::copy_nonoverlapping(frame.code_ptr, self.stack_top, 8);
+            let prev_frame = self.curr_frame;
+            let prev_meta = self.curr_meta;
+
+            self.curr_frame = self.stack_top.sub(frame.arity as usize * 8);
+            self.stack_top = self.stack_top.add((frame.local_count - frame.arity) as usize * 8);
+            self.curr_const = frame.constant_ptr;
+            self.curr_meta = self.stack_top;
+
+
+            println!("vm: {:?}", self.curr_frame);
+
             //  ptr to constant pool for frame
-            std::ptr::copy_nonoverlapping(frame.constant_ptr, self.stack_top.add(8), 8);
+            std::ptr::copy_nonoverlapping(&frame.constant_ptr as *const *const u8, self.stack_top as *mut *const u8, 8);
             // store curr(previous) frame start
-            std::ptr::copy_nonoverlapping(self.curr_frame, self.stack_top.add(16), 8);
+            std::ptr::copy_nonoverlapping(&prev_frame as *const *const u8, self.stack_top.add(8) as *mut *const u8, 8);
             // store curr(previous) frame meta start
-            std::ptr::copy_nonoverlapping(self.curr_meta, self.stack_top.add(24), 8);
+            std::ptr::copy_nonoverlapping(&prev_meta as *const *const u8, self.stack_top.add(16) as *mut *const u8, 8);
             // return address
-            std::ptr::copy_nonoverlapping(self.ip, self.stack_top.add(32), 8);
+            std::ptr::copy_nonoverlapping(&self.ip as *const *const u8, self.stack_top.add(24) as *mut *const u8, 8);
+
+
+            // println!("Pushed to  Frame");
+            // println!("curr frame: {:?}", self.curr_frame);
+            // println!("curr const: {:?}", self.curr_const);
+            // println!("curr meta: {:?}", self.curr_meta);
+
 
             // set ip to current bytecode address
-            self.ip = self.curr_code;
-            self.stack_top = self.stack_top.add(40);
+            self.ip = frame.code_ptr;
+            print!("curr ip: {:?}", self.ip);
+            self.stack_top = self.stack_top.add(32);
         }
     }
 
     fn pop_stack_frame(&mut self, rtn_val: bool) {
+        println!("\nPopping Frame\n");
+
         unsafe {
-            let last_frame_start = self.curr_meta.add(16);
-            let last_frame_meta = self.curr_meta.add(24);
-            let last_frame_rtn_addr = self.curr_meta.add(32);
             let new_stack_top = self.curr_frame as *mut u8;
+            self.curr_frame = std::ptr::read(self.curr_meta.add(8) as *const *const u8);
+            self.curr_meta = std::ptr::read(self.curr_meta.add(16) as *const *const u8);
+            self.curr_const = std::ptr::read(self.curr_meta as *const *const u8);
+            self.ip = std::ptr::read(self.curr_meta.add(24) as *const *const u8);
+
+
+            //  println!("Cure Frame Meta", last_frame_start)
+
+            // println!("Restored to  Frame");
+            // println!("curr frame: {:?}", self.curr_frame);
+            // println!("curr const: {:?}", self.curr_const);
+            // println!("curr meta: {:?}", self.curr_meta);
+            // print!("curr ip: {:?}", self.ip);
 
             // return value if needed
+
             if rtn_val {
                 std::ptr::copy_nonoverlapping(self.stack_top.sub(8), new_stack_top, 8);
-                self.stack_top = new_stack_top.add(8) as *mut u8;
+                self.stack_top = new_stack_top.add(8);
             } else {
-                self.stack_top = self.curr_frame as *mut u8;
+                self.stack_top = new_stack_top;
             }
 
-            // restore frame pointers
-            self.curr_frame = last_frame_start;
-            self.curr_meta = last_frame_meta;
-            self.curr_code = self.curr_meta;
-            self.curr_const = self.curr_meta.add(8);
-            self.ip = last_frame_rtn_addr;
-        }
-    }
-
-    pub fn print_remaining_ops(&self) {
-        unsafe {
-            let offset = self.ip.offset_from(self.perm.init_code.as_ptr()) as usize;
-            println!("Remaining Ops{:?}", decode(&self.perm.init_code[offset..]))
         }
     }
 
@@ -333,7 +348,9 @@ impl Vm {
         println!("init code: {:?}", decode(&self.perm.init_code));
         self.ip = self.perm.init_code.as_mut_ptr();
         self.stack_top = self.stack.as_mut_ptr();
-        self.print_remaining_ops();
+        self.curr_frame = self.perm.init_code.as_ptr();
+        self.curr_meta = self.perm.init_code.as_ptr();
+        self.curr_const = self.perm.init_code.as_ptr();
 
         let mut i = 0;
 
@@ -351,7 +368,7 @@ impl Vm {
                 }
 
                 OpCode::ReturnVal => {
-                    self.pop_stack_frame(true)
+                    self.pop_stack_frame(true);
                 }
 
                 OpCode::Return => {
@@ -385,6 +402,8 @@ impl Vm {
                 OpCode::MulI64 => {
                     let val1 = self.pop_i64();
                     let val2 = self.pop_i64();
+                    println!("Val1:{}", val1);
+                    println!("Val2:{}", val2);
                     self.push_i64(val1 * val2)
                 }
 
@@ -750,13 +769,13 @@ impl Vm {
                 }
 
                 OpCode::Car => {
-                        let pair_ref = self.pop_ref();
-                        let meta = self.heap.get_item_meta(pair_ref);
-                        if meta.typ != self.meta.types.pair {
-                            panic!("car called on non-pair item")
-                        }
-                        // Only push first 8 bytes for car
-                        self.push_arbitrary_bytes((meta.loc, 8))
+                    let pair_ref = self.pop_ref();
+                    let meta = self.heap.get_item_meta(pair_ref);
+                    if meta.typ != self.meta.types.pair {
+                        panic!("car called on non-pair item")
+                    }
+                    // Only push first 8 bytes for car
+                    self.push_arbitrary_bytes((meta.loc, 8))
                 }
 
                 OpCode::Cdr => {
@@ -847,6 +866,9 @@ impl Vm {
                 }
                 OpCode::StoreVarC => {}
             }
+            // println!("After Op Stack");
+            // self.print_stack();
+            // println!("Index: {}", self.stack_top_index())
         }
         InterpResult::Ok
     }

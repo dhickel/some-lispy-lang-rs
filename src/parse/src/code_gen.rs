@@ -178,6 +178,10 @@ fn gen_define_func(data: DefFuncData, res_data: ResData, comp_unit: &mut CompUni
     } else { return Err("Fatal: Invalid codegen context for variable definition expected symbol.".to_string()); };
 
     let mut code = gen_node(data.lambda.body, comp_unit)?;
+    println!("Func ctx: {:?}", ctx);
+    code.append_op_code(if ctx.rtn_val { OpCode::ReturnVal } else { OpCode::Return });
+
+
     comp_unit.meta_space.push_func_code(ctx, &mut code.code);
 
     let nil_code = GenData::new(code.typ);
@@ -275,7 +279,6 @@ fn gen_assignment(data: AssignData, res_data: ResData, comp_unit: &mut CompUnit)
 //     Ok(code)
 // }
 
-
 fn gen_cons(data: ConsData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let car_code = gen_node(data.car, comp_unit)?;
     // let car_code = append_heap_store_if_needed(car_code, comp_unit)?;
@@ -370,21 +373,21 @@ fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit
     let target_ctx = if let Some(Context::Symbol(target)) = res_data.target_ctx {
         target
     } else { return Err("Fatal: Missing target context for function call".to_string()); };
-    
+
     let (param_types, rtn_type) = {
         let func_meta = comp_unit.meta_space.get_func(&target_ctx);
         (func_meta.param_types.clone(), func_meta.rtn_type)
     };
 
     let mut code = GenData::new(rtn_type);
-    
+
     if param_types.len() > 0 {
         if let Some(args) = data.arguments {
             if args.len() != param_types.len() {
                 return Err(format!("Invalid argument count for function call: {:?} | Found: {}, Expected: {}",
                     SCACHE.resolve(data.name), args.len(), param_types.len()));
             }
-            
+
             for (arg, param_type) in args.into_iter().zip(param_types.iter()) {
                 let resolved_arg = gen_node(arg.value, comp_unit)?;
                 if resolved_arg.typ != *param_type {
@@ -401,7 +404,7 @@ fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit
                 SCACHE.resolve(data.name), param_types.len()));
         }
     }
-    
+
     if self_ctx.class.is_some() {
         todo!("Class not implemented")
     } else {

@@ -1,7 +1,7 @@
 use intmap::IntMap;
 use lang::util::{IString, SCACHE};
 use crate::ast::DefLambdaData;
-use crate::op_codes::OpCode;
+use crate::op_codes::{decode, OpCode};
 use crate::token::Mod;
 use crate::types::{Type, TypeTable};
 
@@ -149,7 +149,7 @@ impl MetaSpace {
             if curr_index >= u16::MAX as usize {
                 panic!("Exceeded size of constant pool");
             }
-
+            
             ns.existing_consts.insert(hash, (curr_index / 8) as u16); // index by word
             ns.constants.extend_from_slice(&bytes);
             (curr_index / 8) as u16 // index by word
@@ -209,10 +209,12 @@ pub struct NameSpace {
 
 #[derive(Debug)]
 pub struct StackFrame {
+    pub arity: u16,
     pub local_count: u16,
     pub code_ptr: *const u8,
-    pub code_size: u16,
     pub constant_ptr: *const u8,
+    pub m_space_ptr: *const (u32, u16, u16),
+    pub v_space_ptr: *const u8,
 }
 
 
@@ -220,7 +222,7 @@ pub struct StackFrame {
 pub struct PermNameSpace {
     pub func_data: Vec<u8>,
     pub func_table: Vec<(u32, u16, u16)>,
-    // start, size, locals count
+    // start, params, locals count
     pub var_data: Vec<u8>,
     pub constants: Vec<u8>,
 }
@@ -241,7 +243,7 @@ impl PermaSpace {
             namespaces.push(PermNameSpace::new(ns));
             init_code.append(&mut ns.code);
         }
-        init_code.push(OpCode::Exit as u8);
+       // init_code.push(OpCode::Exit as u8);
         PermaSpace { namespaces, init_code }
     }
 }
@@ -251,11 +253,14 @@ impl PermNameSpace {
     pub fn get_func(&self, index: u16) -> StackFrame {
         unsafe {
             let meta = *self.func_table.get_unchecked(index as usize);
+            println!("Loading Func Code: {:?}", decode(&self.func_data.as_slice()));
             StackFrame {
+                arity: meta.1,
                 local_count: meta.2,
                 code_ptr: self.func_data.as_ptr().add(meta.0 as usize),
-                code_size: meta.1,
                 constant_ptr: self.constants.as_ptr(),
+                m_space_ptr: self.func_table.as_ptr(),
+                v_space_ptr: self.var_data.as_ptr(),
             }
         }
     }
@@ -283,7 +288,7 @@ impl PermNameSpace {
         let mut func_data = Vec::<u8>::with_capacity(ns.functions.len() * 32);
         let mut func_table = Vec::<(u32, u16, u16)>::with_capacity(ns.functions.len());
         for func in ns.functions.iter_mut() {
-            func_table.push((func_data.len() as u32, func.code.len() as u16, func.local_indices));
+            func_table.push((func_data.len() as u32, func.param_types.len() as u16, func.local_indices));
             func_data.append(&mut func.code);
         }
 
@@ -433,6 +438,7 @@ pub struct SymbolCtx {
     pub nullable: bool,
     pub mutable: bool,
     pub public: bool,
+    pub rtn_val: bool,
 }
 
 
@@ -454,7 +460,7 @@ pub struct TypeData {
 
 
 impl SymbolCtx {
-    pub fn new(ctx: ExprContext, index: u16, modifiers: Option<Vec<Mod>>) -> SymbolCtx {
+    pub fn new(ctx: ExprContext, index: u16, modifiers: Option<Vec<Mod>>, rtn_val: bool) -> SymbolCtx {
         let mut nullable = false;
         let mut mutable = false;
         let mut public = false;
@@ -474,6 +480,7 @@ impl SymbolCtx {
             nullable,
             mutable,
             public,
+            rtn_val,
         }
     }
 }
@@ -574,6 +581,7 @@ impl<'a> Environment<'a> {
             self_ctx,
             index,
             lambda.modifiers.clone(),
+            if rtn_type == Type::Void { false } else { true },
         );
 
         let res_data = ResData {
@@ -603,7 +611,7 @@ impl<'a> Environment<'a> {
             todo!("Classes not implemented")
         } else {
             let index = self.meta_space.add_var_def(self.curr_ns, def);
-            let symbol_data = SymbolCtx::new(self.get_env_ctx(), index, mods);
+            let symbol_data = SymbolCtx::new(self.get_env_ctx(), index, mods, false);
             let res_data = ResData {
                 self_ctx: Context::Symbol(symbol_data),
                 target_ctx: None,

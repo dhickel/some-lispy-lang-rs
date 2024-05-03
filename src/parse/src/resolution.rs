@@ -38,6 +38,7 @@ pub fn resolve_types(mut parse_result: &mut ParseResult, mut env: Environment) -
             }
         }
     }
+    
     env.pop_scope();
     let end_depth = env.get_env_ctx().depth;
     if start_depth != end_depth {
@@ -422,6 +423,8 @@ pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> R
     Ok(Some(res_data))
 }
 
+
+// TODO need to type check args = param here
 
 pub fn resolve_func_call(data: &mut FuncCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
     if let Some(args) = &mut data.arguments {

@@ -28,12 +28,14 @@ fn main() {
     let mut meta_space = MetaSpace::default();
     let env = Environment::new(&mut meta_space);
     // let input = "(define x 10) (define val 0) (while (> x  0) (:= x (-- x)) (:= val (+ val x)) (define meh val)) meh".to_string();
-    //let input = "(defunc fib ::int [n ::int] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))".to_string();
-    let input = "(defunc dbl ::int [n ::int] (* n 2)) (dbl 10)".to_string();
+    let input = "(defunc fib ::int [n ::int] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))) (fib 5)".to_string();
+  // let input = "(defunc dbl ::int [n ::int] (if (> n 20) n (dbl (* n 2)))) (dbl 2)";
+   //let input = "(defunc dbl ::int [n ::int] (* n 2)) (dbl 10)".to_string();
+    //let input = "(defunc dbl ::int [n ::int] (* n 2)) (define dlb2 dlb) (dbl2 10)".to_string(); FIXME fix this
     //let input = "(define x 10) (define y 100) (:= y 50) (* y x)".to_string();
 
     let t = nano_time!();
-    let tokens = parser::lexer::process(input).expect("Token Err");
+    let tokens = parser::lexer::process(input.to_string()).expect("Token Err");
 
 
     let mut ast = parser::parser::process(tokens).expect("Parse Err");
@@ -50,11 +52,11 @@ fn main() {
     };
 
     parser::code_gen::code_gen(ast.root_expressions, &mut comp_unit).expect("gen Err");
-    comp_unit.ns_code.push(OpCode::Exit as u8);
+    //comp_unit.ns_code.push(OpCode::Exit as u8);
 
     let mut vm = Vm::new(meta_space);
     vm.run();
-    vm.print_stack();
+    
 
 
     // let mut chunk = CompUnit {

@@ -72,7 +72,7 @@ impl Vm {
             self.ip = self.ip.add(1);
             let code: OpCode = std::mem::transmute(code);
 
-              println!("Executing: {:?}", code);
+            //  println!("Executing: {:?}", code);
             //  println!("before Op Code");
             // self.print_stack();
 
@@ -290,25 +290,18 @@ impl Vm {
 
             let prev_frame = self.curr_frame;
             let prev_meta = self.curr_meta;
-
-          
-
-         
-            println!("Patching rtn: {:?}", Self::transmute_op(self.ip));
-            println!("Patching rtn: {:?}", self.ip);
+            
             let ip_as_usize = self.ip as usize;
             std::ptr::copy_nonoverlapping(&ip_as_usize as *const usize, self.curr_meta.add(24) as *mut usize, 1);
-                
             
-
             self.curr_frame = self.stack_top.sub(frame.arity as usize * 8);
             self.stack_top = self.stack_top.add((frame.local_count - frame.arity) as usize * 8);
             self.curr_const = frame.constant_ptr;
             self.curr_meta = self.stack_top;
 
-            println!("Saving Ptr to: {:?}", Self::transmute_op(self.ip));
-            self.frame_cnt += 1;
-            println!("Pushed Frame #: {}", self.frame_cnt);
+           
+            //self.frame_cnt += 1;
+   
             //  println!("vm: {:?}", self.curr_frame);
 
             //  ptr to constant pool for frame
@@ -327,8 +320,8 @@ impl Vm {
             let ip_ptr = self.ip as usize;
             std::ptr::copy_nonoverlapping(&ip_ptr as *const usize, self.stack_top.add(24) as *mut usize, 1);
 
-            // Frame count
-            std::ptr::copy_nonoverlapping(self.frame_cnt.to_ne_bytes().as_ptr(), self.stack_top.add(32), 8);
+            // // Frame count
+            // std::ptr::copy_nonoverlapping(self.frame_cnt.to_ne_bytes().as_ptr(), self.stack_top.add(32), 8);
             //
             // println!("Pushed to  Frame");
             // println!("curr frame: {:?}", self.curr_frame);
@@ -340,17 +333,17 @@ impl Vm {
             // set ip to current bytecode address
             self.ip = frame.code_ptr;
 
-            self.stack_top = self.stack_top.add(40);
+            self.stack_top = self.stack_top.add(32);
         }
     }
 
     fn pop_stack_frame(&mut self, rtn_val: bool) {
-        println!("\nPopping Frame\n");
+      //  println!("\nPopping Frame\n");
 
-        unsafe { ;
-            let frame_count_bytes = std::ptr::read(self.curr_meta.add(32) as *const [u8; 8]);
-            let frame_count = u64::from_ne_bytes(frame_count_bytes);
-            println!("Popping Frame #: {:?}", frame_count);
+        unsafe { 
+            // let frame_count_bytes = std::ptr::read(self.curr_meta.add(32) as *const [u8; 8]);
+            // let frame_count = u64::from_ne_bytes(frame_count_bytes);
+            // println!("Popping Frame #: {:?}", frame_count);
             
             let new_stack_top = self.curr_frame as *mut u8;
             self.curr_frame = std::ptr::read(self.curr_meta.add(8) as *const *const u8);
@@ -377,34 +370,74 @@ impl Vm {
             }
 
             
-            println!("Returnign to Ip Op {:?}", Self::transmute_op(self.ip));
-            println!("Returnign to Ip Op {:?}", self.ip);
-            self.print_stack()
+            // println!("Returnign to Ip Op {:?}", Self::transmute_op(self.ip));
+            // println!("Returnign to Ip Op {:?}", self.ip);
+            // self.print_stack()
+        }
+    }
+    
+    fn push_init_frame(&mut self, frame: StackFrame,) {
+        unsafe {
+            // Shift frame down by param count to being in passed parameters on top of stack
+            
+            self.curr_frame = self.stack_top.sub(frame.arity as usize * 8);
+            self.stack_top = self.stack_top.add((frame.local_count - frame.arity) as usize * 8);
+            self.curr_const = frame.constant_ptr;
+            self.curr_meta = self.stack_top;
+            
+            self.frame_cnt += 1;
+
+            self.ip = frame.code_ptr;
+            //  ptr to constant pool for frame
+            let constant_ptr = frame.constant_ptr as usize;
+            std::ptr::copy_nonoverlapping(&constant_ptr as *const usize, self.stack_top as *mut usize, 1);
+
+            // Set prev to current to fill
+            // let prev_frame_ptr = self.curr_frame as usize;
+            // std::ptr::copy_nonoverlapping(&prev_frame_ptr as *const usize, self.stack_top.add(8) as *mut usize, 1);
+            // 
+            // // Store current (previous) frame meta start
+            // let prev_meta_ptr = self.curr_meta as usize;
+            // std::ptr::copy_nonoverlapping(&prev_meta_ptr as *const usize, self.stack_top.add(16) as *mut usize, 1);
+
+            // Return address
+            let ip_ptr = self.ip as usize;
+            std::ptr::copy_nonoverlapping(&ip_ptr as *const usize, self.stack_top.add(24) as *mut usize, 1);
+
+            // Frame count
+            std::ptr::copy_nonoverlapping(self.frame_cnt.to_ne_bytes().as_ptr(), self.stack_top.add(32), 8);
+            //
+            // println!("Pushed to  Frame");
+            // println!("curr frame: {:?}", self.curr_frame);
+            // println!("curr const: {:?}", self.curr_const);
+            // println!("curr meta: {:?}", self.curr_meta);
+            // println!("curr ip: {:?}", self.ip);
+
+
+            // set ip to current bytecode address
+
+           
+            self.stack_top = self.stack_top.add(40);
         }
     }
 
 
     pub fn run(&mut self) -> InterpResult {
         let t = nano_time!();
-        self.ip = self.perm.init_code.as_mut_ptr();
-        println!("StartingIp: {:?}", self.ip);
+       // self.ip = self.perm.init_code.as_mut_ptr();
         self.stack_top = self.stack.as_mut_ptr();
-        let init_frame = self.perm.init_frame();
-        let cnst = init_frame.constant_ptr.clone();
+         let init_frame = self.perm.init_frame();
+        self.push_init_frame(init_frame);
+       // let cnst = init_frame.constant_ptr.clone();
        // self.push_stack_frame(init_frame);
-        // // These need to be something to avoid referencing null pointers when popping the first (last)
-        // // method, these assignments are never used as program exits then, but are needed to avoid a crash
-         self.curr_frame = self.stack_top;
-         self.curr_meta = self.stack_top;
-         self.curr_const = cnst;
-
-        let mut i = 0;
+        
+        //let mut i = 0;
 
         'outer: loop {
-            i += 1;
-            if i > 1000 {
-                break;
-            }
+            // i += 1;
+            // if i > 1000 {
+            //     break;
+            // }
 
             match self.read_op_code() {
                 OpCode::Exit => {
@@ -412,6 +445,7 @@ impl Vm {
                     // self.print_stack();
                     // let val = self.pop_i64();
                     // println!("val: {}", val);
+                    println!("Exec time: {} ns", nano_time!() - t);
                     break;
                 }
 

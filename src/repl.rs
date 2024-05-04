@@ -28,9 +28,9 @@ fn main() {
     let mut meta_space = MetaSpace::default();
     let env = Environment::new(&mut meta_space);
     // let input = "(define x 10) (define val 0) (while (> x  0) (:= x (-- x)) (:= val (+ val x)) (define meh val)) meh".to_string();
-   // let input = "(defunc fib ::int [n ::int] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))) (fib 6)".to_string();
+    let input = "(defunc fib ::int [n ::int] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))) (fib 30)".to_string();
     //let input = "(defunc even ::int [x ::int] (if (equals (% x 2) 0) 1 0)) (even 7)";
-   let input = "(defunc dbl ::int [n ::int] (if (> n 20) n (dbl (* n 2)))) (dbl 3)";
+  // let input = "(defunc dbl ::int [n ::int] (if (> n 20) n (dbl (* n 2)))) (define a ::int (dbl 2))";
    //let input = "(defunc dbl ::int [n ::int] (* n 2)) (dbl 10)".to_string();
     //let input = "(defunc dbl ::int [n ::int] (* n 2)) (define dlb2 dlb) (dbl2 10)".to_string(); FIXME fix this
     //let input = "(define x 10) (define y 100) (:= y 50) (* y x)".to_string();

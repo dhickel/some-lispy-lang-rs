@@ -47,7 +47,7 @@ pub enum OpCode {
     CompLtEqN,
     JumpFalse,
     JumpTrue,
-    JumpFWd,
+    JumpFwd,
     JumpBack,
     IConstM1,
     IConst0,
@@ -171,7 +171,7 @@ pub fn decode(code: &[u8]) -> Vec<String> {
                 let val2 = iter.next().unwrap();
                 decoded.push(format!("JumpFalse: {}", util::read_wide_bytes(*val1, *val2)))
             }
-            OpCode::JumpFWd => {
+            OpCode::JumpFwd => {
                 let val1 = iter.next().unwrap();
                 let val2 = iter.next().unwrap();
                 decoded.push(format!("JumpFWd: {}", util::read_wide_bytes(*val1, *val2)))

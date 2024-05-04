@@ -184,7 +184,7 @@ fn gen_define_func(data: DefFuncData, res_data: ResData, comp_unit: &mut CompUni
 
     comp_unit.meta_space.push_func_code(ctx, &mut code.code);
 
-    let nil_code = GenData::new(code.typ);
+    let mut nil_code = GenData::new(code.typ);
     Ok(nil_code)
 }
 
@@ -450,7 +450,7 @@ fn gen_if_expr(data: IfData, res_data: ResData, comp_unit: &mut CompUnit) -> Res
     code.append_gen_data(then_data);
 
 
-    let else_jump = emit_jump_empty(OpCode::JumpFWd, &mut code);
+    let else_jump = emit_jump_empty(OpCode::JumpFwd, &mut code);
     patch_jump(then_jump, &mut code);
 
     if let Some(els) = data.else_branch {
@@ -488,7 +488,7 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
     } else { return Err("Invalid context".to_string()); };
 
 
-    let value = match *node {
+    let (value, typ) = match *node {
         AstData::LitInteger(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Integer),
         AstData::LitFloat(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Float),
         AstData::LitBoolean(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Boolean),
@@ -496,25 +496,25 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
     };
 
 
-    let mut code = GenData::new(comp_unit.meta_space.types.get_type_id(&value.1));
+    let mut code = GenData::new(comp_unit.meta_space.types.get_type_id(&typ));
 
     if ctx.class.is_none() && ctx.func.is_none() {
-        if value.0 < u8::MAX as u16 {
+        if value < u8::MAX as u16 {
             code.append_op_code(OpCode::LoadConstN);
             code.append_wide_operand(ctx.ns);
-            code.append_operand(value.0 as u8);
+            code.append_operand(value as u8);
         } else {
             code.append_op_code(OpCode::LoadConstNWide);
             code.append_wide_operand(ctx.ns);
-            code.append_wide_operand(value.0);
+            code.append_wide_operand(value);
         }
     } else if ctx.func.is_some() {
-        if value.0 < u8::MAX as u16 {
+        if value < u8::MAX as u16 {
             code.append_op_code(OpCode::LoadConstL);
-            code.append_operand(value.0 as u8);
+            code.append_operand(value as u8);
         } else {
             code.append_op_code(OpCode::LoadConstLWide);
-            code.append_wide_operand(value.0);
+            code.append_wide_operand(value);
         }
     } else if ctx.class.is_some() {
         todo!();
@@ -523,6 +523,8 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
     }
     Ok(code)
 }
+
+
 
 
 fn gen_operation(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {

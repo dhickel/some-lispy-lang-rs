@@ -134,7 +134,8 @@ impl MetaSpace {
 
             let size = std::mem::size_of::<T>();
             if size != 8 {
-                panic!("Attempted to add constant of more than 8 bytes");
+                let msg = format!("Attempted to add constant of more than 8 bytes: {:?}", size);
+                panic!("{}", msg);
             }
 
             let value_ptr = value as *const T as *const u8;
@@ -246,6 +247,17 @@ impl PermaSpace {
        // init_code.push(OpCode::Exit as u8);
         PermaSpace { namespaces, init_code }
     }
+    
+    pub fn init_frame(&self) -> StackFrame {
+        StackFrame{
+            arity: 0,
+            local_count: 0,
+            code_ptr: self.init_code.as_ptr(),
+            constant_ptr: self.namespaces[0].constants.as_ptr(),
+            m_space_ptr: self.namespaces[0].func_table.as_ptr(),
+            v_space_ptr: self.namespaces[0].var_data.as_ptr(),
+        }
+    }
 }
 
 
@@ -253,7 +265,7 @@ impl PermNameSpace {
     pub fn get_func(&self, index: u16) -> StackFrame {
         unsafe {
             let meta = *self.func_table.get_unchecked(index as usize);
-            println!("Loading Func Code: {:?}", decode(&self.func_data.as_slice()));
+            // println!("Loading Func Code: {:?}", decode(&self.func_data.as_slice()));
             StackFrame {
                 arity: meta.1,
                 local_count: meta.2,

@@ -68,38 +68,41 @@ impl Vm {
         unsafe {
 
             // println!("ip is null? {:?}", self.ip.is_null());
-            let code = std::ptr::read(self.ip);
+            let code = *self.ip;
             self.ip = self.ip.add(1);
             let code: OpCode = std::mem::transmute(code);
 
-            //  println!("Executing: {:?}", code);
-            //  println!("before Op Code");
+            // println!("Executing: {:?}", code);
+            // println!("before Op Code");
             // self.print_stack();
 
             code
         }
     }
 
+    #[inline(always)]
     pub fn read_wide_inst(&mut self) -> u16 {
         unsafe {
-            let low_byte = std::ptr::read(self.ip) as u16;
+            let low_byte = *self.ip as u16;
             self.ip = self.ip.add(1);
 
-            let high_byte = std::ptr::read(self.ip) as u16;
+            let high_byte = *self.ip as u16;
             self.ip = self.ip.add(1);
 
             (high_byte << 8) | low_byte
         }
     }
 
+    #[inline(always)]
     pub fn read_inst(&mut self) -> u8 {
         unsafe {
-            let byte = std::ptr::read(self.ip);
+            let byte = *self.ip;
             self.ip = self.ip.add(1);
             byte
         }
     }
 
+    #[inline(always)]
     fn load_ns_constant(&mut self, ns: u16, index: u16) {
         unsafe {
             let data_ptr = self.perm.namespaces.get_unchecked(ns as usize * 8).get_constants(index);
@@ -108,6 +111,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn load_local_constant(&mut self, index: u16) {
         unsafe {
             // println!("load1");
@@ -118,6 +122,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn load_ns_var(&mut self, ns: u16, index: u16) {
         unsafe {
             let data_ptr = self.perm.namespaces[ns as usize].get_var_data(index);
@@ -126,15 +131,16 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn load_local_var(&mut self, index: u16) {
         unsafe {
             let data_ptr = self.curr_frame.add(index as usize);
-
             std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
             self.stack_top = self.stack_top.add(8);
         }
     }
 
+    #[inline(always)]
     fn store_ns_var(&mut self, ns: u16, index: u16) {
         unsafe {
             self.perm.namespaces[ns as usize].set_var_data(index, self.stack_top.sub(8));
@@ -142,6 +148,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn store_local_var(&mut self, index: u16) {
         unsafe {
             let index_ptr = self.curr_frame.add(index as usize) as *mut u8;
@@ -150,6 +157,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn push_word(&mut self, bytes: [u8; 8]) {
         unsafe {
             let new_stack_top = self.stack_top.add(8);
@@ -159,6 +167,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn push_arbitrary_bytes(&mut self, pointer: (*const u8, usize)) {
         unsafe {
             let new_stack_top = self.stack_top.add(pointer.1);
@@ -167,6 +176,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn push_i64(&mut self, value: i64) {
         unsafe {
             let bytes: [u8; 8] = std::mem::transmute(value);
@@ -174,6 +184,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn push_ref(&mut self, value: u64) {
         unsafe {
             let bytes: [u8; 8] = std::mem::transmute(value);
@@ -181,6 +192,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn push_f64(&mut self, value: f64) {
         unsafe {
             let bytes: [u8; 8] = std::mem::transmute(value);
@@ -188,6 +200,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn push_bool(&mut self, value: bool) {
         self.push_i64(if value { 1 } else { 0 })
     }
@@ -202,6 +215,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn pop_word_to_bytes(&mut self) -> [u8; 8] {
         unsafe {
             let ptr = self.pop_word();
@@ -209,6 +223,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     pub fn pop_f64(&mut self) -> f64 {
         unsafe {
             let ptr = self.pop_word();
@@ -217,6 +232,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     pub fn pop_i64(&mut self) -> i64 {
         unsafe {
             let ptr = self.pop_word();
@@ -225,6 +241,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     pub fn pop_ref(&mut self) -> u64 {
         unsafe {
             let ptr = self.pop_word();
@@ -233,11 +250,13 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn pop_bool(&mut self) -> bool {
         let val = self.pop_i64();
         val != 0
     }
 
+    #[inline(always)]
     fn discard_n_words(&mut self, n: u8) {
         if n > self.stack_top_index() as u8 {
             panic!("Popped more than stack size")
@@ -283,25 +302,27 @@ impl Vm {
        [--------------------]
     */
 
+    #[inline(always)]
     fn push_stack_frame(&mut self, frame: StackFrame) {
         // println!("Pushing Frame{:?}", frame);
         unsafe {
             // Shift frame down by param count to being in passed parameters on top of stack
 
+            
             let prev_frame = self.curr_frame;
             let prev_meta = self.curr_meta;
-            
+
             let ip_as_usize = self.ip as usize;
             std::ptr::copy_nonoverlapping(&ip_as_usize as *const usize, self.curr_meta.add(24) as *mut usize, 1);
-            
+
             self.curr_frame = self.stack_top.sub(frame.arity as usize * 8);
             self.stack_top = self.stack_top.add((frame.local_count - frame.arity) as usize * 8);
             self.curr_const = frame.constant_ptr;
             self.curr_meta = self.stack_top;
 
-           
+
             //self.frame_cnt += 1;
-   
+
             //  println!("vm: {:?}", self.curr_frame);
 
             //  ptr to constant pool for frame
@@ -337,19 +358,20 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn pop_stack_frame(&mut self, rtn_val: bool) {
-      //  println!("\nPopping Frame\n");
+        //  println!("\nPopping Frame\n");
 
-        unsafe { 
+        unsafe {
             // let frame_count_bytes = std::ptr::read(self.curr_meta.add(32) as *const [u8; 8]);
             // let frame_count = u64::from_ne_bytes(frame_count_bytes);
             // println!("Popping Frame #: {:?}", frame_count);
-            
+
             let new_stack_top = self.curr_frame as *mut u8;
-            self.curr_frame = std::ptr::read(self.curr_meta.add(8) as *const *const u8);
-            self.curr_meta = std::ptr::read(self.curr_meta.add(16) as *const *const u8);
-            self.curr_const = std::ptr::read(self.curr_meta as *const *const u8);
-            self.ip = std::ptr::read(self.curr_meta.add(24) as *const *const u8);
+            self.curr_frame = *(self.curr_meta.add(8) as *const *const u8);
+            self.curr_meta = *(self.curr_meta.add(16) as *const *const u8);
+            self.curr_const = *(self.curr_meta as *const *const u8);
+            self.ip = *(self.curr_meta.add(24) as *const *const u8);
 
 
             //  println!("Cure Frame Meta", last_frame_start)
@@ -369,68 +391,44 @@ impl Vm {
                 self.stack_top = new_stack_top;
             }
 
-            
+
             // println!("Returnign to Ip Op {:?}", Self::transmute_op(self.ip));
             // println!("Returnign to Ip Op {:?}", self.ip);
             // self.print_stack()
         }
     }
-    
-    fn push_init_frame(&mut self, frame: StackFrame,) {
+
+    #[inline(always)]
+    fn push_init_frame(&mut self, frame: StackFrame) {
         unsafe {
-            // Shift frame down by param count to being in passed parameters on top of stack
-            
+            // These are pretty much just ignored values, this just sets up the initial code
+            // for the ns that is set as the entry point as a faux method. None of the data in
+            // really used, it's restored to the locals on the last frame pop, which will then
+            // exec exit and not refer to any of these values. This mainly sets the ip to the ns code
+
             self.curr_frame = self.stack_top.sub(frame.arity as usize * 8);
             self.stack_top = self.stack_top.add((frame.local_count - frame.arity) as usize * 8);
             self.curr_const = frame.constant_ptr;
             self.curr_meta = self.stack_top;
-            
-            self.frame_cnt += 1;
-
             self.ip = frame.code_ptr;
-            //  ptr to constant pool for frame
+
             let constant_ptr = frame.constant_ptr as usize;
             std::ptr::copy_nonoverlapping(&constant_ptr as *const usize, self.stack_top as *mut usize, 1);
 
-            // Set prev to current to fill
-            // let prev_frame_ptr = self.curr_frame as usize;
-            // std::ptr::copy_nonoverlapping(&prev_frame_ptr as *const usize, self.stack_top.add(8) as *mut usize, 1);
-            // 
-            // // Store current (previous) frame meta start
-            // let prev_meta_ptr = self.curr_meta as usize;
-            // std::ptr::copy_nonoverlapping(&prev_meta_ptr as *const usize, self.stack_top.add(16) as *mut usize, 1);
-
-            // Return address
             let ip_ptr = self.ip as usize;
             std::ptr::copy_nonoverlapping(&ip_ptr as *const usize, self.stack_top.add(24) as *mut usize, 1);
 
-            // Frame count
-            std::ptr::copy_nonoverlapping(self.frame_cnt.to_ne_bytes().as_ptr(), self.stack_top.add(32), 8);
-            //
-            // println!("Pushed to  Frame");
-            // println!("curr frame: {:?}", self.curr_frame);
-            // println!("curr const: {:?}", self.curr_const);
-            // println!("curr meta: {:?}", self.curr_meta);
-            // println!("curr ip: {:?}", self.ip);
-
-
-            // set ip to current bytecode address
-
-           
-            self.stack_top = self.stack_top.add(40);
+            self.stack_top = self.stack_top.add(32);
         }
     }
 
 
     pub fn run(&mut self) -> InterpResult {
         let t = nano_time!();
-       // self.ip = self.perm.init_code.as_mut_ptr();
         self.stack_top = self.stack.as_mut_ptr();
-         let init_frame = self.perm.init_frame();
+        let init_frame = self.perm.init_frame();
         self.push_init_frame(init_frame);
-       // let cnst = init_frame.constant_ptr.clone();
-       // self.push_stack_frame(init_frame);
-        
+
         //let mut i = 0;
 
         'outer: loop {
@@ -787,48 +785,6 @@ impl Vm {
                 OpCode::IConst4 => self.push_i64(4),
                 OpCode::IConst5 => self.push_i64(5),
                 OpCode::Pop => { self.pop_word(); }
-
-                // OpCode::DefGlobal => {
-                //     let name_id = self.pop_ref();
-                //     let value = self.pop_ref();
-                //     self.global_defs.insert(name_id, value);
-                // }
-                // OpCode::AssignGlobal => {
-                //     let name_id = self.pop_ref();
-                //     let value = self.pop_ref();
-                //     self.global_defs.insert(name_id, value);
-                // }
-                //
-                // OpCode::LoadGlobal => {
-                //     self.print_remaining_ops();
-                //     let name_id = self.pop_ref();
-                //     let item_ref = if let Some(val) = self.global_defs.get(name_id) {
-                //         *val
-                //     } else {
-                //         println!("{}", SCACHE.resolve_value(14));
-                //         println!("Global defs: {:?}", self.global_defs);
-                //         println!("SCache: {:?}", SCACHE.cache.lock().unwrap().print_cache());
-                //         println!("name_id: {}", SCACHE.resolve_value(name_id));
-                //         panic!("Failed to resolve variable binding {}", name_id)
-                //     };
-                //     unsafe {
-                //         let item_bytes = self.heap.get_item(item_ref);
-                //         self.push_arbitrary_bytes(item_bytes);
-                //     }
-                //     self.print_remaining_ops();
-                // }
-                //
-                // OpCode::HeapStore => {
-                //     let typ = self.read_wide_inst();
-                //     println!("type {:?}", self.comp_unit.ctx.types.get_type_by_id(typ));
-                //     let size = self.read_wide_inst() as usize;
-                //     println!("size: {}", size);
-                //     let ptr = self.pop_bytes(size);
-                //     unsafe {
-                //         let tag_ref = self.heap.insert_bytes(ptr, size, 0);
-                //         self.push_ref(tag_ref);
-                //     }
-                // }
 
                 OpCode::Cons => {
                     unsafe {

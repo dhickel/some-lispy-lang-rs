@@ -487,9 +487,12 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
         expr
     } else { return Err("Invalid context".to_string()); };
 
-
+ 
     let (value, typ) = match *node {
-        AstData::LitInteger(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Integer),
+        AstData::LitInteger(value) => {
+          
+            (comp_unit.meta_space.add_constant(&value, ctx), Type::Integer)
+        },
         AstData::LitFloat(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Float),
         AstData::LitBoolean(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Boolean),
         _ => return Err("Fatal: Invalid literal in gen_node".to_string())
@@ -497,6 +500,9 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
 
 
     let mut code = GenData::new(comp_unit.meta_space.types.get_type_id(&typ));
+    
+  
+    
 
     if ctx.class.is_none() && ctx.func.is_none() {
         if value < u8::MAX as u16 {
@@ -524,6 +530,20 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
     Ok(code)
 }
 
+fn gen_num_const_op(value : i64, typ : u16) -> GenData{
+    let mut code = GenData::new(typ);
+    match value {
+        -1 => code.append_op_code(OpCode::IConstM1),
+        0 => code.append_op_code(OpCode::IConst0),
+        1 => code.append_op_code(OpCode::IConst1),
+        2 => code.append_op_code(OpCode::IConst2),
+        3 => code.append_op_code(OpCode::IConst3),
+        4 => code.append_op_code(OpCode::IConst4), 
+        5 => code.append_op_code(OpCode::IConst4),
+        _ => panic!("Fatal: Invalid num const gen")
+    }
+    code
+}
 
 
 

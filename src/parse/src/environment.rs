@@ -57,6 +57,8 @@ impl MetaSpace {
 
     pub fn get_func(&mut self, env_ctx: &SymbolCtx) -> &mut FuncMeta {
         let ns = self.get_ns_by_id(env_ctx.ns);
+        
+   
 
         if let Some(class_id) = env_ctx.class {
             if let ObjectMeta::Class(ref mut class) = ns.obj_metadata[class_id as usize] {
@@ -150,7 +152,7 @@ impl MetaSpace {
             if curr_index >= u16::MAX as usize {
                 panic!("Exceeded size of constant pool");
             }
-            
+
             ns.existing_consts.insert(hash, (curr_index / 8) as u16); // index by word
             ns.constants.extend_from_slice(&bytes);
             (curr_index / 8) as u16 // index by word
@@ -244,12 +246,12 @@ impl PermaSpace {
             namespaces.push(PermNameSpace::new(ns));
             init_code.append(&mut ns.code);
         }
-       // init_code.push(OpCode::Exit as u8);
+         init_code.push(OpCode::Exit as u8);
         PermaSpace { namespaces, init_code }
     }
-    
+
     pub fn init_frame(&self) -> StackFrame {
-        StackFrame{
+        StackFrame {
             arity: 0,
             local_count: 0,
             code_ptr: self.init_code.as_ptr(),
@@ -512,7 +514,7 @@ pub struct Environment<'a> {
 
 impl<'a> Environment<'a> {
     pub fn new(meta_space: &'a mut MetaSpace) -> Self {
-        Environment {
+        let mut env = Environment {
             curr_scope: 0,
             curr_depth: 0,
             active_scopes: Vec::<u32>::with_capacity(10),
@@ -521,7 +523,9 @@ impl<'a> Environment<'a> {
             curr_func: Vec::<u16>::with_capacity(4),
             curr_class: Vec::<u16>::with_capacity(2),
             curr_ns: 0,
-        }
+        };
+        env.active_scopes.push(0);
+        env
     }
 
     pub fn in_class_scope(&self) -> bool {
@@ -532,14 +536,20 @@ impl<'a> Environment<'a> {
         !self.curr_func.is_empty()
     }
 
+    pub fn get_curr_scope(&self) -> u32 {
+        *self.active_scopes.last().unwrap()
+    }
+    
+    pub fn get_parent_scope(&self) -> u32 {
+        *self.active_scopes.get(self.active_scopes.len() -2).unwrap()
+    }
 
     pub fn push_scope(&mut self) {
         self.curr_scope += 1;
         self.curr_depth += 1;
         self.active_scopes.push(self.curr_scope)
     }
-
-
+    
     pub fn pop_scope(&mut self) {
         self.curr_depth -= 1;
         self.active_scopes.pop().expect("Fatal: Popped global scope");
@@ -604,7 +614,7 @@ impl<'a> Environment<'a> {
 
         // curr_scope - 1 is used to get the outer scope where the symbol is declared, as the curr
         // scope is the inner scope of the function
-        let data = self.meta_space.add_symbol(self.curr_ns, self.curr_scope - 1, name, res_data);
+        let data = self.meta_space.add_symbol(self.curr_ns, self.get_parent_scope(), name, res_data);
         Ok(data)
     }
 
@@ -617,8 +627,7 @@ impl<'a> Environment<'a> {
     pub fn add_var_symbol(&mut self, name: IString, typ: Type, mods: Option<Vec<Mod>>) -> Result<&ResData, String> {
         let type_id = self.meta_space.types.get_or_define_type(&typ);
         let def = VarMeta { name };
-
-
+        
         if self.in_class_scope() {
             todo!("Classes not implemented")
         } else {
@@ -629,7 +638,7 @@ impl<'a> Environment<'a> {
                 target_ctx: None,
                 type_data: TypeData { type_id, typ },
             };
-            Ok(self.meta_space.add_symbol(self.curr_ns, self.curr_scope, name, res_data))
+            Ok(self.meta_space.add_symbol(self.curr_ns, self.get_curr_scope(), name, res_data))
         }
     }
 
@@ -650,6 +659,8 @@ impl<'a> Environment<'a> {
                 return Some(data);
             }
         }
+        // println!("Failed to find symbol{:?}", SCACHE.resolve(name));
+        // println!("{:?}",self.active_scopes);
         None
     }
 
@@ -678,7 +689,7 @@ impl<'a> Environment<'a> {
 
     pub fn get_env_ctx(&self) -> ExprContext {
         ExprContext {
-            scope: self.curr_scope,
+            scope: self.get_curr_scope(),
             depth: self.curr_depth,
             ns: self.curr_ns,
             class: self.curr_class.last().copied(),

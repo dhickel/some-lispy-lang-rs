@@ -2,7 +2,7 @@
   (:param &mut)
   (:var
     (time &mut ::LocalDateTime)
-    (uuid ::UUID | "234234234sdf")
+    (uuid ::UUID "234234234sdf")
     (name ::String)
     (address ::String))
 
@@ -11,15 +11,15 @@
     (:= address "String"))
 
   (:init
-    ([name address]
+    ([name ::string address ::string]
       (:= name name)
       (:= address address)
-      (:= time 0 ))
+      (:= time 0))
 
     ([] ()))
 
   (:validate
-    (!= uuid #nil)
+    (!= uuid #null)
     (== address "address")
     (> 10 time))
 
@@ -29,7 +29,7 @@
     (get-time2 [ignore] time)
 
     (set-time [arg] (:= time arg))
-    
+
     (times-2 [x]
       (* x 2))))
 

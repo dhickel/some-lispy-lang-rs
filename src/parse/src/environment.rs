@@ -69,6 +69,7 @@ impl MetaSpace {
                 panic!("Fatal: Definition is not class");
             }
         } else {
+            println!("Getting Func: {:?}", env_ctx);
             return ns.functions
                 .get_mut(env_ctx.func.expect("Expected function index") as usize)
                 .expect("Fatal: Failed to resolve function definition");
@@ -76,7 +77,7 @@ impl MetaSpace {
     }
 
 
-    fn add_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString, data: ResData) -> &ResData {
+    pub fn add_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString, data: ResData) -> &ResData {
         let mut ns = self.namespaces.get_mut(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
@@ -89,6 +90,10 @@ impl MetaSpace {
             ns.symbol_table.insert(scope_id as u64, scope_map);
             ns.symbol_table.get(scope_id as u64).unwrap().get(name.value).unwrap()
         }
+    }
+    
+    pub fn print_symbol_table(&self) {
+        println!("{:?}", self.namespaces[0].symbol_table)
     }
 
 
@@ -564,6 +569,11 @@ impl<'a> Environment<'a> {
     pub fn add_func_symbol(&mut self, name: IString, lambda: &DefLambdaData, rtn_type: Type) -> Result<&ResData, String> {
         self.push_scope();
 
+        println!("Added func def: {:?}:{:?}", SCACHE.resolve(name), name.value);
+        println!("{:?}", self.get_env_ctx());
+        println!("At Scope: {:?}", self.get_parent_scope());
+        
+
         let param_types = if let Some(params) = &lambda.parameters {
             let mut param_types = Vec::<Type>::with_capacity(params.len());
             for param in params {
@@ -659,8 +669,11 @@ impl<'a> Environment<'a> {
                 return Some(data);
             }
         }
-        // println!("Failed to find symbol{:?}", SCACHE.resolve(name));
-        // println!("{:?}",self.active_scopes);
+        println!("Failed to find symbol{:?}: {:?}", SCACHE.resolve(name), name.value);
+        println!("{:?}",self.active_scopes);
+        println!("Ns: {:?}", self.curr_ns);
+        println!("Symbol Table");
+        self.meta_space.print_symbol_table();
         None
     }
 

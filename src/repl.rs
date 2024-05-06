@@ -2,10 +2,11 @@ extern crate core;
 
 
 use std::time::{SystemTime, UNIX_EPOCH};
+use lang::util::SCACHE;
 use parser::code_gen::CompUnit;
 use parser::environment::{Environment, MetaSpace};
 
-use parser::op_codes::OpCode;
+use parser::token::{Lit, TokenData, TokenType};
 
 
 use vm;
@@ -34,12 +35,26 @@ fn main() {
    //let input = "(defunc dbl ::int [n ::int] (if (> n 20) n (dbl (* n 2)))) (define a ::int (dbl 2)) a ";
    //let input = "(defunc dbl ::int [n ::int] (* n 2)) (dbl 10)".to_string();
     let input = "(defunc dbl ::int [n ::int] (* n 2)) (define dlb2 dlb)".to_string(); 
-    let input = "(defunc dbl ::int [n ::int] (* n 2)) (define dlb2 dlb)".to_string(); 
-    //let input = "(define x 10) (define y 100) (:= y 50) (* y x)".to_string();
+  //  let input = "(defunc dbl ::int [n ::int] (* n 2)) (define dbl2 dbl) (dbl2 10)".to_string(); 
+    let input = "(define x ::int 10) (define y x) (:= x 11) y";
+    let input = "(define x ::int::float::custom->::rtn (=> (x ::int) (* 2 x))) (x 10)".to_string();
+    let input = "::int[] ";
+
+
+    
 
     let t = nano_time!();
     let tokens = parser::lexer::process(input.to_string()).expect("Token Err");
 
+
+    if let Some(token) = tokens.get(1) {
+        println!("Found token: {:?}", token);
+        if let Some(TokenData::String(data)) = token.data {
+            println!("TypeName: {:?}", SCACHE.resolve(data))
+        }
+
+    }
+    println!("tokens: {:?}", tokens);
 
     let mut ast = parser::parser::process(tokens).expect("Parse Err");
     println!("ast: {:?}", &ast);

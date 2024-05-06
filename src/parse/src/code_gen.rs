@@ -151,10 +151,23 @@ fn gen_define_variable(data: DefVarData, res_data: ResData, comp_unit: &mut Comp
         symbol
     } else { return Err("Fatal: Invalid codegen context for variable definition expected symbol.".to_string()); };
 
+
+    // FIXME, currently this messy match is used to handle the case of an existing function being assigned to new variable
+    if let AstData::ExprLiteralCall(ref lit) = *data.value.node_data {
+        if let Some(symbol) = comp_unit.meta_space.get_symbol(ctx.ns, ctx.scope, lit.name.value) {
+            if let Context::Symbol(sym) = &symbol.self_ctx {
+                if sym.func.is_some() {
+                    let nil_code = GenData::new(symbol.type_data.type_id);
+                    return Ok(nil_code);
+                }
+            } else { return Err(format!("Failed to find symbol for assignment {:?}", SCACHE.resolve(lit.name))); }
+        }
+    }
+
     let mut code = GenData::new(res_data.type_data.type_id);
     let value = gen_node(data.value, comp_unit)?;
     code.append_gen_data(value);
-
+    
     if ctx.class.is_none() && ctx.func.is_none() {
         code.append_op_code(OpCode::StoreVarN);
         code.append_wide_operand(ctx.ns);
@@ -167,7 +180,6 @@ fn gen_define_variable(data: DefVarData, res_data: ResData, comp_unit: &mut Comp
     }
 
     code.append_wide_operand(ctx.index);
-
     Ok(code)
 }
 
@@ -184,19 +196,8 @@ fn gen_define_func(data: DefFuncData, res_data: ResData, comp_unit: &mut CompUni
 
     comp_unit.meta_space.push_func_code(ctx, &mut code.code);
 
-    let mut nil_code = GenData::new(code.typ);
+    let nil_code = GenData::new(code.typ);
     Ok(nil_code)
-}
-
-
-fn gen_heap_store(typ: u16, size: u16) -> Result<GenData, String> {
-    todo!("Unneeded?")
-    // let mut code = GenData::new();
-    // code.typ = typ;
-    // code.append_op_code(OpCode::HeapStore);
-    // code.append_wide_operand(typ);
-    // code.append_wide_operand(size);
-    // Ok(code)
 }
 
 
@@ -487,12 +488,11 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
         expr
     } else { return Err("Invalid context".to_string()); };
 
- 
+
     let (value, typ) = match *node {
         AstData::LitInteger(value) => {
-          
             (comp_unit.meta_space.add_constant(&value, ctx), Type::Integer)
-        },
+        }
         AstData::LitFloat(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Float),
         AstData::LitBoolean(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Boolean),
         _ => return Err("Fatal: Invalid literal in gen_node".to_string())
@@ -500,9 +500,7 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
 
 
     let mut code = GenData::new(comp_unit.meta_space.types.get_type_id(&typ));
-    
-  
-    
+
 
     if ctx.class.is_none() && ctx.func.is_none() {
         if value < u8::MAX as u16 {
@@ -530,7 +528,8 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
     Ok(code)
 }
 
-fn gen_num_const_op(value : i64, typ : u16) -> GenData{
+
+fn gen_num_const_op(value: i64, typ: u16) -> GenData {
     let mut code = GenData::new(typ);
     match value {
         -1 => code.append_op_code(OpCode::IConstM1),
@@ -538,13 +537,12 @@ fn gen_num_const_op(value : i64, typ : u16) -> GenData{
         1 => code.append_op_code(OpCode::IConst1),
         2 => code.append_op_code(OpCode::IConst2),
         3 => code.append_op_code(OpCode::IConst3),
-        4 => code.append_op_code(OpCode::IConst4), 
+        4 => code.append_op_code(OpCode::IConst4),
         5 => code.append_op_code(OpCode::IConst4),
         _ => panic!("Fatal: Invalid num const gen")
     }
     code
 }
-
 
 
 fn gen_operation(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {

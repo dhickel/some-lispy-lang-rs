@@ -5,6 +5,7 @@ use crate::ast::{AssignData, AstData, AstNode, CondData, ConsData, DefClassData,
     DefLambdaData, DefStructData, DefVarData, DirectInst, FuncCallData, GenRandData, IfData,
     InnerFuncCallData, ListAccData, LiteralCallData, MultiExprData, ObjectAssignData, ObjectCallData,
     OpData, WhileData};
+use crate::code_gen::GenData;
 use crate::environment::{Context, Environment, ResData, TypeData};
 use crate::parser::ParseResult;
 use crate::token::Op;
@@ -38,7 +39,7 @@ pub fn resolve_types(mut parse_result: &mut ParseResult, mut env: Environment) -
             }
         }
     }
-    
+
     env.pop_scope();
     let end_depth = env.get_env_ctx().depth;
     if start_depth != end_depth {
@@ -109,6 +110,21 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
 // FIXME need to refactor defs to take modifiers as an optional, vs initing empty arrays
 
 pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<Option<ResData>, String> {
+    println!("resovling def Var for {:?}", SCACHE.resolve(data.name));
+
+    
+    // FIXME, currently this messy match is used to handle the case of an existing function being assigned to new variable
+    if let AstData::ExprLiteralCall(ref lit) = *data.value.node_data {
+        if let Some(symbol) = env.meta_space.get_symbol(env.curr_ns, env.get_curr_scope(), lit.name.value) {
+            if let Context::Symbol(sym) = &symbol.self_ctx {
+                if sym.func.is_some() {
+                    let res_data = env.meta_space.add_symbol(env.curr_ns, env.get_curr_scope(), data.name, symbol.clone());
+                    return Ok(Some(res_data.clone()));
+                }
+            }
+        } else { return Err(format!("Failed to find symbol for assignment {:?}", SCACHE.resolve(lit.name))); }
+    }
+
     let resolved_type = resolve(&mut data.value, env)?;
     if resolved_type == Type::Unresolved { return Ok(None); }
 
@@ -432,7 +448,7 @@ pub fn resolve_func_call(data: &mut FuncCallData, env: &mut Environment) -> Resu
             let _ = resolve(&mut arg.value, env);
         });
     }
-    
+
     if let Some(target_ctx) = env.get_symbol_ctx(data.name) {
         let ctx = env.get_env_ctx();
         let type_data = target_ctx.type_data.clone();

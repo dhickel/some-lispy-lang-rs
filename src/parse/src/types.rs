@@ -117,13 +117,15 @@ impl TypeTable {
         }
 
         let id = self.type_ids.len();
+        
+        
 
-        match &typ {
-            Type::Array(data) => { self.type_names.insert(SCACHE.intern("Array".to_string()), id as u16); }// FIXMe name
-            Type::Object(data) => { self.type_names.insert(data.name, id as u16); }
-            Type::Lambda(data) => todo!(),
-            _ => panic!(),
-        }
+        // match &typ {
+        //     Type::Array(data) => {}{ self.type_names.insert(SCACHE.intern("".to_string()), id as u16); }
+        //     Type::Object(data) => { self.type_names.insert(data.name, id as u16); }
+        //     Type::Lambda(data) => todo!(),
+        //     _ => panic!(),
+        // }
 
         if id > u16::MAX as usize { panic!("Exceeded maximum type definitions (65,535)"); }
         self.type_ids.push(typ.clone());

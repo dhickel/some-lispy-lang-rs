@@ -1,3 +1,5 @@
+use std::fmt::format;
+use std::ops::Deref;
 use lang::format_error;
 use crate::types::Type;
 use lang::util::{IString, SCACHE};
@@ -112,7 +114,7 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
 pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<Option<ResData>, String> {
     println!("resovling def Var for {:?}", SCACHE.resolve(data.name));
 
-    
+
     // FIXME, currently this messy match is used to handle the case of an existing function being assigned to new variable
     if let AstData::ExprLiteralCall(ref lit) = *data.value.node_data {
         if let Some(symbol) = env.meta_space.get_symbol(env.curr_ns, env.get_curr_scope(), lit.name.value) {
@@ -129,12 +131,9 @@ pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<O
     if resolved_type == Type::Unresolved { return Ok(None); }
 
 
-    if let Some(d_type) = data.d_type {
-        let resolved_d_type = env.validate_type(d_type);
-        if resolved_type == Type::Unresolved {
-            return Ok(None);
-        } else if resolved_type != *resolved_d_type {
-            return Err(format!("Resolved type: {:?} does not equal declared type: {:?}", resolved_type, resolved_d_type));
+    if let Some(d_type) = &data.d_type {
+        if resolved_type != *d_type {
+            return Err(format!("Resolved type: {:?} does not equal declared type: {:?}", resolved_type, d_type));
         }
     }
 
@@ -147,11 +146,15 @@ pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Env
     let resolved_type = resolve(&mut data.body, env)?;
     if resolved_type == Type::Unresolved { return Ok(None); }
 
-    if let Some(d_type) = data.d_type {
-        if resolved_type != *env.validate_type(d_type) {
-            return Err("Declared type does not match actual type for lambda".to_string());
-        }
+    let func_type = if let Some(Type::Lambda(func_type)) = &data.d_type {
+        func_type
+    } else { return Err("Invalid type for function definition".to_string()); };
+
+
+    if resolved_type != *func_type.return_type {
+        return Err("Declared type {:?} does not match actual type {:?} for lambda".to_string());
     }
+    
 
     let res_data = env.add_func_symbol(name, data, resolved_type)?.clone();
     env.pop_func();
@@ -160,14 +163,18 @@ pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Env
 
 
 pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result<Option<ResData>, String> {
-    let d_type = env.meta_space.types.get_type_by_name(data.d_type)
-        .ok_or_else(|| "Failed to resolve declared return type".to_string())?.clone();
+    let func_type = if let Type::Lambda(func_type) = &data.d_type {
+        func_type
+    } else { return Err("Invalid type for function definition".to_string()); };
 
-    let res_data = env.add_func_symbol(data.name, &data.lambda, d_type.clone())?.clone();
+    // let d_type = env.meta_space.types.get_type_by_name(data.d_type)
+    //     .ok_or_else(|| "Failed to resolve declared return type".to_string())?.clone();
+
+    let res_data = env.add_func_symbol(data.name, &data.lambda, func_type.return_type.deref().clone())?.clone();
     let resolved_type = resolve(&mut data.lambda.body, env)?;
     env.pop_func();
 
-    if d_type != resolved_type {
+    if *func_type.return_type != resolved_type {
         return Err("Declared type does not match actual type for lambda".to_string());
     }
 

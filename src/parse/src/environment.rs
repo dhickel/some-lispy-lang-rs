@@ -57,8 +57,7 @@ impl MetaSpace {
 
     pub fn get_func(&mut self, env_ctx: &SymbolCtx) -> &mut FuncMeta {
         let ns = self.get_ns_by_id(env_ctx.ns);
-        
-   
+
 
         if let Some(class_id) = env_ctx.class {
             if let ObjectMeta::Class(ref mut class) = ns.obj_metadata[class_id as usize] {
@@ -91,7 +90,7 @@ impl MetaSpace {
             ns.symbol_table.get(scope_id as u64).unwrap().get(name.value).unwrap()
         }
     }
-    
+
     pub fn print_symbol_table(&self) {
         println!("{:?}", self.namespaces[0].symbol_table)
     }
@@ -251,7 +250,7 @@ impl PermaSpace {
             namespaces.push(PermNameSpace::new(ns));
             init_code.append(&mut ns.code);
         }
-         init_code.push(OpCode::Exit as u8);
+        init_code.push(OpCode::Exit as u8);
         PermaSpace { namespaces, init_code }
     }
 
@@ -273,6 +272,7 @@ impl PermNameSpace {
         unsafe {
             let meta = *self.func_table.get_unchecked(index as usize);
             // println!("Loading Func Code: {:?}", decode(&self.func_data.as_slice()));
+            println!("Meta: {:?}", meta);
             StackFrame {
                 arity: meta.1,
                 local_count: meta.2,
@@ -307,7 +307,7 @@ impl PermNameSpace {
         let mut func_data = Vec::<u8>::with_capacity(ns.functions.len() * 32);
         let mut func_table = Vec::<(u32, u16, u16)>::with_capacity(ns.functions.len());
         for func in ns.functions.iter_mut() {
-            func_table.push((func_data.len() as u32, func.param_types.len() as u16, func.local_indices));
+            func_table.push((func_data.len() as u32, func.param_types.len() as u16, func.local_count));
             func_data.append(&mut func.code);
         }
 
@@ -357,7 +357,7 @@ pub struct VarMeta {
 #[derive(Debug)]
 pub struct FuncMeta {
     pub name: IString,
-    pub local_indices: u16,
+    pub local_count: u16,
     pub arity: u16,
     pub param_types: Vec<u16>,
     pub rtn_type: u16,
@@ -365,11 +365,16 @@ pub struct FuncMeta {
 }
 
 
+// FIXME, locals are not tracked atm, var/func defs need to track these locals
 impl FuncMeta {
     pub fn next_local(&mut self) -> u16 {
-        let idx = self.local_indices - 1;
-        self.local_indices += 1;
-        return idx;
+        let idx = self.local_count;
+        self.local_count += 1;
+        idx -1
+    }
+
+    pub fn set_param_local_count(&mut self, count: u16) {
+        self.local_count += count;
     }
 
     pub fn new(name: IString, arg_types: Vec<u16>, rtn_type: u16) -> Self {
@@ -378,7 +383,7 @@ impl FuncMeta {
         }
         FuncMeta {
             name,
-            local_indices: 1,
+            local_count: 0,
             arity: arg_types.len() as u16,
             param_types: arg_types,
             rtn_type,
@@ -544,9 +549,9 @@ impl<'a> Environment<'a> {
     pub fn get_curr_scope(&self) -> u32 {
         *self.active_scopes.last().unwrap()
     }
-    
+
     pub fn get_parent_scope(&self) -> u32 {
-        *self.active_scopes.get(self.active_scopes.len() -2).unwrap()
+        *self.active_scopes.get(self.active_scopes.len() - 2).unwrap()
     }
 
     pub fn push_scope(&mut self) {
@@ -554,7 +559,7 @@ impl<'a> Environment<'a> {
         self.curr_depth += 1;
         self.active_scopes.push(self.curr_scope)
     }
-    
+
     pub fn pop_scope(&mut self) {
         self.curr_depth -= 1;
         self.active_scopes.pop().expect("Fatal: Popped global scope");
@@ -572,18 +577,20 @@ impl<'a> Environment<'a> {
         println!("Added func def: {:?}:{:?}", SCACHE.resolve(name), name.value);
         println!("{:?}", self.get_env_ctx());
         println!("At Scope: {:?}", self.get_parent_scope());
-        
 
+
+        let mut locals_count = 0;
         let param_types = if let Some(params) = &lambda.parameters {
+            locals_count = params.len();
             let mut param_types = Vec::<Type>::with_capacity(params.len());
             for param in params {
-                let typ = if let Some(typ) = self.meta_space.types.get_type_by_name(param.d_type) {
-                    typ
-                } else {
-                    self.pop_scope();
-                    panic!("Non defined type encountered in parameter")
-                }; // FIXME multiple type resolution, maybe make a method that returns (id,type)
-                param_types.push(typ.clone());
+                // let typ = if let Some(typ) = self.meta_space.types.get_type_by_name(param.d_type) {
+                //     typ
+                // } else {
+                //     self.pop_scope();
+                //     panic!("Non defined type encountered in parameter")
+                // }; // FIXME multiple type resolution, maybe make a method that returns (id,type)
+                param_types.push(param.d_type.clone());
             }
             for (param, typ) in params.into_iter().zip(param_types.iter()) {
                 let _ = self.add_var_symbol(param.name, typ.clone(), param.modifiers.clone());
@@ -593,7 +600,9 @@ impl<'a> Environment<'a> {
 
 
         let rtn_type_id = self.meta_space.types.get_type_id(&rtn_type);
-        let def = FuncMeta::new(name, param_types, rtn_type_id);
+        let mut def = FuncMeta::new(name, param_types, rtn_type_id);
+        def.set_param_local_count(locals_count as u16);
+       
 
         if self.in_class_scope() {
             // add method to classes methods and get index into it
@@ -637,7 +646,7 @@ impl<'a> Environment<'a> {
     pub fn add_var_symbol(&mut self, name: IString, typ: Type, mods: Option<Vec<Mod>>) -> Result<&ResData, String> {
         let type_id = self.meta_space.types.get_or_define_type(&typ);
         let def = VarMeta { name };
-        
+
         if self.in_class_scope() {
             todo!("Classes not implemented")
         } else {
@@ -670,7 +679,7 @@ impl<'a> Environment<'a> {
             }
         }
         println!("Failed to find symbol{:?}: {:?}", SCACHE.resolve(name), name.value);
-        println!("{:?}",self.active_scopes);
+        println!("{:?}", self.active_scopes);
         println!("Ns: {:?}", self.curr_ns);
         println!("Symbol Table");
         self.meta_space.print_symbol_table();

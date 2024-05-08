@@ -60,6 +60,7 @@ pub fn match_double_token(input: (char, char)) -> Option<TokenType> {
         ('#', 'f') => Some(TLiteral(False)),
         ('i', 'f') => Some(TExpression(If)),
         ('=', '>') => Some(TDefinition(Lambda)),
+        ('-', '>') => Some(TSyntactic(Arrow)),
         _ => None,
     }
 }
@@ -161,6 +162,7 @@ pub enum Syn {
     Equal,
     Else,
     EqualGreater,
+    Arrow,
 }
 
 

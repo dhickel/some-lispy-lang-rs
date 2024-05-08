@@ -19,6 +19,24 @@ pub enum Type {
 }
 
 
+impl Type {
+    pub fn get_basic_type_from_name(name: IString) -> Type {
+        let name_str = SCACHE.resolve(name);
+
+        match name_str {
+            "int" => Type::Integer,
+            "float" => Type::Float,
+            "bool" => Type::Boolean,
+            "string" => Type::String,
+            "void" => Type::Void,
+            "null" => Type::Nil,
+            "pair" => Type::Pair,
+            _ => Type::Object(ObjType { super_types: vec![], name })
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ObjType {
     pub super_types: Vec<Type>,
@@ -117,8 +135,7 @@ impl TypeTable {
         }
 
         let id = self.type_ids.len();
-        
-        
+
 
         // match &typ {
         //     Type::Array(data) => {}{ self.type_names.insert(SCACHE.intern("".to_string()), id as u16); }
@@ -134,7 +151,7 @@ impl TypeTable {
     }
 
     pub fn get_type_id(&self, typ: &Type) -> u16 {
-        return *self.type_defs.get(typ).expect("Invalid Type");
+        return *self.type_defs.get(typ).unwrap_or_else(|| panic!("Invalid Type{:?}", typ));
     }
 
     pub fn get_type_by_id(&self, id: u16) -> &Type {

@@ -265,7 +265,7 @@ fn is_numeric(c: char) -> bool {
 
 
 fn is_alpha(c: char) -> bool {
-    matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '-' )
+    matches!(c, 'a'..='z' | 'A'..='Z' | '_')
 }
 
 

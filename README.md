@@ -2,10 +2,24 @@
 
 Rough draft of a "toy" programming language for experimentation and learning PL concepts, ported and extended 
 from an original java implementation to learn rust. Will be slowly developed over-time and is a semi-serious 
-personal endeavour to create a class-based, lisp inspired language for personal use.
+personal endeavour to create a class-based, lisp inspired language for personal use. End goal is to have an
+embeddable managed scripting language to use for rust game development.
 
-Current implementation is pretty rough and is a simple tree-walk interpreter, with no gc and some messy code from
-iterating and changing things often.
+Currently, the prototype tree-walker implementation can be found in the treewalker-archive branch. In is fully
+functional up to the implementation of classes. Current work has switched over to implementing the byte code vm
+which is a work in progress, with functionality implemented up to operations and functions. Typing was introduced
+in the byte-code vm and currently there is a lot of broken things while it is being ironed out, and some changes
+to syntax will be being implemented in some of the upcoming updates.
+
+Performance improvements from moving from a tree walking implementation to a bytecode vm appear to be around 16x
+for calculating the fibonacci of 30. Running the same recursive implementation in python also shows a 2.5-3x
+performance delta over it was well, which seems promising.
+
+I am at the point in development as a lot of things are subject to changes, and some parts of the code are a mess,
+I will attempt to keep the main branch as a working representation, but things can be expected to in-inadvertently
+brake quite often at this stage of development.
+
+
 
 
 

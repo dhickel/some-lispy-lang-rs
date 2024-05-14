@@ -41,7 +41,7 @@ impl Type {
 pub struct ObjType {
     pub super_types: Vec<Type>,
     pub name: IString,
-}
+} 
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

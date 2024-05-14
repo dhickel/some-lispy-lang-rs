@@ -392,7 +392,7 @@ fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit
             for (arg, param_type) in args.into_iter().zip(param_types.iter()) {
                 let resolved_arg = gen_node(arg.value, comp_unit)?;
                 if resolved_arg.typ != *param_type {
-                    return Err(format!("Invalid argument type for function call: {:?} |Found: {:?}, Expected: {:?}",
+                    return Err(format!("Invalid argument type for function call: {:?} | Found: {:?}, Expected: {:?}",
                         SCACHE.resolve(data.name),
                         comp_unit.meta_space.types.get_type_by_id(resolved_arg.typ),
                         comp_unit.meta_space.types.get_type_by_id(*param_type)

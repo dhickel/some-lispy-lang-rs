@@ -1,12 +1,15 @@
 use std::collections::LinkedList;
+use std::fmt::format;
 use crate::types::{FuncType, Type};
-use lang::util;
+use lang::{format_error, util};
 use lang::util::{IString, SCACHE};
 
 use crate::ast::*;
 use crate::ast::AstData::*;
 use crate::token::*;
+use crate::token::Syn::SemiColon;
 use crate::token::TokenType::*;
+use crate::types::Type::Pair;
 
 
 struct ParserState {
@@ -45,7 +48,10 @@ impl ParserState {
         let mut root_expressions = Vec::<AstNode>::new();
         while self.have_next() {
             // root_expressions.push(self.parse_expr_data()?);
-            root_expressions.push(self.parse_expr_data()?);
+            match self.parse_expr_data() {
+                Ok(parse_data) => root_expressions.push(parse_data),
+                Err(err) => return Err(format_error!(self.line_char(), err))
+            }
         }
         Ok(ParseResult { name_space: self.name_space, root_expressions })
     }
@@ -142,7 +148,7 @@ impl ParserState {
 
     pub fn consume_left_bracket(&mut self) -> Result<(), String> {
         if !self.check(&TLexical(Lex::LeftBracket)) {
-             panic!("Expected: Left Bracket, Found: {:?}", self.peek());
+            panic!("Expected: Left Bracket, Found: {:?}", self.peek());
             return Err(format!("Expected: Left Bracket, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -152,7 +158,7 @@ impl ParserState {
 
     pub fn consume_right_bracket(&mut self) -> Result<(), String> {
         if !self.check(&TLexical(Lex::RightBracket)) {
-            //   panic!("Expected: Right Bracket, Found: {:?}", self.peek());
+            panic!("Expected: Right Bracket, Found: {:?}", self.peek());
             return Err(format!("Expected: Right Bracket, Found: {:?}", self.peek()));
         }
         self.current += 1;
@@ -649,60 +655,83 @@ impl ParserState {
     }
 
 
-    pub fn parse_type_if_exists(&mut self) -> Result<Option<Type>, String> {
-        if !matches!(self.peek().token_type, TSyntactic(Syn::DoubleColon)) {
-            return Ok(None);
+    pub fn parse_type_if_exists(&mut self, top_type: bool) -> Result<Option<Type>, String> {
+        if top_type {
+            if !matches!(self.peek().token_type, TSyntactic(Syn::DoubleColon)) {
+                return Ok(None);
+            } else { self.consume(TSyntactic(Syn::DoubleColon))?; }
         }
 
         let mut types = Vec::<Type>::with_capacity(4);
-        let mut at_return = false;
-        
-        while matches!(self.peek().token_type, TSyntactic(Syn::DoubleColon) | TSyntactic(Syn::Arrow)) && !at_return {
-            
-            if matches!(self.peek().token_type, TSyntactic(Syn::Arrow)) {
-                at_return = true;
-                self.advance()?; // skip ->]
-            }
+        println!("Parsing: {:?}", self.peek());
+        let curr_token = self.advance()?.clone();
 
-            self.advance()?;
-            let next = self.advance()?;
-            
-            if let (TLiteral(Lit::Identifier), Some(TokenData::String(name))) = (&next.token_type.clone(), &next.data.clone()) {
-                println!("entered String");
-                let mut array_cnt = 0;
-
-                while matches!(self.peek().token_type, TLexical(Lex::LeftBracket)) {
-                    self.advance()?; // Skip [
-                    self.advance()?; // Skip ]
-                    array_cnt += 1;
+        if curr_token.token_type != TLiteral(Lit::Identifier) {
+            panic!();
+            Err(format!("Expected Type Identifier, Found: {:?}", curr_token).to_string())
+        } else if let Some(TokenData::String(string)) = curr_token.data {
+            return match string {
+                IString { .. } if SCACHE.resolve(string) == "F" => {
+                    self.parse_lambda_type()
                 }
+                IString { .. } if SCACHE.resolve(string) == "Arr" => {
+                    self.parse_array_type(string)
+                }
+                _ => self.parse_basic_type(string)
+            };
+        } else { return Err("Fatal: Type parse error".to_string()); }
+    }
 
-                let base_type = Type::get_basic_type_from_name(name.clone());
 
-                let typ = if array_cnt != 0 {
-                    let mut typ = Type::Array(Box::new(base_type));
-                    for _ in 0..array_cnt { typ = Type::Array(Box::new(typ)); } // Nested arrays
-                    typ
-                } else { base_type };
+    fn parse_basic_type(&mut self, name: IString) -> Result<Option<Type>, String> {
+        let typ = Type::get_basic_type_from_name(name);
+        Ok(Some(typ))
+    }
 
-                types.push(typ);
-            } else { return Err("No identifier for type declaration".to_string()); }
+
+    fn parse_lambda_type(&mut self) -> Result<Option<Type>, String> {
+        self.consume(TOperation(Op::Less))?;
+
+        let mut arg_types = Vec::<Type>::with_capacity(4);
+        let mut rtn_type = Type::Void;
+
+        while self.peek().token_type != TOperation(Op::Greater) {
+            let next = self.peek().token_type;
+
+            if next == TSyntactic(SemiColon) {
+                self.advance()?;  // skip to identifier after ;
+                rtn_type = self.parse_type_if_exists(false)?
+                    .ok_or_else(|| format!("Expected Type Identifier, Found: {:?}", self.peek()).to_string())?;
+
+                break; // Break since return is parsed;
+            } else {
+                let typ = self.parse_type_if_exists(false)?
+                    .ok_or_else(|| format!("Expected Type Identifier, Found: {:?}", self.peek()).to_string())?;
+
+                arg_types.push(typ);
+                continue;
+            }
         }
 
-        if types.len() > 1 && !at_return {
-            return Err("Expected return type for lambda type, ex: ::arg1::arg2->::rtn".to_string());
-        }
+        self.consume(TOperation(Op::Greater))?;
 
-        if types.len() == 1 {
-            return Ok(Some(types.pop().unwrap()));
-        } else {
-            let (rtn, args) = types.split_last().unwrap();
-            let lambda_type = Type::Lambda(FuncType {
-                return_type: Box::new(rtn.clone()),
-                arg_typ: args.to_vec(),
-            });
-            return Ok(Some(lambda_type));
-        }
+        // if no args and void return
+        let func_type = FuncType {
+            return_type: Box::new(rtn_type),
+            arg_typ: arg_types,
+        };
+
+        Ok(Some(Type::Lambda(func_type)))
+    }
+
+
+    fn parse_array_type(&mut self, base_type: IString) -> Result<Option<Type>, String> {
+        self.consume(TOperation(Op::Less))?;
+        let arr_type = self.parse_type_if_exists(false)?
+            .ok_or_else(|| format!("Expected Type Identifier, Found {:?}", self.peek()).to_string())?;
+
+        self.consume(TOperation(Op::Greater))?;
+        Ok(Some(arr_type))
     }
 
 
@@ -799,7 +828,7 @@ impl ParserState {
         };
 
         let modifiers = self.parse_modifiers()?;
-        let var_type = self.parse_type_if_exists()?;
+        let var_type = self.parse_type_if_exists(true)?;
 
         let definition = match self.peek().token_type {
             TLexical(Lex::LeftParen) => {
@@ -1006,7 +1035,7 @@ impl ParserState {
                 self.parse_modifiers()?
             } else { None };
 
-            let p_type = self.parse_type_if_exists()?;
+            let p_type = self.parse_type_if_exists(true)?;
 
             let default_value: Option<AstNode> = if self.peek().token_type == TSyntactic(Syn::Bar) {
                 self.advance()?;
@@ -1030,7 +1059,7 @@ impl ParserState {
             _ => return Err("Expected name for function".to_string())
         };
 
-        let d_type = if let Some(typ) = self.parse_type_if_exists()? {
+        let d_type = if let Some(typ) = self.parse_type_if_exists(true)? {
             typ
         } else { return Err("Expected type for function definition".to_string()); };
 
@@ -1054,7 +1083,7 @@ impl ParserState {
             Some(s) => s
         };
 
-        let rtn_type = self.parse_type_if_exists()?;
+        let rtn_type = self.parse_type_if_exists(true)?;
         Ok(DefLambdaData { modifiers, parameters, body, d_type: rtn_type })
     }
 
@@ -1134,7 +1163,7 @@ impl ParserState {
                 _ => return Err("Expected a variable identifier".to_string())
             };
 
-            let d_type = if let Some(typ) = self.parse_type_if_exists()? {
+            let d_type = if let Some(typ) = self.parse_type_if_exists(true)? {
                 typ
             } else { return Err("Expected type for parameter".to_string()); };
 

@@ -1,7 +1,7 @@
 use std::fmt::format;
 use std::ops::Deref;
 use lang::format_error;
-use crate::types::Type;
+use crate::types::{FuncType, Type};
 use lang::util::{IString, SCACHE};
 use crate::ast::{AssignData, AstData, AstNode, CondData, ConsData, DefClassData, DefFuncData,
     DefLambdaData, DefStructData, DefVarData, DirectInst, FuncCallData, GenRandData, IfData,
@@ -103,7 +103,7 @@ fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
     };
 
     if let Some(data) = res_data? {
-        let typ = data.type_data.typ.clone();
+        let typ = data.type_data.rtn_type.clone();
         node.res_data = Some(data);
         Ok(typ)
     } else { Ok(Type::Unresolved) }
@@ -152,11 +152,12 @@ pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Env
 
 
     if resolved_type != *func_type.return_type {
+        println!("Here ....\n\n");
         return Err("Declared type {:?} does not match actual type {:?} for lambda".to_string());
     }
-    
 
-    let res_data = env.add_func_symbol(name, data, resolved_type)?.clone();
+
+    let res_data = env.add_func_symbol(name, data, func_type)?.clone();
     env.pop_func();
     Ok(Some(res_data))
 }
@@ -170,12 +171,16 @@ pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result
     // let d_type = env.meta_space.types.get_type_by_name(data.d_type)
     //     .ok_or_else(|| "Failed to resolve declared return type".to_string())?.clone();
 
-    let res_data = env.add_func_symbol(data.name, &data.lambda, func_type.return_type.deref().clone())?.clone();
+    let res_data = env.add_func_symbol(data.name, &data.lambda, func_type)?.clone();
     let resolved_type = resolve(&mut data.lambda.body, env)?;
     env.pop_func();
 
     if *func_type.return_type != resolved_type {
-        return Err("Declared type does not match actual type for lambda".to_string());
+        println!("\n\nname:{:?} \n\n", SCACHE.resolve(data.name));
+        return Err(format!("Declared type: {:?} does not match resolved type: {:?} for function",
+            func_type.return_type,
+            resolved_type).to_string()
+        );
     }
 
     Ok(Some(res_data))
@@ -209,7 +214,7 @@ pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Resu
         let res_data = ResData {
             target_ctx: Some(target_res.self_ctx.clone()),
             self_ctx: Context::Expr(env.get_env_ctx()),
-            type_data: TypeData { typ: resolved_type, type_id },
+            type_data: TypeData::from_type(&resolved_type, &mut env.meta_space.types),
         };
         Ok(Some(res_data))
     } else {
@@ -237,7 +242,7 @@ pub fn resolve_expr_multi(data: &mut MultiExprData, env: &mut Environment) -> Re
     } else {
         let ctx = env.get_env_ctx();
         let type_id = env.meta_space.types.get_or_define_type(&resolved_type);
-        let type_data = TypeData { typ: resolved_type, type_id };
+        let type_data = TypeData::from_type(&resolved_type, &mut env.meta_space.types);
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
@@ -251,7 +256,7 @@ pub fn resolve_expr_print(data: &mut AstNode, env: &mut Environment) -> Result<O
     } else {
         let ctx = env.get_env_ctx();
         let type_id = env.meta_space.types.void;
-        let type_data = TypeData { typ: Type::Void, type_id };
+        let type_data = TypeData::from_type(&resolved_type, &mut env.meta_space.types);
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
@@ -293,7 +298,7 @@ pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Optio
 
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_or_define_type(&expr_type);
-    let type_data = TypeData { typ: expr_type, type_id };
+    let type_data =  TypeData::from_type(&expr_type, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
@@ -342,12 +347,12 @@ pub fn resolve_expr_cond(data: &mut CondData, env: &mut Environment) -> Result<O
     let ctx = env.get_env_ctx();
     if all_match {
         let type_id = env.meta_space.types.get_or_define_type(&base_type);
-        let type_data = TypeData { typ: base_type.clone(), type_id };
+        let type_data = TypeData::from_type(base_type, &mut env.meta_space.types);
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     } else {
         let type_id = env.meta_space.types.get_or_define_type(&Type::Void);
-        let type_data = TypeData { typ: base_type.clone(), type_id };
+        let type_data = TypeData::from_type(base_type, &mut env.meta_space.types);
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
@@ -371,7 +376,7 @@ pub fn resolve_expr_while(data: &mut WhileData, env: &mut Environment) -> Result
     } else {
         let ctx = env.get_env_ctx();
         let type_id = env.meta_space.types.get_or_define_type(&body_type);
-        let type_data = TypeData { typ: body_type, type_id };
+        let type_data = TypeData::from_type(&body_type, &mut env.meta_space.types);
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
@@ -381,7 +386,7 @@ pub fn resolve_expr_while(data: &mut WhileData, env: &mut Environment) -> Result
 // TODO annotate pair data and runtime representation with member type info?
 pub fn resolve_expr_cons(data: &mut ConsData, env: &mut Environment) -> Result<Option<ResData>, String> {
     let ctx = env.get_env_ctx();
-    let type_data = TypeData { typ: Type::Pair, type_id: env.meta_space.types.pair };
+    let type_data = TypeData::from_type(&Type::Pair, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
@@ -389,7 +394,7 @@ pub fn resolve_expr_cons(data: &mut ConsData, env: &mut Environment) -> Result<O
 
 pub fn resolve_expr_pair_list(data: &mut OpData, env: &mut Environment) -> Result<Option<ResData>, String> {
     let ctx = env.get_env_ctx();
-    let type_data = TypeData { typ: Type::Pair, type_id: env.meta_space.types.pair };
+    let type_data = TypeData::from_type(&Type::Pair, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
@@ -415,7 +420,7 @@ pub fn resolve_expr_array(data: &mut OpData, env: &mut Environment) -> Result<Op
         Err("Non-homogeneous array types".to_string())
     } else {
         let type_id = env.meta_space.types.get_or_define_type(&base_type);
-        let type_data = TypeData { typ: base_type.clone(), type_id };
+        let type_data = TypeData::from_type(base_type, &mut env.meta_space.types);
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
@@ -441,7 +446,7 @@ pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> R
 
 
     let ctx = env.get_env_ctx();
-    let type_data = TypeData { typ: Type::Void, type_id: env.meta_space.types.void };
+    let type_data = TypeData::from_type(&Type::Void, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
@@ -458,8 +463,16 @@ pub fn resolve_func_call(data: &mut FuncCallData, env: &mut Environment) -> Resu
 
     if let Some(target_ctx) = env.get_symbol_ctx(data.name) {
         let ctx = env.get_env_ctx();
+
+        // let type_data = if let Type::Lambda(func_type) = &target_ctx.type_data.typ {
+        //     *func_type.return_type.clone()
+        // } else {
+        //     return Err(format!("Resolved function call identifier: {:?} not a function", SCACHE.resolve(data.name)));
+        // };
+
         let type_data = target_ctx.type_data.clone();
         let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
+        println!("\n\n{:?}", res_data);
         Ok(Some(res_data))
     } else {
         Err(format!("Failed to resolve func call symbol: {}", SCACHE.resolve(data.name)))
@@ -471,7 +484,7 @@ pub fn resolve_func_call_inner(data: &mut InnerFuncCallData, env: &mut Environme
     let ctx = env.get_env_ctx();
     let typ = resolve(&mut data.expr, env)?;
     let type_id = env.meta_space.types.get_type_id(&typ);
-    let type_data = TypeData { typ: typ.clone(), type_id };
+    let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
@@ -504,7 +517,7 @@ pub fn resolve_gen_rand(data: &mut GenRandData, env: &mut Environment) -> Result
     let ctx = env.get_env_ctx();
     let typ = if data.is_float { Type::Float } else { Type::Integer };
     let type_id = if data.is_float { env.meta_space.types.float } else { env.meta_space.types.int };
-    let type_data = TypeData { typ: typ, type_id };
+    let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
@@ -551,7 +564,7 @@ pub fn resolve_operation(data: &mut OpData, env: &mut Environment) -> Result<Opt
 
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_type_id(&typ);
-    let type_data = TypeData { typ, type_id };
+    let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
 
     Ok(Some(res_data))
@@ -561,7 +574,7 @@ pub fn resolve_operation(data: &mut OpData, env: &mut Environment) -> Result<Opt
 pub fn resolve_primitive(typ: Type, env: &mut Environment) -> Result<Option<ResData>, String> {
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_type_id(&typ);
-    let type_data = TypeData { typ, type_id };
+    let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }

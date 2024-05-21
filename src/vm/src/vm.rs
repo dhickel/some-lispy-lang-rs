@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Sub};
 use parser::op_codes::{decode, OpCode};
 use std::time::{SystemTime, UNIX_EPOCH};
-use parser::environment::{MetaSpace, PermaSpace, PermNameSpace, StackFrame};
+use parser::environment::{MetaSpace, PermSpace, PermNameSpace, StackFrame};
 
 use crate::heap::Heap;
 
@@ -32,7 +32,7 @@ pub struct Vm {
     byte_cache: [u8; 2048],
     heap: Heap,
     meta: MetaSpace,
-    perm: PermaSpace,
+    perm: PermSpace,
     curr_frame: *const u8,
     curr_meta: *const u8,
     curr_const: *const u8,
@@ -42,7 +42,7 @@ pub struct Vm {
 
 impl Vm {
     pub fn new(mut meta_space: MetaSpace) -> Self {
-        let perm = PermaSpace::new(&mut meta_space);
+        let perm = PermSpace::new(&mut meta_space);
         Vm {
             ip: std::ptr::null_mut(),
             stack: [0; 1048576],

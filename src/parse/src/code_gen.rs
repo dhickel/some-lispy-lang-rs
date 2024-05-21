@@ -157,14 +157,14 @@ fn gen_define_variable(data: DefVarData, res_data: ResData, comp_unit: &mut Comp
         if let Some(symbol) = comp_unit.meta_space.get_symbol(ctx.ns, ctx.scope, lit.name.value) {
             if let Context::Symbol(sym) = &symbol.self_ctx {
                 if sym.func.is_some() {
-                    let nil_code = GenData::new(symbol.type_data.type_id);
+                    let nil_code = GenData::new(symbol.type_data.rtn_type_id);
                     return Ok(nil_code);
                 }
             } else { return Err(format!("Failed to find symbol for assignment {:?}", SCACHE.resolve(lit.name))); }
         }
     }
 
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
     let value = gen_node(data.value, comp_unit)?;
     code.append_gen_data(value);
     
@@ -210,7 +210,7 @@ fn gen_literal_call(data: LiteralCallData, res_data: ResData, comp_unit: &mut Co
         symbol
     } else { return Err(format!("Fatal:  Missing target context for literal call: {:?}", SCACHE.resolve(data.name))); };
 
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
 
     if self_ctx.class.is_none() && self_ctx.func.is_none() {
@@ -238,7 +238,7 @@ fn gen_assignment(data: AssignData, res_data: ResData, comp_unit: &mut CompUnit)
         symbol
     } else { return Err(format!("Fatal: Missing target context for assignment: {:?}", SCACHE.resolve(data.name))); };
 
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
     let value = gen_node(data.value, comp_unit)?;
     code.append_gen_data(value);
 
@@ -328,7 +328,7 @@ fn gen_array_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> R
     //     symbol
     // } else { return Err("Invalid/Missing context for instancing array".to_string()); };
 
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
     for op in data.operands {
         let gen_data = gen_node(op, comp_unit)?;
@@ -343,7 +343,7 @@ fn gen_array_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> R
 
 
 fn gen_list_access(data: ListAccData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
     let list_code = gen_node(data.list, comp_unit)?;
     code.append_gen_data(list_code);
@@ -382,7 +382,7 @@ fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit
 
     let mut code = GenData::new(rtn_type);
 
-    if param_types.len() > 0 {
+    if !param_types.is_empty() {
         if let Some(args) = data.arguments {
             if args.len() != param_types.len() {
                 return Err(format!("Invalid argument count for function call: {:?} | Found: {}, Expected: {}",
@@ -391,6 +391,7 @@ fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit
 
             for (arg, param_type) in args.into_iter().zip(param_types.iter()) {
                 let resolved_arg = gen_node(arg.value, comp_unit)?;
+                println!("Resolved Arg{:?}", resolved_arg);
                 if resolved_arg.typ != *param_type {
                     return Err(format!("Invalid argument type for function call: {:?} | Found: {:?}, Expected: {:?}",
                         SCACHE.resolve(data.name),
@@ -431,7 +432,7 @@ fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit
 //
 
 fn gen_multi_expr(mut data: MultiExprData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
     while let Some(expr) = data.expressions.pop() {
         let result = gen_node(expr, comp_unit)?;
         code.append_gen_data(result)
@@ -441,7 +442,7 @@ fn gen_multi_expr(mut data: MultiExprData, res_data: ResData, comp_unit: &mut Co
 
 
 fn gen_if_expr(data: IfData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
     let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
     code.append_gen_data(cond_data);
@@ -465,7 +466,7 @@ fn gen_if_expr(data: IfData, res_data: ResData, comp_unit: &mut CompUnit) -> Res
 
 
 fn gen_while_loop(data: WhileData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
     let body = gen_node(data.body, comp_unit)?;
     if data.is_do {

@@ -16,7 +16,7 @@ pub struct AstNode {
 
 impl AstNode {
     pub fn resolved_type(&self) -> Option<Type> {
-        self.res_data.as_ref().map(|res_data| res_data.type_data.typ.clone())
+        self.res_data.as_ref().map(|res_data| res_data.type_data.rtn_type.clone())
     }
 }
 
@@ -116,7 +116,7 @@ pub struct DefFuncData {
 pub struct Param {
     pub name: IString,
     pub modifiers: Option<Vec<Mod>>,
-    pub d_type: Type,
+    pub d_type: Option<Type>,
 }
 
 

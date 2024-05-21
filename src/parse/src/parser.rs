@@ -1164,7 +1164,7 @@ impl ParserState {
             };
 
             let d_type = if let Some(typ) = self.parse_type_if_exists(true)? {
-                typ
+                Some(typ)
             } else { return Err("Expected type for parameter".to_string()); };
 
             params.push(Param {

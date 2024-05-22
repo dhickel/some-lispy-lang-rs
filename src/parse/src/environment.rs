@@ -491,7 +491,7 @@ impl TypeData {
         let full_type_id = type_table.get_or_define_type(typ);
         let full_type = typ.clone();
         let (rtn_type, rtn_type_id) = if let Type::Lambda(func_type) = &typ {
-            let rtn_type = *func_type.return_type.clone();
+            let rtn_type = *func_type.rtn_type.clone();
             let rtn_type_id = type_table.get_or_define_type(&rtn_type);
             (rtn_type, rtn_type_id)
         } else { (full_type.clone(), full_type_id) };
@@ -622,7 +622,7 @@ impl<'a> Environment<'a> {
         } else { vec![] };
 
 
-        let rtn_type_id = self.meta_space.types.get_type_id(&typ.return_type);
+        let rtn_type_id = self.meta_space.types.get_type_id(&typ.rtn_type);
         let mut def = FuncMeta::new(name, param_types, rtn_type_id);
         def.set_param_local_count(locals_count as u16);
 
@@ -644,8 +644,8 @@ impl<'a> Environment<'a> {
         let symbol_data = SymbolCtx::new(
             self_ctx,
             index,
-            lambda.modifiers.clone(),
-            if *typ.return_type == Type::Void { false } else { true },
+            None,
+            if *typ.rtn_type == Type::Void { false } else { true },
         );
 
         let res_data = ResData {

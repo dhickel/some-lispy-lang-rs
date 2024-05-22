@@ -97,7 +97,6 @@ pub struct DefVarData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefLambdaData {
-    pub modifiers: Option<Vec<Mod>>,
     pub parameters: Option<Vec<Param>>,
     pub body: AstNode,
     pub d_type: Option<Type>,
@@ -107,7 +106,7 @@ pub struct DefLambdaData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefFuncData {
     pub name: IString,
-    pub d_type: Type,
+    pub d_type: Option<Type>,
     pub lambda: DefLambdaData,
 }
 

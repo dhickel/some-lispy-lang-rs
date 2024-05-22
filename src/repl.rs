@@ -29,7 +29,7 @@ fn main() {
     let mut meta_space = MetaSpace::default();
     let env = Environment::new(&mut meta_space);
     // let input = "(define x 10) (define val 0) (while (> x  0) (:= x (-- x)) (:= val (+ val x)) (define meh val)) meh".to_string();
-    let input = "(defunc fib ::F<int; int>  [n ::int] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))  (fib 10) ".to_string();
+    let input = "(defunc fib ::F<int; int>  [n ::int] )))  (fib 10) ".to_string();
     //let input = "(define x &mut 1) (define y  &mut 10) (while (> y 0) (:= y (-- y)) (:= x (* x  2))) x";
     //let input = "(defunc even ::int [x ::int] (if (equals (% x 2) 0) 1 0)) (even 7)";
    //let input = "(defunc dbl ::int [n ::int] (if (> n 20) n (dbl (* n 2)))) (define a ::int (dbl 2)) a ";
@@ -39,6 +39,7 @@ fn main() {
    // let input = "(define x ::int 10) (define y x) (:= x 11) y";
     //let input = "(define x ::int::int->::int (=> (x ::int y ::int) (* x y))) (define y ::int::int->::int::int->::int (=> (f ::int::int->::int val ::int) (f val)) (y 10)".to_string();
    // let input = "(define x ::Arr<int> (10 20 30)) ";
+    let input = "let fib = (=> ::int (n ::int){ (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))) }) let x = (fib 10) x";
     
     
 

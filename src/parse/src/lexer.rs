@@ -1,6 +1,6 @@
 use std::iter::Peekable;
 use std::str::Chars;
-use crate::token::{Lex, Lit, Op, Syn, Token, TokenData, TokenType};
+use crate::token::{ Lit, Op, Syn, Token, TokenData, TokenType};
 
 use lang::util;
 use lang::util::{IString, SCACHE};
@@ -8,7 +8,7 @@ use crate::token;
 use crate::token::TokenType::*;
 
 
-struct LexicalState<'a> {
+struct SynicalState<'a> {
     pub tokens: Vec<Token>,
     pub line_num: u32,
     pub line_char: u32,
@@ -18,10 +18,10 @@ struct LexicalState<'a> {
 }
 
 
-impl<'a> LexicalState<'a> {
+impl<'a> SynicalState<'a> {
     pub fn new(source: &'a String) -> Self {
         let char_iter = source.chars().peekable();
-        LexicalState {
+        SynicalState {
             tokens: Vec::new(),
             line_num: 0,
             line_char: 0,
@@ -76,7 +76,7 @@ impl<'a> LexicalState<'a> {
 
 
 pub fn process(input: String) -> Result<Vec<Token>, String> {
-    let mut state = LexicalState::new(&input);
+    let mut state = SynicalState::new(&input);
 
     while state.have_next() {
         let c = state.advance();
@@ -95,12 +95,12 @@ pub fn process(input: String) -> Result<Vec<Token>, String> {
 
         return Err(format!("Error while lexing line {}, char {}", state.line_num, c));
     }
-    state.add_token(TLexical(Lex::EOF));
+    state.add_token(TSyntactic(Syn::EOF));
     Ok(state.tokens)
 }
 
 
-fn lex_double_token(state: &mut LexicalState) -> bool {
+fn lex_double_token(state: &mut SynicalState) -> bool {
     if !state.have_next() { return false; }
 
     match token::match_double_token((state.curr_char, state.peek())) {
@@ -113,12 +113,12 @@ fn lex_double_token(state: &mut LexicalState) -> bool {
 }
 
 
-fn lex_single_token(state: &mut LexicalState) -> bool {
+fn lex_single_token(state: &mut SynicalState) -> bool {
     match token::match_single_token(state.curr_char) {
         None => false,
         Some(value) => {
             match value {
-                TLexical(Lex::DoubleQuote) => lex_string_literal(state),
+                TSyntactic(Syn::DoubleQuote) => lex_string_literal(state),
                 TSyntactic(Syn::Ampersand) => lex_modifier(state),
                 TSyntactic(Syn::At) => lex_instance(state),
                 TOperation(Op::Minus) => {
@@ -133,7 +133,7 @@ fn lex_single_token(state: &mut LexicalState) -> bool {
 }
 
 
-fn lex_word_token(state: &mut LexicalState) -> bool {
+fn lex_word_token(state: &mut SynicalState) -> bool {
     let string_data = read_data_to_string(state);
     match token::match_word_token(util::SCACHE.resolve(string_data)) {
         None => state.add_token_data(TLiteral(Lit::Identifier), TokenData::String(string_data)),
@@ -142,7 +142,7 @@ fn lex_word_token(state: &mut LexicalState) -> bool {
 }
 
 
-fn lex_type(state: &mut LexicalState) -> bool {
+fn lex_type(state: &mut SynicalState) -> bool {
     state.advance(); // skip the extra  :
     let type_string = read_data_to_string(state);
     state.add_token_data(TSyntactic(Syn::DoubleColon), TokenData::String(type_string));
@@ -150,7 +150,7 @@ fn lex_type(state: &mut LexicalState) -> bool {
 }
 
 
-fn lex_modifier(state: &mut LexicalState) -> bool {
+fn lex_modifier(state: &mut SynicalState) -> bool {
     let mod_string = read_data_to_string(state);
     match token::match_modifier_token(SCACHE.resolve(mod_string)) {
         None => false,
@@ -162,7 +162,7 @@ fn lex_modifier(state: &mut LexicalState) -> bool {
 
 
 // TODO handle nested strings
-fn lex_string_literal(state: &mut LexicalState) -> bool {
+fn lex_string_literal(state: &mut SynicalState) -> bool {
     let mut string_data = String::new();
 
     while state.have_next() && state.peek() != '"' {
@@ -176,14 +176,14 @@ fn lex_string_literal(state: &mut LexicalState) -> bool {
 }
 
 
-fn lex_instance(state: &mut LexicalState) -> bool {
+fn lex_instance(state: &mut SynicalState) -> bool {
     state.advance(); // skip @ symbol
     let instance_id = read_data_to_string(state);
     state.add_token_data(TLiteral(Lit::Instance), TokenData::String(instance_id));
     true
 }
 
-// fn lex_quote(state: &mut LexicalState) {
+// fn lex_quote(state: &mut SynicalState) {
 //     let mut data = String::new();
 //     if state.peek() == '(' {
 //         let mut depth = 1;
@@ -200,7 +200,7 @@ fn lex_instance(state: &mut LexicalState) -> bool {
 //     state.add_token_data(Literal(Lit::Quote), TokenData::String(data));
 // }
 
-fn read_data_to_string(state: &mut LexicalState) -> IString {
+fn read_data_to_string(state: &mut SynicalState) -> IString {
     let mut string_data = String::new();
     string_data.push(state.curr_char);
     
@@ -214,7 +214,7 @@ fn read_data_to_string(state: &mut LexicalState) -> IString {
 }
 
 
-fn lex_number_token(state: &mut LexicalState) -> bool {
+fn lex_number_token(state: &mut SynicalState) -> bool {
     let mut is_float: bool = false;
     let mut is_neg: bool = false;
 

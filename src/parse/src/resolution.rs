@@ -148,10 +148,10 @@ pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Env
 
     let func_type = if let Some(Type::Lambda(func_type)) = &data.d_type {
         func_type
-    } else { return Err("Invalid type for function definition".to_string()); };
+    } else { return Err(format!("Invalid type for function definition: {:?}", &data)); };
 
 
-    if resolved_type != *func_type.return_type {
+    if resolved_type != *func_type.rtn_type {
         println!("Here ....\n\n");
         return Err("Declared type {:?} does not match actual type {:?} for lambda".to_string());
     }
@@ -164,9 +164,9 @@ pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Env
 
 
 pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result<Option<ResData>, String> {
-    let func_type = if let Type::Lambda(func_type) = &data.d_type {
+    let func_type = if let Some(Type::Lambda(func_type)) = &data.d_type {
         func_type
-    } else { return Err("Invalid type for function definition".to_string()); };
+    } else { return Err(format!("Invalid type for function definition: {:?}", &data)); };
 
     // let d_type = env.meta_space.types.get_type_by_name(data.d_type)
     //     .ok_or_else(|| "Failed to resolve declared return type".to_string())?.clone();
@@ -175,10 +175,10 @@ pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result
     let resolved_type = resolve(&mut data.lambda.body, env)?;
     env.pop_func();
 
-    if *func_type.return_type != resolved_type {
+    if *func_type.rtn_type != resolved_type {
         println!("\n\nname:{:?} \n\n", SCACHE.resolve(data.name));
         return Err(format!("Declared type: {:?} does not match resolved type: {:?} for function",
-            func_type.return_type,
+            func_type.rtn_type,
             resolved_type).to_string()
         );
     }

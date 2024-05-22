@@ -8,8 +8,3 @@
       (filter predicate (cdr lst)))))
 
 
-(defunc reduce [func initial lst]
-  (if (== lst #nil)
-    initial
-    (reduce func (func initial (car lst)) (cdr lst))))
-

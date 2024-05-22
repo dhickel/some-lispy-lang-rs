@@ -46,8 +46,8 @@ pub struct ObjType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FuncType {
-    pub return_type: Box<Type>,
-    pub arg_typ: Vec<Type>,
+    pub rtn_type: Box<Type>,
+    pub param_types: Vec<Type>,
 }
 
 

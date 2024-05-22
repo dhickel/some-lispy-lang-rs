@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Sub};
 use parser::op_codes::{decode, OpCode};
 use std::time::{SystemTime, UNIX_EPOCH};
-use parser::environment::{MetaSpace, PermaSpace, PermNameSpace, StackFrame};
+use parser::environment::{MetaSpace, PermSpace, PermNameSpace, StackFrame};
 
 use crate::heap::Heap;
 
@@ -32,7 +32,7 @@ pub struct Vm {
     byte_cache: [u8; 2048],
     heap: Heap,
     meta: MetaSpace,
-    perm: PermaSpace,
+    perm: PermSpace,
     curr_frame: *const u8,
     curr_meta: *const u8,
     curr_const: *const u8,
@@ -42,7 +42,7 @@ pub struct Vm {
 
 impl Vm {
     pub fn new(mut meta_space: MetaSpace) -> Self {
-        let perm = PermaSpace::new(&mut meta_space);
+        let perm = PermSpace::new(&mut meta_space);
         Vm {
             ip: std::ptr::null_mut(),
             stack: [0; 1048576],
@@ -72,7 +72,7 @@ impl Vm {
             self.ip = self.ip.add(1);
             let code: OpCode = std::mem::transmute(code);
 
-            // println!("Executing: {:?}", code);
+            println!("Executing: {:?}", code);
             // println!("before Op Code");
             // self.print_stack();
 
@@ -134,7 +134,8 @@ impl Vm {
     #[inline(always)]
     fn load_local_var(&mut self, index: u16) {
         unsafe {
-            let data_ptr = self.curr_frame.add(index as usize);
+            println!("Loading Idx: {}", index);
+            let data_ptr = self.curr_frame.add((index * 8) as usize);
             std::ptr::copy_nonoverlapping(data_ptr, self.stack_top, 8);
             self.stack_top = self.stack_top.add(8);
         }
@@ -151,7 +152,7 @@ impl Vm {
     #[inline(always)]
     fn store_local_var(&mut self, index: u16) {
         unsafe {
-            let index_ptr = self.curr_frame.add(index as usize) as *mut u8;
+            let index_ptr = self.curr_frame.add((index * 8) as usize);
             std::ptr::copy_nonoverlapping(index_ptr, self.stack_top.sub(8), 8);
             self.stack_top = self.stack_top.sub(8);
         }
@@ -304,11 +305,11 @@ impl Vm {
 
     #[inline(always)]
     fn push_stack_frame(&mut self, frame: StackFrame) {
-        // println!("Pushing Frame{:?}", frame);
+        println!("Frame: {:?}", frame);
         unsafe {
             // Shift frame down by param count to being in passed parameters on top of stack
 
-            
+
             let prev_frame = self.curr_frame;
             let prev_meta = self.curr_meta;
 
@@ -480,8 +481,10 @@ impl Vm {
                 }
 
                 OpCode::MulI64 => {
+                    self.print_stack();
                     let val1 = self.pop_i64();
                     let val2 = self.pop_i64();
+                    println!("Val1: {}, Val2: {}", val1, val2);
                     self.push_i64(val1 * val2)
                 }
 

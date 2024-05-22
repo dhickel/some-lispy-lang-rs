@@ -16,7 +16,7 @@ pub struct AstNode {
 
 impl AstNode {
     pub fn resolved_type(&self) -> Option<Type> {
-        self.res_data.as_ref().map(|res_data| res_data.type_data.typ.clone())
+        self.res_data.as_ref().map(|res_data| res_data.type_data.rtn_type.clone())
     }
 }
 
@@ -91,23 +91,22 @@ pub struct DefVarData {
     pub name: IString,
     pub modifiers: Option<Vec<Mod>>,
     pub value: AstNode,
-    pub d_type: Option<IString>,
+    pub d_type: Option<Type>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefLambdaData {
-    pub modifiers: Option<Vec<Mod>>,
     pub parameters: Option<Vec<Param>>,
     pub body: AstNode,
-    pub d_type: Option<IString>,
+    pub d_type: Option<Type>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefFuncData {
     pub name: IString,
-    pub d_type: IString,
+    pub d_type: Option<Type>,
     pub lambda: DefLambdaData,
 }
 
@@ -116,7 +115,7 @@ pub struct DefFuncData {
 pub struct Param {
     pub name: IString,
     pub modifiers: Option<Vec<Mod>>,
-    pub d_type: IString,
+    pub d_type: Option<Type>,
 }
 
 
@@ -171,7 +170,7 @@ pub struct DirectInst {
 pub struct Field {
     pub name: IString,
     pub modifiers: Option<Vec<Mod>>,
-    pub p_type: Option<IString>,
+    pub p_type: Option<Type>,
     pub default_value: Option<AstNode>,
 }
 

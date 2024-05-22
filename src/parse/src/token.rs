@@ -1,6 +1,5 @@
 use lang::util::IString;
 use crate::token::Mod::*;
-use crate::token::Lex::*;
 use crate::token::Syn::*;
 use crate::token::Op::*;
 use crate::token::Expr::*;
@@ -11,16 +10,16 @@ use crate::token::TokenType::*;
 
 pub fn match_single_token(input: char) -> Option<TokenType> {
     match input {
-        '(' => Some(TLexical(LeftParen)),
-        ')' => Some(TLexical(RightParen)),
-        '{' => Some(TLexical(LeftBrace)),
-        '}' => Some(TLexical(RightBrace)),
-        '[' => Some(TLexical(LeftBracket)),
-        ']' => Some(TLexical(RightBracket)),
-        ',' => Some(TLexical(Comma)),
-        '\\' => Some(TLexical(BackSlash)),
-        '\'' => Some(TLexical(SingleQuote)),
-        '"' => Some(TLexical(DoubleQuote)),
+        '(' => Some(TSyntactic(LeftParen)),
+        ')' => Some(TSyntactic(RightParen)),
+        '{' => Some(TSyntactic(LeftBrace)),
+        '}' => Some(TSyntactic(RightBrace)),
+        '[' => Some(TSyntactic(LeftBracket)),
+        ']' => Some(TSyntactic(RightBracket)),
+        ',' => Some(TSyntactic(Comma)),
+        '\\' => Some(TSyntactic(BackSlash)),
+        '\'' => Some(TSyntactic(SingleQuote)),
+        '"' => Some(TSyntactic(DoubleQuote)),
         '.' => Some(TSyntactic(Period)),
         '&' => Some(TSyntactic(Ampersand)),
         '`' => Some(TSyntactic(Grave)),
@@ -55,11 +54,12 @@ pub fn match_double_token(input: (char, char)) -> Option<TokenType> {
         ('<', '=') => Some(TOperation(LessEqual)),
         ('!', '=') => Some(TOperation(BangEquals)),
         ('=', '=') => Some(TOperation(RefEqual)),
-        (':', '=') => Some(TExpression(Assign)),
+        (':', '=') => Some(TSyntactic(Assign)),
         ('#', 't') => Some(TLiteral(True)),
         ('#', 'f') => Some(TLiteral(False)),
         ('i', 'f') => Some(TExpression(If)),
         ('=', '>') => Some(TDefinition(Lambda)),
+        ('-', '>') => Some(TSyntactic(Arrow)),
         _ => None,
     }
 }
@@ -89,11 +89,9 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
         "list" => Some(TExpression(Expr::List)),
         "array" => Some(TExpression(Expr::Array)),
         "lacc" => Some(TExpression(Lacc)),
-        "define" => Some(TDefinition(Define)),
-        "defunc" => Some(TDefinition(DefineFunc)),
-        "def-class" => Some(TDefinition(DefineClass)),
-        "def-struct" => Some(TDefinition(DefineStruct)),
-        "lambda" => Some(TDefinition(Lambda)),
+        "let" => Some(TDefinition(Define)),
+        "class" => Some(TDefinition(DefineClass)),
+        "struct" => Some(TDefinition(DefineStruct)),
         "randi" => Some(TExpression(Randi)),
         "randf" => Some(TExpression(Randf)),
         _ => None
@@ -118,18 +116,17 @@ pub fn match_modifier_token(input: &str) -> Option<TokenType> {
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
-    TLexical(Lex),
     TSyntactic(Syn),
     TOperation(Op),
-    TLiteral(Lit),
     TExpression(Expr),
     TDefinition(Def),
+    TLiteral(Lit),
     TModifier(Mod),
 }
 
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum Lex {
+pub enum Syn {
     LeftParen,
     RightParen,
     LeftBrace,
@@ -141,11 +138,6 @@ pub enum Lex {
     SingleQuote,
     DoubleQuote,
     EOF,
-}
-
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum Syn {
     Period,
     Ampersand,
     Grave,
@@ -161,6 +153,8 @@ pub enum Syn {
     Equal,
     Else,
     EqualGreater,
+    Arrow,
+    Assign,
 }
 
 
@@ -207,7 +201,6 @@ pub enum Lit {
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Expr {
-    Assign,
     If,
     Cond,
     Print,

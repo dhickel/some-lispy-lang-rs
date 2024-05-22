@@ -1,7 +1,8 @@
 ## About
 
+
 Rough draft of a "toy" programming language for experimentation and learning PL concepts, ported and extended 
-from an original java implementation to learn rust. Will be slowly developed over-time and is a semi-serious 
+from an original java implementation to learn rust. Will be slowly developed over-time and is a semi-serious
 personal endeavour to create a class-based, lisp inspired language for personal use. End goal is to have an
 embeddable managed scripting language to use for rust game development.
 
@@ -25,17 +26,17 @@ brake quite often at this stage of development.
 
 ## Progress
 - [x] Tree Walk Interpreter
-    - [x] First-Class Functions
-    - [X] Closures
-    - [x] Structs
-    - [x] Classes
-    - [x] Methods
-    - [x] Fields
-    - [ ] Interfaces
-    - [ ] Abstract Classes
-    - [ ] Namespaces
-    - [ ] Types
-- [ ] Bytecode VM
+  - [x] First-Class Functions
+  - [X] Closures
+  - [x] Structs
+  - [x] Classes
+  - [x] Methods
+  - [x] Fields
+  - [ ] Interfaces
+  - [ ] Abstract Classes
+  - [ ] Namespaces
+  - [ ] Types
+- [x] Bytecode VM
 - [ ] Garbage Collection
 
 
@@ -100,17 +101,17 @@ are accessed.
 
 - #### Definitions
 
-     Definitions have an implicit "begin" and allow for multiple expressions to follow arguments
+  Definitions have an implicit "begin" and allow for multiple expressions to follow arguments
 
     ```scheme
   (defunc my-func [param1 param2] (expr1) (expr2))
     ```
-    
-    Functions can also be defined in traditional scheme style syntax
+
+  Functions can also be defined in traditional scheme style syntax
   ```scheme
    (define my-func (lamba (param1 param2) (expr1) (expr2)))
   ```
-    
+
 
 - #### Calls
     ```

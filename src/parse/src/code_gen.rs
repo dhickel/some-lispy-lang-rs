@@ -151,10 +151,23 @@ fn gen_define_variable(data: DefVarData, res_data: ResData, comp_unit: &mut Comp
         symbol
     } else { return Err("Fatal: Invalid codegen context for variable definition expected symbol.".to_string()); };
 
-    let mut code = GenData::new(res_data.type_data.type_id);
+
+    // FIXME, currently this messy match is used to handle the case of an existing function being assigned to new variable
+    if let AstData::ExprLiteralCall(ref lit) = *data.value.node_data {
+        if let Some(symbol) = comp_unit.meta_space.get_symbol(ctx.ns, ctx.scope, lit.name.value) {
+            if let Context::Symbol(sym) = &symbol.self_ctx {
+                if sym.func.is_some() {
+                    let nil_code = GenData::new(symbol.type_data.rtn_type_id);
+                    return Ok(nil_code);
+                }
+            } else { return Err(format!("Failed to find symbol for assignment {:?}", SCACHE.resolve(lit.name))); }
+        }
+    }
+
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
     let value = gen_node(data.value, comp_unit)?;
     code.append_gen_data(value);
-
+    
     if ctx.class.is_none() && ctx.func.is_none() {
         code.append_op_code(OpCode::StoreVarN);
         code.append_wide_operand(ctx.ns);
@@ -167,7 +180,6 @@ fn gen_define_variable(data: DefVarData, res_data: ResData, comp_unit: &mut Comp
     }
 
     code.append_wide_operand(ctx.index);
-
     Ok(code)
 }
 
@@ -184,19 +196,8 @@ fn gen_define_func(data: DefFuncData, res_data: ResData, comp_unit: &mut CompUni
 
     comp_unit.meta_space.push_func_code(ctx, &mut code.code);
 
-    let mut nil_code = GenData::new(code.typ);
+    let nil_code = GenData::new(code.typ);
     Ok(nil_code)
-}
-
-
-fn gen_heap_store(typ: u16, size: u16) -> Result<GenData, String> {
-    todo!("Unneeded?")
-    // let mut code = GenData::new();
-    // code.typ = typ;
-    // code.append_op_code(OpCode::HeapStore);
-    // code.append_wide_operand(typ);
-    // code.append_wide_operand(size);
-    // Ok(code)
 }
 
 
@@ -209,7 +210,7 @@ fn gen_literal_call(data: LiteralCallData, res_data: ResData, comp_unit: &mut Co
         symbol
     } else { return Err(format!("Fatal:  Missing target context for literal call: {:?}", SCACHE.resolve(data.name))); };
 
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
 
     if self_ctx.class.is_none() && self_ctx.func.is_none() {
@@ -237,7 +238,7 @@ fn gen_assignment(data: AssignData, res_data: ResData, comp_unit: &mut CompUnit)
         symbol
     } else { return Err(format!("Fatal: Missing target context for assignment: {:?}", SCACHE.resolve(data.name))); };
 
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
     let value = gen_node(data.value, comp_unit)?;
     code.append_gen_data(value);
 
@@ -327,7 +328,7 @@ fn gen_array_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> R
     //     symbol
     // } else { return Err("Invalid/Missing context for instancing array".to_string()); };
 
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
     for op in data.operands {
         let gen_data = gen_node(op, comp_unit)?;
@@ -342,7 +343,7 @@ fn gen_array_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> R
 
 
 fn gen_list_access(data: ListAccData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
     let list_code = gen_node(data.list, comp_unit)?;
     code.append_gen_data(list_code);
@@ -381,7 +382,7 @@ fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit
 
     let mut code = GenData::new(rtn_type);
 
-    if param_types.len() > 0 {
+    if !param_types.is_empty() {
         if let Some(args) = data.arguments {
             if args.len() != param_types.len() {
                 return Err(format!("Invalid argument count for function call: {:?} | Found: {}, Expected: {}",
@@ -390,8 +391,9 @@ fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit
 
             for (arg, param_type) in args.into_iter().zip(param_types.iter()) {
                 let resolved_arg = gen_node(arg.value, comp_unit)?;
+                println!("Resolved Arg{:?}", resolved_arg);
                 if resolved_arg.typ != *param_type {
-                    return Err(format!("Invalid argument type for function call: {:?} |Found: {:?}, Expected: {:?}",
+                    return Err(format!("Invalid argument type for function call: {:?} | Found: {:?}, Expected: {:?}",
                         SCACHE.resolve(data.name),
                         comp_unit.meta_space.types.get_type_by_id(resolved_arg.typ),
                         comp_unit.meta_space.types.get_type_by_id(*param_type)
@@ -430,7 +432,7 @@ fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit
 //
 
 fn gen_multi_expr(mut data: MultiExprData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
     while let Some(expr) = data.expressions.pop() {
         let result = gen_node(expr, comp_unit)?;
         code.append_gen_data(result)
@@ -440,7 +442,7 @@ fn gen_multi_expr(mut data: MultiExprData, res_data: ResData, comp_unit: &mut Co
 
 
 fn gen_if_expr(data: IfData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
     let cond_data = gen_node(data.if_branch.cond_node, comp_unit)?;
     code.append_gen_data(cond_data);
@@ -464,7 +466,7 @@ fn gen_if_expr(data: IfData, res_data: ResData, comp_unit: &mut CompUnit) -> Res
 
 
 fn gen_while_loop(data: WhileData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
-    let mut code = GenData::new(res_data.type_data.type_id);
+    let mut code = GenData::new(res_data.type_data.rtn_type_id);
 
     let body = gen_node(data.body, comp_unit)?;
     if data.is_do {
@@ -487,12 +489,11 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
         expr
     } else { return Err("Invalid context".to_string()); };
 
- 
+
     let (value, typ) = match *node {
         AstData::LitInteger(value) => {
-          
             (comp_unit.meta_space.add_constant(&value, ctx), Type::Integer)
-        },
+        }
         AstData::LitFloat(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Float),
         AstData::LitBoolean(value) => (comp_unit.meta_space.add_constant(&value, ctx), Type::Boolean),
         _ => return Err("Fatal: Invalid literal in gen_node".to_string())
@@ -500,9 +501,7 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
 
 
     let mut code = GenData::new(comp_unit.meta_space.types.get_type_id(&typ));
-    
-  
-    
+
 
     if ctx.class.is_none() && ctx.func.is_none() {
         if value < u8::MAX as u16 {
@@ -530,7 +529,8 @@ fn gen_numerical_lit(node: Box<AstData>, res_data: ResData, comp_unit: &mut Comp
     Ok(code)
 }
 
-fn gen_num_const_op(value : i64, typ : u16) -> GenData{
+
+fn gen_num_const_op(value: i64, typ: u16) -> GenData {
     let mut code = GenData::new(typ);
     match value {
         -1 => code.append_op_code(OpCode::IConstM1),
@@ -538,13 +538,12 @@ fn gen_num_const_op(value : i64, typ : u16) -> GenData{
         1 => code.append_op_code(OpCode::IConst1),
         2 => code.append_op_code(OpCode::IConst2),
         3 => code.append_op_code(OpCode::IConst3),
-        4 => code.append_op_code(OpCode::IConst4), 
+        4 => code.append_op_code(OpCode::IConst4),
         5 => code.append_op_code(OpCode::IConst4),
         _ => panic!("Fatal: Invalid num const gen")
     }
     code
 }
-
 
 
 fn gen_operation(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {

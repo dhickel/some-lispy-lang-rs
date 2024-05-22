@@ -271,6 +271,7 @@ dependencies = [
  "ahash",
  "backtrace-on-stack-overflow",
  "intmap",
+ "lang",
  "lasso",
  "lazy_static",
  "parser",

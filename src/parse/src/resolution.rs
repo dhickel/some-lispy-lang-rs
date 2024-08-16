@@ -3,7 +3,7 @@ use std::ops::Deref;
 use lang::format_error;
 use crate::types::{FuncType, Type};
 use lang::util::{IString, SCACHE};
-use crate::ast::{AssignData, AstData, AstNode, CondData, ConsData, DefClassData, DefFuncData,
+use crate::ast::{AssignData, AstData, AstData, CondData, ConsData, DefClassData, DefFuncData,
     DefLambdaData, DefStructData, DefVarData, DirectInst, FuncCallData, GenRandData, IfData,
     InnerFuncCallData, ListAccData, LiteralCallData, MultiExprData, ObjectAssignData, ObjectCallData,
     OpData, WhileData};
@@ -56,7 +56,7 @@ pub fn resolve_types(mut parse_result: &mut ParseResult, mut env: Environment) -
 }
 
 
-fn resolve(node: &mut AstNode, env: &mut Environment) -> Result<Type, String> {
+fn resolve(node: &mut AstData, env: &mut Environment) -> Result<Type, String> {
     if let Some(typ) = node.resolved_type() { return Ok(typ); }
     let res_data = match &mut *node.node_data {
         AstData::DefVariable(data) => resolve_def_var(data, env),
@@ -158,7 +158,7 @@ pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Env
 
 
     let res_data = env.add_func_symbol(name, data, func_type)?.clone();
-    env.pop_func();
+    //env.pop_func();
     Ok(Some(res_data))
 }
 
@@ -173,7 +173,7 @@ pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result
 
     let res_data = env.add_func_symbol(data.name, &data.lambda, func_type)?.clone();
     let resolved_type = resolve(&mut data.lambda.body, env)?;
-    env.pop_func();
+    //env.pop_func();
 
     if *func_type.rtn_type != resolved_type {
         println!("\n\nname:{:?} \n\n", SCACHE.resolve(data.name));
@@ -249,7 +249,7 @@ pub fn resolve_expr_multi(data: &mut MultiExprData, env: &mut Environment) -> Re
 }
 
 
-pub fn resolve_expr_print(data: &mut AstNode, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_print(data: &mut AstData, env: &mut Environment) -> Result<Option<ResData>, String> {
     let resolved_type = resolve(data, env)?;
     if resolved_type == Type::Unresolved {
         Ok(None)
@@ -386,7 +386,7 @@ pub fn resolve_expr_while(data: &mut WhileData, env: &mut Environment) -> Result
 // TODO annotate pair data and runtime representation with member type info?
 pub fn resolve_expr_cons(data: &mut ConsData, env: &mut Environment) -> Result<Option<ResData>, String> {
     let ctx = env.get_env_ctx();
-    let type_data = TypeData::from_type(&Type::Pair, &mut env.meta_space.types);
+    let type_data = TypeData::from_type(&Type::Tuple, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
@@ -394,7 +394,7 @@ pub fn resolve_expr_cons(data: &mut ConsData, env: &mut Environment) -> Result<O
 
 pub fn resolve_expr_pair_list(data: &mut OpData, env: &mut Environment) -> Result<Option<ResData>, String> {
     let ctx = env.get_env_ctx();
-    let type_data = TypeData::from_type(&Type::Pair, &mut env.meta_space.types);
+    let type_data = TypeData::from_type(&Type::Tuple, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
@@ -440,7 +440,7 @@ pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> R
     let list_type = resolve(&mut data.list, env)?;
     if list_type == Type::Unresolved {
         return Ok(None);
-    } else if matches!(list_type,  Type::Pair | Type::Array(_)) {
+    } else if matches!(list_type,  Type::Tuple | Type::Array(_)) {
         return Err("Attempted access on non list/pair item".to_string());
     }
 
@@ -551,7 +551,7 @@ pub fn resolve_operation(data: &mut OpData, env: &mut Environment) -> Result<Opt
     }
 
     let typ = match data.operation {
-        Op::List => Type::Pair,
+        Op::List => Type::Tuple,
         Op::And | Op::Or | Op::Nor | Op::Xor | Op::Xnor | Op::Nand | Op::Negate | Op::Greater
         | Op::Less | Op::GreaterEqual | Op::LessEqual | Op::Equals | Op::BangEquals | Op::RefEqual => {
             Type::Boolean

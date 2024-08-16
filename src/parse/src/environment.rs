@@ -495,12 +495,12 @@ impl TypeData {
             let rtn_type_id = type_table.get_or_define_type(&rtn_type);
             (rtn_type, rtn_type_id)
         } else { (full_type.clone(), full_type_id) };
-        
-        TypeData{
+
+        TypeData {
             full_type_id,
             rtn_type_id,
             full_type,
-            rtn_type
+            rtn_type,
         }
     }
 }
@@ -622,7 +622,7 @@ impl<'a> Environment<'a> {
         } else { vec![] };
 
 
-        let rtn_type_id = self.meta_space.types.get_type_id(&typ.rtn_type);
+        let rtn_type_id = self.meta_space.types.get_or_define_type(&typ.rtn_type);
         let mut def = FuncMeta::new(name, param_types, rtn_type_id);
         def.set_param_local_count(locals_count as u16);
 
@@ -651,12 +651,14 @@ impl<'a> Environment<'a> {
         let res_data = ResData {
             self_ctx: Context::Symbol(symbol_data),
             target_ctx: None,
-            type_data: TypeData::from_type(&Type::Lambda(typ.clone()), &mut self.meta_space.types)
+            type_data: TypeData::from_type(&Type::Lambda(typ.clone()), &mut self.meta_space.types),
         };
 
         // curr_scope - 1 is used to get the outer scope where the symbol is declared, as the curr
         // scope is the inner scope of the function
-        let data = self.meta_space.add_symbol(self.curr_ns, self.get_parent_scope(), name, res_data);
+
+        self.pop_func();
+        let data = self.meta_space.add_symbol(self.curr_ns, self.get_parent_scope() + 1, name, res_data);
         Ok(data)
     }
 
@@ -678,7 +680,7 @@ impl<'a> Environment<'a> {
             let res_data = ResData {
                 self_ctx: Context::Symbol(symbol_data),
                 target_ctx: None,
-                type_data: TypeData::from_type(&typ, &mut self.meta_space.types)
+                type_data: TypeData::from_type(&typ, &mut self.meta_space.types),
             };
             Ok(self.meta_space.add_symbol(self.curr_ns, self.get_curr_scope(), name, res_data))
         }
@@ -717,7 +719,7 @@ impl<'a> Environment<'a> {
 
         match found.unwrap() {
             Type::Unresolved | Type::Integer | Type::Float | Type::String | Type::Boolean |
-            Type::Array(_) | Type::Nil | Type::Pair | Type::Void => found.unwrap(),
+            Type::Array(_) | Type::Nil | Type::Tuple | Type::Void => found.unwrap(),
             Type::Quote => todo!(),
             Type::Object(obj) => {
                 for typ in &obj.super_types {

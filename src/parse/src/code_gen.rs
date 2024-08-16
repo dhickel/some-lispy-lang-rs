@@ -3,7 +3,7 @@ use std::fmt::format;
 use std::ops::Deref;
 use lang::format_error;
 use lang::util::SCACHE;
-use crate::ast::{AssignData, AstData, AstNode, ConsData, DefFuncData, DefVarData, FuncCallData, IfData, InnerFuncCallData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
+use crate::ast::{AssignData, AstData, AstData, ConsData, DefFuncData, DefVarData, FuncCallData, IfData, InnerFuncCallData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
 use crate::environment::{Context, MetaSpace, ResData};
 use crate::op_codes::{decode, OpCode};
 use crate::token::Op;
@@ -82,7 +82,7 @@ impl GenData {
 // Code that is not in the body of a class or function will be returned to here to be added to the
 // top level name space code.
 // TODO should top level code even be allowed other than definitions, other than in the main ns?
-pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result<(), String> {
+pub fn code_gen(program_nodes: Vec<AstData>, comp_unit: &mut CompUnit) -> Result<(), String> {
     for node in program_nodes {
         let line_char = node.line_char;
 
@@ -99,7 +99,7 @@ pub fn code_gen(program_nodes: Vec<AstNode>, comp_unit: &mut CompUnit) -> Result
 }
 
 
-fn gen_node(node: AstNode, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_node(node: AstData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let res_data = if let Some(res_data) = node.res_data {
         res_data
     } else {

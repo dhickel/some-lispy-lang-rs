@@ -5,6 +5,7 @@ use lang::util::{IString, SCACHE};
 
 use crate::ast::*;
 use crate::ast::AstData::*;
+use crate::ParseError;
 use crate::token::*;
 use crate::token::Syn::SemiColon;
 use crate::token::TokenType::*;
@@ -23,7 +24,7 @@ struct ParserState {
 #[derive(Debug)]
 pub struct ParseResult {
     pub name_space: IString,
-    pub root_expressions: Vec<AstNode>,
+    pub root_expressions: Vec<AstData<AstNode>>,
 }
 
 
@@ -42,9 +43,10 @@ impl ParserState {
     }
 
 
-    pub fn process(&mut self) -> Result<ParseResult, String> {
-        let mut root_expressions = Vec::<AstNode>::new();
+    pub fn process(&mut self) -> Result<ParseResult, ParseError> {
+        let mut root_expressions = Vec::<AstData<AstNode>>::with_capacity(10);
         while self.have_next() {
+            
             // root_expressions.push(self.parse_expr_data()?);
             match self.parse_data() {
                 Ok(parse_data) => root_expressions.push(parse_data),
@@ -184,7 +186,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_data(&mut self) -> Result<AstNode, String> {
+    pub fn parse_data(&mut self) -> Result<AstData, String> {
         match &self.peek().token_type {
             TSyntactic(Syn::LeftParen) => {
                 self.parse_s_expr()
@@ -193,7 +195,7 @@ impl ParserState {
             TSyntactic(Syn::RightParen) => {
                 // Needed, this function is entered by parse_s_expr, but could be null list lit
                 if matches!(self.previous().token_type, TSyntactic(Syn::LeftParen)) {
-                    Ok(AstNode::new(LitNil, self.line_char()))
+                    Ok(AstData::new(LitNil, self.line_char()))
                 } else {
                     Err(format!("Right paren with no matching open, line: {}", self.peek().line))
                 }
@@ -233,12 +235,12 @@ impl ParserState {
 
             TDefinition(Def::DefineFunc) => {
                 let data = self.parse_func(true)?;
-                Ok(AstNode::new(DefFunction(data), self.line_char()))
+                Ok(AstData::new(DefFunction(data), self.line_char()))
             }
 
             TDefinition(Def::Lambda) => {
                 let data = self.parse_lambda()?;
-                Ok(AstNode::new(DefLambda(data), self.line_char()))
+                Ok(AstData::new(DefLambda(data), self.line_char()))
             }
 
             TDefinition(Def::DefineStruct) => {
@@ -249,7 +251,7 @@ impl ParserState {
                 self.parse_class_def()
             }
 
-            TSyntactic(_) => {// TODO implement quote
+            TSyntactic(_) => { // TODO implement quote
                 panic!("{:?}", &self.peek());
                 Err(format!("Unexpected token: {:?}", &self.peek()))
             }
@@ -261,7 +263,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_s_expr(&mut self) -> Result<AstNode, String> {
+    pub fn parse_s_expr(&mut self) -> Result<AstData, String> {
         self.consume_left_paren()?;
         let expression = self.parse_data()?;
 
@@ -277,7 +279,7 @@ impl ParserState {
                 accessors: None,
                 arguments: args,
             };
-            return Ok(AstNode::new(ExprFuncCalInner(data), self.line_char()));
+            return Ok(AstData::new(ExprFuncCalInner(data), self.line_char()));
         }
 
         self.consume_right_paren()?;
@@ -285,24 +287,24 @@ impl ParserState {
     }
 
 
-    pub fn parse_operation(&mut self) -> Result<AstNode, String> {
+    pub fn parse_operation(&mut self) -> Result<AstData, String> {
         let operation = if let TOperation(op) = &self.peek().token_type.clone() {
             op.clone()
         } else { return Err("Expected operation token".to_string()); };
 
         self.advance()?;
 
-        let mut operands = Vec::<AstNode>::new();
+        let mut operands = Vec::<AstData>::new();
         while self.have_next() && self.peek().token_type != TSyntactic(Syn::RightParen) {
             operands.push(self.parse_data()?);
         }
 
         let data = OpData { operation, operands };
-        Ok(AstNode::new(Operation(data), self.line_char()))
+        Ok(AstData::new(Operation(data), self.line_char()))
     }
 
 
-    pub fn parse_literal(&mut self) -> Result<AstNode, String> {
+    pub fn parse_literal(&mut self) -> Result<AstData, String> {
         let token = self.advance().unwrap().token_type;
         let data = &self.previous().data;
 
@@ -310,29 +312,29 @@ impl ParserState {
             TLiteral(lit) => {
                 match lit {
                     Lit::True => {
-                        Ok(AstNode::new(LitBoolean(true), self.line_char()))
+                        Ok(AstData::new(LitBoolean(true), self.line_char()))
                     }
 
                     Lit::False => {
-                        Ok(AstNode::new(LitBoolean(false), self.line_char()))
+                        Ok(AstData::new(LitBoolean(false), self.line_char()))
                     }
 
                     Lit::String => {
                         if let Some(TokenData::String(value)) = data {
                             let string = util::SCACHE.resolve(*value).to_string();
-                            Ok(AstNode::new(LitString(string), self.line_char()))
+                            Ok(AstData::new(LitString(string), self.line_char()))
                         } else { Err(format!("Invalid data for string literal: {:?}", &self.peek().data)) }
                     }
 
                     Lit::Int => {
                         if let Some(TokenData::Integer(value)) = data {
-                            Ok(AstNode::new(LitInteger(*value), self.line_char()))
+                            Ok(AstData::new(LitInteger(*value), self.line_char()))
                         } else { Err(format!("Invalid data for integer literal: {:?}", &self.peek().data)) }
                     }
 
                     Lit::Float => {
                         if let Some(TokenData::Float(value)) = data {
-                            Ok(AstNode::new(LitFloat(*value), self.line_char()))
+                            Ok(AstData::new(LitFloat(*value), self.line_char()))
                         } else { Err(format!("Invalid data for float literal: {:?}", &self.peek().data)) }
                     }
 
@@ -348,7 +350,7 @@ impl ParserState {
                         } else { Err(format!("Invalid data for identifier: {:?}", &self.peek().data)) }
                     }
 
-                    Lit::Nil => Ok(AstNode::new(LitNil, self.line_char())),
+                    Lit::Nil => Ok(AstData::new(LitNil, self.line_char())),
                 }
             }
             _ => Err(format!("Expected literal value found: {:?}", token.clone()))
@@ -356,7 +358,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_exact_expr(&mut self) -> Result<AstNode, String> {
+    pub fn parse_exact_expr(&mut self) -> Result<AstData, String> {
         let expression = self.advance()?;
         match expression.token_type {
             TExpression(Expr::If) => {
@@ -404,7 +406,7 @@ impl ParserState {
                     pattern: Some(vec![0]),
                     list: self.parse_list_head()?,
                 };
-                Ok(AstNode::new(ExprListAccess(data), self.line_char()))
+                Ok(AstData::new(ExprListAccess(data), self.line_char()))
             }
 
             TExpression(Expr::Cdr) => {
@@ -413,7 +415,7 @@ impl ParserState {
                     pattern: Some(vec![1]),
                     list: self.parse_list_head()?,
                 };
-                Ok(AstNode::new(ExprListAccess(data), self.line_char()))
+                Ok(AstData::new(ExprListAccess(data), self.line_char()))
             }
 
             TExpression(Expr::Randi) => {
@@ -429,7 +431,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_rand(&mut self, is_float: bool) -> Result<AstNode, String> {
+    pub fn parse_rand(&mut self, is_float: bool) -> Result<AstData, String> {
         let lower = self.parse_data()?;
         let upper = self.parse_data()?;
         let data = GenRandData {
@@ -437,11 +439,11 @@ impl ParserState {
             upper,
             lower,
         };
-        Ok(AstNode::new(ExprGenRand(data), self.line_char()))
+        Ok(AstData::new(ExprGenRand(data), self.line_char()))
     }
 
 
-    pub fn parse_assign(&mut self) -> Result<AstNode, String> {
+    pub fn parse_assign(&mut self) -> Result<AstData, String> {
         match self.peek().token_type {
             TLiteral(Lit::Identifier) => {
                 let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
@@ -452,8 +454,8 @@ impl ParserState {
                 self.consume(TSyntactic(Syn::Assign))?;
                 let value = self.parse_data()?;
 
-                let data = AssignData { name, value, namespace: None };// FIXME ns
-                Ok(AstNode::new(ExprAssignment(data), self.line_char()))
+                let data = AssignData { name, value, namespace: None }; // FIXME ns
+                Ok(AstData::new(ExprAssignment(data), self.line_char()))
             }
 
             TSyntactic(Syn::LeftParen) => {
@@ -472,7 +474,7 @@ impl ParserState {
 
                 let access = ObjectCallData { name, namespace: None, accessors }; //FIXME ns
                 let assign_data = ObjectAssignData { access, value, namespace: None }; // FIXME ns
-                Ok(AstNode::new(ExprObjectAssignment(assign_data), self.line_char()))
+                Ok(AstData::new(ExprObjectAssignment(assign_data), self.line_char()))
             }
 
             _ => Err(format!(
@@ -483,7 +485,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_if(&mut self) -> Result<AstNode, String> {
+    pub fn parse_if(&mut self) -> Result<AstData, String> {
         let condition = self.parse_data()?;
         let then = self.parse_data()?;
         let if_branch = CondBranch { cond_node: condition, then_node: then };
@@ -493,11 +495,11 @@ impl ParserState {
         } else { None };
 
         let data = IfData { if_branch, else_branch };
-        Ok(AstNode::new(ExprIf(data), self.line_char()))
+        Ok(AstData::new(ExprIf(data), self.line_char()))
     }
 
 
-    pub fn parse_cond(&mut self) -> Result<AstNode, String> {
+    pub fn parse_cond(&mut self) -> Result<AstData, String> {
         let mut cond_branches = Vec::<CondBranch>::new();
         let mut else_branch = None;
 
@@ -518,7 +520,7 @@ impl ParserState {
             Err(format!("Cond expression must have at least one branch, line: {}", self.peek().line))
         } else {
             let data = CondData { cond_branches, else_branch };
-            Ok(AstNode::new(ExprCond(data), self.line_char()))
+            Ok(AstData::new(ExprCond(data), self.line_char()))
         }
     }
 
@@ -532,9 +534,9 @@ impl ParserState {
     }
 
 
-    pub fn parse_multi_expr(&mut self) -> Result<Option<AstNode>, String> {
+    pub fn parse_multi_expr(&mut self) -> Result<Option<AstData>, String> {
         self.consume_left_brace()?;
-        let mut expressions = Vec::<AstNode>::new();
+        let mut expressions = Vec::<AstData>::new();
         while self.peek().token_type != TSyntactic(Syn::RightBrace) {
             expressions.push(self.parse_data()?);
         }
@@ -547,47 +549,47 @@ impl ParserState {
             Ok(Some(expressions.pop().unwrap()))
         } else {
             let data = MultiExprData { expressions };
-            Ok(Some(AstNode::new(ExprMulti(data), self.line_char())))
+            Ok(Some(AstData::new(ExprMulti(data), self.line_char())))
         }
     }
 
 
-    pub fn parse_print(&mut self) -> Result<AstNode, String> {
+    pub fn parse_print(&mut self) -> Result<AstData, String> {
         let expr = self.parse_data()?;
-        Ok(AstNode::new(ExprPrint(expr), self.line_char()))
+        Ok(AstData::new(ExprPrint(expr), self.line_char()))
     }
 
 
-    pub fn parse_list(&mut self) -> Result<AstNode, String> {
-        let mut elements = Vec::<AstNode>::new();
+    pub fn parse_list(&mut self) -> Result<AstData, String> {
+        let mut elements = Vec::<AstData>::new();
         while self.peek().token_type != TSyntactic(Syn::RightParen) {
             elements.push(self.parse_data()?);
         }
 
         if elements.is_empty() {
-            Ok(AstNode::new(LitNil, self.line_char()))
+            Ok(AstData::new(LitNil, self.line_char()))
         } else {
             let data = OpData { operation: Op::List, operands: elements };
-            Ok(AstNode::new(ExprPairList(data), self.line_char()))
+            Ok(AstData::new(ExprPairList(data), self.line_char()))
         }
     }
 
-    pub fn parse_array(&mut self) -> Result<AstNode, String> {
-        let mut elements = Vec::<AstNode>::new();
+    pub fn parse_array(&mut self) -> Result<AstData, String> {
+        let mut elements = Vec::<AstData>::new();
         while self.peek().token_type != TSyntactic(Syn::RightParen) {
             elements.push(self.parse_data()?);
         }
 
         if elements.is_empty() {
-            Ok(AstNode::new(LitNil, self.line_char()))
+            Ok(AstData::new(LitNil, self.line_char()))
         } else {
             let data = OpData { operation: Op::List, operands: elements };
-            Ok(AstNode::new(ExprArray(data), self.line_char()))
+            Ok(AstData::new(ExprArray(data), self.line_char()))
         }
     }
 
 
-    pub fn parse_list_head(&mut self) -> Result<AstNode, String> {
+    pub fn parse_list_head(&mut self) -> Result<AstData, String> {
         let head = self.parse_data()?;
         if self.peek().token_type != TSyntactic(Syn::RightParen) {
             Err(format!("Invalid argument count, line: {}", self.peek().line))
@@ -597,7 +599,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_list_access(&mut self) -> Result<AstNode, String> {
+    pub fn parse_list_access(&mut self) -> Result<AstData, String> {
         if self.peek().token_type == TSyntactic(Syn::SingleQuote) {
             self.advance()?;
 
@@ -621,7 +623,7 @@ impl ParserState {
                     pattern: Some(pattern),
                     list,
                 };
-                Ok(AstNode::new(ExprListAccess(data), self.line_char()))
+                Ok(AstData::new(ExprListAccess(data), self.line_char()))
             } else {
                 Err("Expected fr... access pattern".to_string())
             }
@@ -633,12 +635,12 @@ impl ParserState {
                 pattern: None,
                 list,
             };
-            Ok(AstNode::new(ExprListAccess(data), self.line_char()))
+            Ok(AstData::new(ExprListAccess(data), self.line_char()))
         }
     }
 
 
-    pub fn parse_while(&mut self) -> Result<AstNode, String> {
+    pub fn parse_while(&mut self) -> Result<AstData, String> {
         let is_do = if self.peek().token_type == TModifier(Mod::Do) {
             self.advance()?;
             true
@@ -651,11 +653,11 @@ impl ParserState {
         };
 
         let data = WhileData { condition, body, is_do };
-        Ok(AstNode::new(ExprWhileLoop(data), self.line_char()))
+        Ok(AstData::new(ExprWhileLoop(data), self.line_char()))
     }
 
 
-    pub fn parse_cons(&mut self) -> Result<AstNode, String> {
+    pub fn parse_cons(&mut self) -> Result<AstData, String> {
         let car = self.parse_data()?;
         let cdr = self.parse_data()?;
 
@@ -663,7 +665,7 @@ impl ParserState {
             Err("Cons expression may only have 2 arguments".to_string())
         } else {
             let data = ConsData { car, cdr };
-            Ok(AstNode::new(ExprCons(data), self.line_char()))
+            Ok(AstData::new(ExprCons(data), self.line_char()))
         }
     }
 
@@ -748,7 +750,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_identifier(&mut self, identifier: IString) -> Result<AstNode, String> {
+    pub fn parse_identifier(&mut self, identifier: IString) -> Result<AstData, String> {
         let name = identifier;
         let mut accessors = None;
 
@@ -769,17 +771,17 @@ impl ParserState {
 
             if let Some(accessors) = accessors {
                 let data = ObjectCallData { name, accessors, namespace: None };
-                Ok(AstNode::new(ExprObjectCall(data), self.line_char()))
+                Ok(AstData::new(ExprObjectCall(data), self.line_char()))
             } else {
                 let data = FuncCallData { name, arguments, namespace: None };
-                Ok(AstNode::new(ExprFuncCall(data), self.line_char()))
+                Ok(AstData::new(ExprFuncCall(data), self.line_char()))
             }
         } else {
             if accessors.is_some() {
                 return Err("All object access must be contained inside an expression,\
                 Ex: (<Object>:.field) not <Object>:.field".to_string());
             }
-            Ok(AstNode::new(ExprLiteralCall(LiteralCallData { name, namespace: None }), self.line_char()))
+            Ok(AstData::new(ExprLiteralCall(LiteralCallData { name, namespace: None }), self.line_char()))
         }
     }
 
@@ -832,7 +834,7 @@ impl ParserState {
     }
 
 
-    pub fn parse_define(&mut self) -> Result<AstNode, String> {
+    pub fn parse_define(&mut self) -> Result<AstData, String> {
         self.consume(TDefinition(Def::Define))?;
 
 
@@ -859,18 +861,18 @@ impl ParserState {
 
 
                     let data = DefFuncData { name, lambda, d_type: typ };
-                    AstNode::new(DefFunction(data), self.line_char())
+                    AstData::new(DefFunction(data), self.line_char())
                 } else {
                     let value = self.parse_data()?;
                     let data = DefVarData { name, modifiers, value, d_type: var_type };
-                    AstNode::new(DefVariable(data), self.line_char())
+                    AstData::new(DefVariable(data), self.line_char())
                 }
             }
 
             TLiteral(_) => {
                 let value = self.parse_literal()?;
                 let data = DefVarData { name, modifiers, value, d_type: var_type };
-                AstNode::new(DefVariable(data), self.line_char())
+                AstData::new(DefVariable(data), self.line_char())
             }
 
             TSyntactic(Syn::SingleQuote) => {
@@ -883,18 +885,18 @@ impl ParserState {
     }
 
 
-    pub fn parse_instance(&mut self, name: IString) -> Result<AstNode, String> {
+    pub fn parse_instance(&mut self, name: IString) -> Result<AstData, String> {
         if self.previous_n(2).token_type == TSyntactic(Syn::LeftParen) {
             let arguments = self.parse_func_args()?;
             let data = FuncCallData { name, arguments, namespace: None };
-            Ok(AstNode::new(ExprInitInst(data), self.line_char()))
+            Ok(AstData::new(ExprInitInst(data), self.line_char()))
         } else {
             self.consume(TSyntactic(Syn::LeftBracket))?; // post-fixed direct call, consume opening bracket
             let args = self.parse_named_args()?;
             self.consume(TSyntactic(Syn::RightBracket))?;
 
             let data = DirectInst { name, args, namespace: None };
-            Ok(AstNode::new(ExprDirectInst(data), self.line_char()))
+            Ok(AstData::new(ExprDirectInst(data), self.line_char()))
         }
     }
 
@@ -918,20 +920,20 @@ impl ParserState {
 
 
     // FIXME
-    pub fn parse_quote(&mut self) -> Result<AstNode, String> {
+    pub fn parse_quote(&mut self) -> Result<AstData, String> {
         self.consume(TSyntactic(Syn::SingleQuote))?;
         if self.peek().token_type == TSyntactic(Syn::LeftParen)
             && self.peek_n(2).token_type == TSyntactic(Syn::RightParen)
         {
             self.consume_left_paren()?;
             self.consume_right_paren()?;
-            return Ok(AstNode::new(LitNil, self.line_char()));
+            return Ok(AstData::new(LitNil, self.line_char()));
         }
-        Ok(AstNode::new(LitQuote, self.line_char()))
+        Ok(AstData::new(LitQuote, self.line_char()))
     }
 
 
-    pub fn parse_struct_def(&mut self) -> Result<AstNode, String> {
+    pub fn parse_struct_def(&mut self) -> Result<AstData, String> {
         self.consume(TDefinition(Def::DefineStruct))?;
 
         let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
@@ -941,11 +943,11 @@ impl ParserState {
 
         let fields = self.parse_fields()?;
         let data = DefStructData { name, fields };
-        Ok(AstNode::new(DefStruct(data), self.line_char()))
+        Ok(AstData::new(DefStruct(data), self.line_char()))
     }
 
 
-    pub fn parse_class_def(&mut self) -> Result<AstNode, String> {
+    pub fn parse_class_def(&mut self) -> Result<AstData, String> {
         self.consume(TDefinition(Def::DefineClass))?;
 
         let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
@@ -1031,7 +1033,7 @@ impl ParserState {
 
             self.consume_right_paren()?;
         }
-        Ok(AstNode::new(DefClass(class_data), self.line_char()))
+        Ok(AstData::new(DefClass(class_data), self.line_char()))
     }
 
 
@@ -1052,7 +1054,7 @@ impl ParserState {
 
             let p_type = self.parse_type_if_exists(true)?;
 
-            let default_value: Option<AstNode> = if self.peek().token_type == TSyntactic(Syn::Bar) {
+            let default_value: Option<AstData> = if self.peek().token_type == TSyntactic(Syn::Bar) {
                 self.advance()?;
                 Some(self.parse_data()?)
             } else { None };
@@ -1103,7 +1105,7 @@ impl ParserState {
 
         let full_type = param_types
             .map(|p_types|
-                Type::Lambda(FuncType { rtn_type: Box::new(rtn_typ), param_types: p_types }));
+            Type::Lambda(FuncType { rtn_type: Box::new(rtn_typ), param_types: p_types }));
 
 
         Ok(DefLambdaData { parameters, body, d_type: full_type })

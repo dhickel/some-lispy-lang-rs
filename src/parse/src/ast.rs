@@ -2,39 +2,104 @@ use std::collections::LinkedList;
 
 use lang::util::IString;
 use crate::environment::{ExprContext, ResData, SymbolCtx};
+use crate::ParseError;
 use crate::token::{Mod, Op};
-use crate::types::Type;
+use crate::types::{Type, TypeCheck};
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct AstNode {
-    pub node_data: Box<AstData>,
+pub struct AstData<T> {
+    pub expr_type: Type,
+    pub node_data: Box<T>,
     pub line_char: (u32, u32),
     pub res_data: Option<ResData>,
 }
 
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum AstNode {
+    Statement(Statement),
+    Expression(Expression),
+}
+
 impl AstNode {
-    pub fn resolved_type(&self) -> Option<Type> {
-        self.res_data.as_ref().map(|res_data| res_data.type_data.rtn_type.clone())
-    }
+
 }
 
 
-impl AstNode {
-    pub fn new(node_data: AstData, line_char: (u32, u32)) -> Self {
-        AstNode {
-            node_data: Box::new(node_data),
-            line_char,
-            res_data: None,
-        }
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub enum Statement {
+    Let(AstData<LetData>),
+    Assign(AstData<AssignData>),
 }
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssignData {
+    pub name: IString,
+    pub namespace: Option<IString>,
+    pub value: AstData<AstNode>,
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LetData {
+    pub name: IString,
+    pub modifiers: Vec<Mod>,
+    pub assignment: AstData<Expression>,
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expression {
+    Operation(AstData<OpData>),
+    Block(AstData<Vec<AstNode>>),
+    Predicate(AstData<PredicateData>),
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpData {
+    pub operation: Op,
+    pub operands: Vec<AstData<Expression>>,
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PredicateData {
+    pub pred_expr: AstData<Expression>,
+    pub then_expr: Option<AstData<Expression>>,
+    pub else_expr: Option<AstData<Expression>>,
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Literal {
+    I8(AstData<i8>),
+    I16(AstData<i16>),
+    I32(AstData<i32>),
+    I64(AstData<i64>),
+    U8(AstData<u8>),
+    U16(AstData<u16>),
+    U32(AstData<u32>),
+    U64(AstData<u64>),
+    F32(AstData<f32>),
+    F64(AstData<f64>),
+    Boolean(AstData<bool>),
+    Quote(AstData<AstNode>),
+    Object,
+    Nil(AstData<()>),
+    Array,
+
+    String,
+    Tuple,
+}
+
 
 // Nodes
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum AstData {
+pub enum AstDdsata {
     // Definition
     DefVariable(DefVarData),
     DefLambda(DefLambdaData),
@@ -45,7 +110,7 @@ pub enum AstData {
     // Expressions
     ExprAssignment(AssignData),
     ExprMulti(MultiExprData),
-    ExprPrint(AstNode),
+    ExprPrint(AstData),
     ExprIf(IfData),
     ExprCond(CondData),
     ExprWhileLoop(WhileData),
@@ -90,7 +155,7 @@ pub enum AstData {
 pub struct DefVarData {
     pub name: IString,
     pub modifiers: Option<Vec<Mod>>,
-    pub value: AstNode,
+    pub value: AstData,
     pub d_type: Option<Type>,
 }
 
@@ -98,7 +163,7 @@ pub struct DefVarData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefLambdaData {
     pub parameters: Option<Vec<Param>>,
-    pub body: AstNode,
+    pub body: AstData,
     pub d_type: Option<Type>,
 }
 
@@ -134,10 +199,10 @@ pub struct DefClassData {
     pub fields: Option<Vec<Field>>,
     pub init: Option<Vec<DefLambdaData>>,
     pub methods: Option<Vec<DefFuncData>>,
-    pub pre_init: Option<AstNode>,
-    pub post_init: Option<AstNode>,
-    pub fin: Option<AstNode>,
-    pub validate: Option<AstNode>,
+    pub pre_init: Option<AstData>,
+    pub post_init: Option<AstData>,
+    pub fin: Option<AstData>,
+    pub validate: Option<AstData>,
 }
 
 
@@ -171,58 +236,42 @@ pub struct Field {
     pub name: IString,
     pub modifiers: Option<Vec<Mod>>,
     pub p_type: Option<Type>,
-    pub default_value: Option<AstNode>,
-}
-
-
-// Operation Data
-#[derive(Debug, Clone, PartialEq)]
-pub struct OpData {
-    pub operation: Op,
-    pub operands: Vec<AstNode>,
+    pub default_value: Option<AstData>,
 }
 
 
 // Expression Data
 #[derive(Debug, Clone, PartialEq)]
 pub struct MultiExprData {
-    pub expressions: Vec<AstNode>,
-}
-
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AssignData {
-    pub name: IString,
-    pub namespace: Option<IString>,
-    pub value: AstNode,
+    pub expressions: Vec<AstData>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBranch {
-    pub cond_node: AstNode,
-    pub then_node: AstNode,
+    pub cond_node: AstData,
+    pub then_node: AstData,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfData {
     pub if_branch: CondBranch,
-    pub else_branch: Option<AstNode>,
+    pub else_branch: Option<AstData>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondData {
     pub cond_branches: Vec<CondBranch>,
-    pub else_branch: Option<AstNode>,
+    pub else_branch: Option<AstData>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileData {
-    pub condition: AstNode,
-    pub body: AstNode,
+    pub condition: AstData,
+    pub body: AstData,
     pub is_do: bool,
 
 }
@@ -230,17 +279,17 @@ pub struct WhileData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConsData {
-    pub car: AstNode,
-    pub cdr: AstNode,
+    pub car: AstData,
+    pub cdr: AstData,
 
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListAccData {
-    pub index_expr: Option<AstNode>,
+    pub index_expr: Option<AstData>,
     pub pattern: Option<Vec<u8>>,
-    pub list: AstNode,
+    pub list: AstData,
 
 }
 
@@ -275,14 +324,14 @@ pub struct LiteralCallData {
 pub struct ObjectAssignData {
     pub access: ObjectCallData,
     pub namespace: Option<IString>,
-    pub value: AstNode,
+    pub value: AstData,
 
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InnerFuncCallData {
-    pub expr: AstNode,
+    pub expr: AstData,
     pub namespace: Option<IString>,
     pub accessors: Option<Vec<Accessor>>,
     pub arguments: Option<Vec<FuncArg>>,
@@ -300,7 +349,7 @@ pub struct Accessor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncArg {
-    pub value: AstNode,
+    pub value: AstData,
     pub name: Option<IString>,
 }
 
@@ -308,13 +357,13 @@ pub struct FuncArg {
 #[derive(Debug, Clone, PartialEq)]
 pub struct InstArgs {
     pub name: IString,
-    pub value: AstNode,
+    pub value: AstData,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenRandData {
     pub is_float: bool,
-    pub lower: AstNode,
-    pub upper: AstNode,
+    pub lower: AstData,
+    pub upper: AstData,
 }

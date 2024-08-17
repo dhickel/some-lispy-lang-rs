@@ -3,7 +3,7 @@ use crate::token::Mod::*;
 use crate::token::Syn::*;
 use crate::token::Op::*;
 use crate::token::Expr::*;
-use crate::token::Def::*;
+use crate::token::Stmt::*;
 use crate::token::Lit::*;
 use crate::token::TokenType::*;
 
@@ -58,7 +58,7 @@ pub fn match_double_token(input: (char, char)) -> Option<TokenType> {
         ('#', 't') => Some(TLiteral(True)),
         ('#', 'f') => Some(TLiteral(False)),
         ('i', 'f') => Some(TExpression(If)),
-        ('=', '>') => Some(TDefinition(Lambda)),
+        ('=', '>') => Some(TExpression(Lambda)),
         ('-', '>') => Some(TSyntactic(Arrow)),
         _ => None,
     }
@@ -89,7 +89,8 @@ pub fn match_word_token(input: &str) -> Option<TokenType> {
         "list" => Some(TExpression(Expr::List)),
         "array" => Some(TExpression(Expr::Array)),
         "lacc" => Some(TExpression(Lacc)),
-        "let" => Some(TDefinition(Define)),
+        "let" => Some(TDefinition(DefineLet)),
+        "func" => Some(TDefinition(DefineFunc)),
         "class" => Some(TDefinition(DefineClass)),
         "struct" => Some(TDefinition(DefineStruct)),
         "randi" => Some(TExpression(Randi)),
@@ -119,7 +120,7 @@ pub enum TokenType {
     TSyntactic(Syn),
     TOperation(Op),
     TExpression(Expr),
-    TDefinition(Def),
+    TDefinition(Stmt),
     TLiteral(Lit),
     TModifier(Mod),
 }
@@ -216,16 +217,16 @@ pub enum Expr {
     Randi,
     Randf,
     Array,
+    Fn,
 }
 
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum Def {
-    Define,
+pub enum Stmt {
+    DefineLet,
     DefineFunc,
     DefineClass,
     DefineStruct,
-    Lambda,
 }
 
 
@@ -241,7 +242,7 @@ pub enum Mod {
 }
 
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenData {
     String(IString),
     Integer(i64),
@@ -249,7 +250,7 @@ pub enum TokenData {
 }
 
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy,)]
 pub struct Token {
     pub token_type: TokenType,
     pub data: Option<TokenData>,

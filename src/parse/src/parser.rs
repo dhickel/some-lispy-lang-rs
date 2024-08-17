@@ -46,7 +46,7 @@ impl ParserState {
     pub fn process(&mut self) -> Result<ParseResult, ParseError> {
         let mut root_expressions = Vec::<AstData<AstNode>>::with_capacity(10);
         while self.have_next() {
-            
+
             // root_expressions.push(self.parse_expr_data()?);
             match self.parse_data() {
                 Ok(parse_data) => root_expressions.push(parse_data),
@@ -61,7 +61,7 @@ impl ParserState {
         self.warnings.push(warning);
     }
 
-    pub fn have_next(&mut self) -> bool {
+    pub fn have_next(&self) -> bool {
         self.current + 1 < self.end
     }
 
@@ -92,16 +92,31 @@ impl ParserState {
         } else { &self.peek().token_type == token_type }
     }
 
-
-    pub fn advance(&mut self) -> Result<&Token, String> {
-        if !self.have_next() { return Err("Advanced past end".to_string()); }
-
-        if matches!(self.peek().token_type, TSyntactic(Syn::LeftParen) | TSyntactic(Syn::RightParen)) {
-            panic!("Parenthesis should  be advanced via consume paren function");
-            return Err("Parenthesis should only be advanced via consume paren function".to_string());
+    pub fn open_container_token_check(&self) -> Result<(), ParseError> {
+        if matches!(self.peek().token_type, 
+            TSyntactic(Syn::LeftParen) | TSyntactic(Syn::RightParen) |
+            TSyntactic(Syn::LeftBracket) | TSyntactic(Syn::RightBracket) |
+            TSyntactic(Syn::LeftBrace) | TSyntactic(Syn::RightBrace)
+        ) {
+            ParseError::parse_error(
+                "\"(,[,{,},],)\" should only be advanced via related  consumer function".to_string()
+            )
+        } else {
+            Ok(())
         }
+    }
+
+    pub fn advance_past_end_check(&self) -> Result<(), ParseError> {
+        if !self.have_next() { return Err(ParseError::Parsing("Advanced past end".to_string()); }
+    }
+
+
+    pub fn advance(&mut self) -> Result<Token, ParseError> {
+        self.advance_past_end_check()?;
+        self.open_container_token_check()?;
+
         self.current += 1;
-        Ok(&self.tokens[self.current - 1])
+        Ok(self.tokens[self.current - 1])
     }
 
 
@@ -110,25 +125,20 @@ impl ParserState {
     }
 
 
-    pub fn consume(&mut self, token_type: TokenType) -> Result<&Token, String> {
-        if !self.have_next() { return Err("Advanced past end".to_string()); }
+    pub fn consume(&mut self, token_type: TokenType) -> Result<Token, ParseError> {
+        self.advance_past_end_check()?;
+        self.open_container_token_check()?;
 
-        if matches!(self.peek().token_type, TSyntactic(Syn::LeftParen) | TSyntactic(Syn::RightParen)) {
-            //panic!("Parenthesis should only be advanced via consume paren function");
-            return Err("Parenthesis should only be advanced via consume paren function".to_string());
-        }
         if !self.check(&token_type) {
-            panic!("Expected: {:?}, Found: {:?}", token_type, self.peek());
-            return Err(format!("Expected: {:?}, Found: {:?}", token_type, self.peek()));
+            ParseError::parse_error(format!("Expected: {:?}, Found: {:?}", token_type, self.peek()))
         }
         self.advance()
     }
 
 
-    pub fn consume_left_paren(&mut self) -> Result<(), String> {
+    pub fn consume_left_paren(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::LeftParen)) {
-            //  panic!("Expected: Left Paren, Found: {:?}", self.peek());
-            return Err(format!("Expected: Left Paren, Found: {:?}", self.peek()));
+            ParseError::parse_error(format!("Expected: Left Paren, Found: {:?}", self.peek()))
         }
         self.current += 1;
         self.depth += 1;
@@ -136,54 +146,110 @@ impl ParserState {
     }
 
 
-    pub fn consume_right_paren(&mut self) -> Result<(), String> {
+    pub fn consume_right_paren(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::RightParen)) {
-            //  panic!("Expected: Right Paren, Found: {:?}", self.peek());
-            return Err(format!("Expected: Right Paren, Found: {:?}", self.peek()));
+            ParseError::parse_error(format!("Expected: Right Paren, Found: {:?}", self.peek()))
         }
         self.current += 1;
         self.depth -= 1;
         Ok(())
     }
 
-    pub fn consume_left_bracket(&mut self) -> Result<(), String> {
+    pub fn consume_left_bracket(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::LeftBracket)) {
-            panic!("Expected: Left Bracket, Found: {:?}", self.peek());
-            return Err(format!("Expected: Left Bracket, Found: {:?}", self.peek()));
+            ParseError::parse_error(format!("Expected: Left Bracket, Found: {:?}", self.peek()))
         }
         self.current += 1;
         Ok(())
     }
 
 
-    pub fn consume_right_bracket(&mut self) -> Result<(), String> {
+    pub fn consume_right_bracket(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::RightBracket)) {
-            panic!("Expected: Right Bracket, Found: {:?}", self.peek());
-            return Err(format!("Expected: Right Bracket, Found: {:?}", self.peek()));
+            ParseError::parse_error(format!("Expected: Right Bracket, Found: {:?}", self.peek()))
         }
         self.current += 1;
         Ok(())
     }
 
 
-    pub fn consume_left_brace(&mut self) -> Result<(), String> {
+    pub fn consume_left_brace(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::LeftBrace)) {
-            // panic!("Expected: Left Bracket, Found: {:?}", self.peek());
-            return Err(format!("Expected: Left Brace, Found: {:?}", self.peek()));
+            ParseError::parse_error(format!("Expected: Left Brace, Found: {:?}", self.peek()))
         }
         self.current += 1;
         Ok(())
     }
 
 
-    pub fn consume_right_brace(&mut self) -> Result<(), String> {
+    pub fn consume_right_brace(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::RightBrace)) {
-            //   panic!("Expected: Right Bracket, Found: {:?}", self.peek());
-            return Err(format!("Expected: Right Brace, Found: {:?}", self.peek()));
+            ParseError::parse_error(format!("Expected: Right Brace, Found: {:?}", self.peek()))
         }
         self.current += 1;
         Ok(())
     }
+
+    pub fn parse_next(&mut self) -> Result<AstNode, ParseError> {}
+
+
+    ////////////////
+    // STATEMENTS //
+    ////////////////
+
+    pub fn is_statement(&self) -> bool {
+        self.is_statement() || self.is_next_assign_statement()
+    }
+
+    pub fn is_next_definition_statement(&self) -> bool {
+        matches!(self.peek().token_type, TDefinition(_))
+    }
+
+    pub fn is_next_assign_statement(&self) -> bool {
+        matches!(self.peek().token_type, TLiteral(Lit::Identifier))
+            && matches!(self.peek_n(2), TSyntactic(Syn::Assign))
+    }
+
+
+    // Definition Statements
+
+    pub fn parse_definition_statement(&mut self) -> Result<Statement, ParseError> {
+        match self.advance()?.token_type {
+            TDefinition(Stmt::DefineLet) => {}
+            TDefinition(Stmt::DefineFunc) => {}
+            TDefinition(Stmt::DefineClass) => {}
+            TDefinition(Stmt::DefineStruct) => {}
+            TDefinition(_) => ParseError::parse_error("Unimplemented definition statement".to_string()),
+            other => ParseError::parse_error(format!("Expected definition found: {:?}", other))
+        }
+    }
+
+    // Assignment Statements
+
+    pub fn parse_assignment(&mut self) -> Result<Statement, ParseError> {
+        let identifier = match self.consume(TLiteral(Lit::Identifier))?.data {
+            TokenData::String(token) => token,
+            __ => ParseError::parse_error(format!("Expected identifier token(string), found: {:?}", __))
+        };
+
+        let expression = if self.is_expression() {
+            
+        } else { ParseError::parse_error("Expected expression as assignment value".to_string()) }
+    }
+
+    /////////////////
+    // Expressions //
+    /////////////////
+
+    pub fn is_expression(&self) -> bool {
+        todo!()
+    }
+    pub fn parse_expression(&mut self) -> (AstNode)
+
+
+    /////////////////
+    //             //
+    /////////////////
 
 
     pub fn parse_data(&mut self) -> Result<AstData, String> {
@@ -217,7 +283,7 @@ impl ParserState {
                 }
             }
 
-            TDefinition(Def::Define) => {
+            TDefinition(Stmt::Define) => {
                 self.parse_define()
             }
 
@@ -233,21 +299,21 @@ impl ParserState {
                 self.parse_exact_expr()
             }
 
-            TDefinition(Def::DefineFunc) => {
+            TDefinition(Stmt::DefineFunc) => {
                 let data = self.parse_func(true)?;
                 Ok(AstData::new(DefFunction(data), self.line_char()))
             }
 
-            TDefinition(Def::Lambda) => {
+            TDefinition(Stmt::Lambda) => {
                 let data = self.parse_lambda()?;
                 Ok(AstData::new(DefLambda(data), self.line_char()))
             }
 
-            TDefinition(Def::DefineStruct) => {
+            TDefinition(Stmt::DefineStruct) => {
                 self.parse_struct_def()
             }
 
-            TDefinition(Def::DefineClass) => {
+            TDefinition(Stmt::DefineClass) => {
                 self.parse_class_def()
             }
 
@@ -574,6 +640,7 @@ impl ParserState {
         }
     }
 
+
     pub fn parse_array(&mut self) -> Result<AstData, String> {
         let mut elements = Vec::<AstData>::new();
         while self.peek().token_type != TSyntactic(Syn::RightParen) {
@@ -835,7 +902,7 @@ impl ParserState {
 
 
     pub fn parse_define(&mut self) -> Result<AstData, String> {
-        self.consume(TDefinition(Def::Define))?;
+        self.consume(TDefinition(Stmt::Define))?;
 
 
         let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
@@ -849,7 +916,7 @@ impl ParserState {
 
         let definition = match self.peek().token_type {
             TSyntactic(Syn::LeftParen) => {
-                if self.peek_n(2).token_type == TDefinition(Def::Lambda) {
+                if self.peek_n(2).token_type == TDefinition(Stmt::Lambda) {
                     if var_type != None {
                         self.push_warning("Type specifier is unused for function definition".to_string());
                     };
@@ -934,7 +1001,7 @@ impl ParserState {
 
 
     pub fn parse_struct_def(&mut self) -> Result<AstData, String> {
-        self.consume(TDefinition(Def::DefineStruct))?;
+        self.consume(TDefinition(Stmt::DefineStruct))?;
 
         let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
             Some(TokenData::String(name)) => name.clone(),
@@ -948,7 +1015,7 @@ impl ParserState {
 
 
     pub fn parse_class_def(&mut self) -> Result<AstData, String> {
-        self.consume(TDefinition(Def::DefineClass))?;
+        self.consume(TDefinition(Stmt::DefineClass))?;
 
         let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
             Some(TokenData::String(name)) => name.clone(),
@@ -1069,7 +1136,7 @@ impl ParserState {
 
 
     pub fn parse_func(&mut self, is_defunc: bool) -> Result<DefFuncData, String> {
-        if is_defunc { self.consume(TDefinition(Def::DefineFunc))?; }
+        if is_defunc { self.consume(TDefinition(Stmt::DefineFunc))?; }
 
         let name = match &self.consume(TLiteral(Lit::Identifier))?.data {
             Some(TokenData::String(name)) => name.clone(),
@@ -1087,7 +1154,7 @@ impl ParserState {
 
 
     pub fn parse_lambda(&mut self) -> Result<DefLambdaData, String> {
-        self.consume(TDefinition(Def::Lambda))?;
+        self.consume(TDefinition(Stmt::Lambda))?;
 
         let rtn_typ = self.parse_type_if_exists(true)?
             .unwrap_or_else(|| Type::Void);

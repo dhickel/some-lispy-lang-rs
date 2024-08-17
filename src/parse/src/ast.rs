@@ -16,21 +16,39 @@ pub struct AstData<T> {
 }
 
 
+impl<T> AstData<T> {
+    pub fn new<T>(data: T, line_char: (u32, u32), typ: Option<Type>) -> Self {
+        Self {
+            expr_type: typ.unwrap_or(Type::default()),
+            node_data: Box::new(data),
+            line_char,
+            res_data: None,
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
     Statement(Statement),
     Expression(Expression),
 }
 
-impl AstNode {
 
-}
+impl AstNode {}
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Let(AstData<LetData>),
     Assign(AstData<AssignData>),
+}
+
+
+impl Into<AstNode> for Statement {
+    fn into(self) -> AstNode {
+        AstNode::Statement(self)
+    }
 }
 
 
@@ -55,6 +73,13 @@ pub enum Expression {
     Operation(AstData<OpData>),
     Block(AstData<Vec<AstNode>>),
     Predicate(AstData<PredicateData>),
+}
+
+
+impl Into<AstNode> for Expression {
+    fn into(self) -> AstNode {
+        AstNode::Expression(self)
+    }
 }
 
 
@@ -90,9 +115,15 @@ pub enum Literal {
     Object,
     Nil(AstData<()>),
     Array,
-
     String,
     Tuple,
+    Identifier(Identifier),
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Identifier {
+    LocalSelf { name: IString }
 }
 
 

@@ -10,9 +10,16 @@ pub mod types;
 pub mod environment;
 
 
-pub enum ParseError{
+pub enum ParseError {
     TypeChecking(String),
     TypeParsing(String),
     Parsing(String),
+}
+
+
+impl ParseError {
+    pub fn parse_error(str: String) -> Err<Self> {
+        Err(Self::Parsing(str))
+    }
 }
 

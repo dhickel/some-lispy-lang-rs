@@ -3,7 +3,6 @@ use std::fmt::format;
 use std::ops::Deref;
 use lang::format_error;
 use lang::util::SCACHE;
-use crate::ast::{AssignData, AstData, AstData, ConsData, DefFuncData, DefVarData, FuncCallData, IfData, InnerFuncCallData, ListAccData, LiteralCallData, MultiExprData, OpData, WhileData};
 use crate::environment::{Context, MetaSpace, ResData};
 use crate::op_codes::{decode, OpCode};
 use crate::token::Op;
@@ -232,11 +231,11 @@ fn gen_literal_call(data: LiteralCallData, res_data: ResData, comp_unit: &mut Co
 fn gen_assignment(data: AssignData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let self_ctx = if let Context::Expr(expr) = &res_data.self_ctx {
         expr
-    } else { return Err(format!("Fatal: Missing self context for assignment: {:?}", SCACHE.resolve(data.name))); };
+    } else { return Err(format!("Fatal: Missing self context for assignment: {:?}", SCACHE.resolve(data.identifier))); };
 
     let target_ctx = if let Some(Context::Symbol(symbol)) = &res_data.target_ctx {
         symbol
-    } else { return Err(format!("Fatal: Missing target context for assignment: {:?}", SCACHE.resolve(data.name))); };
+    } else { return Err(format!("Fatal: Missing target context for assignment: {:?}", SCACHE.resolve(data.identifier))); };
 
     let mut code = GenData::new(res_data.type_data.rtn_type_id);
     let value = gen_node(data.value, comp_unit)?;
@@ -250,7 +249,7 @@ fn gen_assignment(data: AssignData, res_data: ResData, comp_unit: &mut CompUnit)
     } else if self_ctx.class.is_some() {
         todo!();
     } else {
-        return Err(format!("Invalid resolution for assignment: {:?}", SCACHE.resolve(data.name)));
+        return Err(format!("Invalid resolution for assignment: {:?}", SCACHE.resolve(data.identifier)));
     }
 
     code.append_wide_operand(target_ctx.index);
@@ -295,7 +294,7 @@ fn gen_cons(data: ConsData, res_data: ResData, comp_unit: &mut CompUnit) -> Resu
 }
 
 
-fn gen_list_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_list_new(data: OpCallData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut operands = Vec::<GenData>::with_capacity(data.operands.len());
     let mut code = GenData::new(comp_unit.meta_space.types.pair);
 
@@ -317,7 +316,7 @@ fn gen_list_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Re
 }
 
 
-fn gen_array_new(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_array_new(data: OpCallData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let size = data.operands.len();
     if size > u16::MAX as usize {
         return Err("Too many array literals (> 65,535".to_string());
@@ -366,7 +365,7 @@ fn gen_inner_func_call(data: InnerFuncCallData, res_data: ResData, comp_unit: &m
 }
 
 
-fn gen_func_call(data: FuncCallData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_func_call(data: FCallData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let self_ctx = if let Context::Expr(ctx) = res_data.self_ctx {
         ctx
     } else { return Err("Fatal: Missing self context for function call".to_string()); };
@@ -546,7 +545,7 @@ fn gen_num_const_op(value: i64, typ: u16) -> GenData {
 }
 
 
-fn gen_operation(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
+fn gen_operation(data: OpCallData, res_data: ResData, comp_unit: &mut CompUnit) -> Result<GenData, String> {
     let mut operands = Vec::<GenData>::with_capacity(data.operands.len());
     let mut is_float = false;
 
@@ -595,7 +594,7 @@ fn gen_operation(data: OpData, res_data: ResData, comp_unit: &mut CompUnit) -> R
             gen_comparison(data.operation, operands, code, is_float)
         }
 
-        Op::BangEquals | Op::RefEqual => todo!()
+        Op::BangEqual | Op::EqualEqual => todo!()
     }
 }
 

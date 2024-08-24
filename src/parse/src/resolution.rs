@@ -3,10 +3,6 @@ use std::ops::Deref;
 use lang::format_error;
 use crate::types::{FuncType, Type};
 use lang::util::{IString, SCACHE};
-use crate::ast::{AssignData, AstData, AstData, CondData, ConsData, DefClassData, DefFuncData,
-    DefLambdaData, DefStructData, DefVarData, DirectInst, FuncCallData, GenRandData, IfData,
-    InnerFuncCallData, ListAccData, LiteralCallData, MultiExprData, ObjectAssignData, ObjectCallData,
-    OpData, WhileData};
 use crate::code_gen::GenData;
 use crate::environment::{Context, Environment, ResData, TypeData};
 use crate::parser::ParseResult;
@@ -207,7 +203,7 @@ pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Resu
     }
 
     let type_id = env.meta_space.types.get_or_define_type(&resolved_type);
-    let ctx = env.get_symbol_ctx(data.name);
+    let ctx = env.get_symbol_ctx(data.identifier);
 
     if let Some(target_res) = ctx {
         println!("target ctx: {:?}", target_res);
@@ -218,7 +214,7 @@ pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Resu
         };
         Ok(Some(res_data))
     } else {
-        Err(format!("Failed to resolve assign target symbol: {}", SCACHE.resolve(data.name)))
+        Err(format!("Failed to resolve assign target symbol: {}", SCACHE.resolve(data.identifier)))
     }
 }
 
@@ -298,7 +294,7 @@ pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Optio
 
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_or_define_type(&expr_type);
-    let type_data =  TypeData::from_type(&expr_type, &mut env.meta_space.types);
+    let type_data = TypeData::from_type(&expr_type, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
@@ -392,7 +388,7 @@ pub fn resolve_expr_cons(data: &mut ConsData, env: &mut Environment) -> Result<O
 }
 
 
-pub fn resolve_expr_pair_list(data: &mut OpData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_pair_list(data: &mut OpCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
     let ctx = env.get_env_ctx();
     let type_data = TypeData::from_type(&Type::Tuple, &mut env.meta_space.types);
     let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
@@ -400,7 +396,7 @@ pub fn resolve_expr_pair_list(data: &mut OpData, env: &mut Environment) -> Resul
 }
 
 
-pub fn resolve_expr_array(data: &mut OpData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_array(data: &mut OpCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
     let mut resolved = true;
     let mut types = Vec::<Type>::with_capacity(data.operands.len());
 
@@ -454,7 +450,7 @@ pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> R
 
 // TODO need to type check args = param here
 
-pub fn resolve_func_call(data: &mut FuncCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_func_call(data: &mut FCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
     if let Some(args) = &mut data.arguments {
         args.iter_mut().for_each(|arg| {
             let _ = resolve(&mut arg.value, env);
@@ -528,12 +524,12 @@ pub fn resolve_direct_inst(data: &mut DirectInst, env: &mut Environment) -> Resu
 }
 
 
-pub fn resolve_init_inst(data: &mut FuncCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_init_inst(data: &mut FCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
     todo!()
 }
 
 
-pub fn resolve_operation(data: &mut OpData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_operation(data: &mut OpCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
     let mut resolved = true;
     let mut op_infer = Type::Integer;
 
@@ -553,7 +549,7 @@ pub fn resolve_operation(data: &mut OpData, env: &mut Environment) -> Result<Opt
     let typ = match data.operation {
         Op::List => Type::Tuple,
         Op::And | Op::Or | Op::Nor | Op::Xor | Op::Xnor | Op::Nand | Op::Negate | Op::Greater
-        | Op::Less | Op::GreaterEqual | Op::LessEqual | Op::Equals | Op::BangEquals | Op::RefEqual => {
+        | Op::Less | Op::GreaterEqual | Op::LessEqual | Op::Equals | Op::BangEqual | Op::EqualEqual => {
             Type::Boolean
         }
         Op::Plus | Op::Minus | Op::Asterisk | Op::Slash | Op::Caret

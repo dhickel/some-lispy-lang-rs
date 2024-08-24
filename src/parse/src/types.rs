@@ -1,4 +1,6 @@
+use std::cell::LazyCell;
 use std::str::Matches;
+use std::sync::LazyLock;
 use ahash::AHashMap;
 use lang::util::{IString, SCACHE};
 use crate::ast::Param;
@@ -34,7 +36,7 @@ impl From<bool> for TypeState {
 
 pub trait TypeCheck {
     fn get_type_state(&self) -> TypeState;
-    fn do_types_match(&self, typ: &Type) -> Result<bool, ParseError> ;
+    fn do_types_match(&self, typ: &Type) -> Result<bool, ParseError>;
 }
 
 
@@ -57,17 +59,23 @@ pub enum Type {
 
 
 impl Type {
-    pub fn get_basic_type_from_name(name: IString) -> Type {
+
+
+    pub fn parse_type_from_string(name: IString) -> Type {
         let name_str = SCACHE.resolve(name);
 
         match name_str {
-            "int" => Type::Integer,
-            "float" => Type::Float,
-            "bool" => Type::Boolean,
-            "string" => Type::String,
+            "Int" => Type::Integer,
+            "Float" => Type::Float,
+            "Bool" => Type::Boolean,
+            "String" => Type::String,
             "void" => Type::Void,
-            "null" => Type::Nil,
-            "pair" => Type::Tuple,
+            "Nil" => Type::Nil,
+            "Tuple" => Type::Tuple,
+            "Array" => Type::Array(Box::new(Type::Unresolved)),
+            "Fn" => Type::Lambda(FuncType::default()),
+            "_" => Type::Unresolved,
+            "()" => Type::Nil,
             _ => Type::Object(ObjType { super_types: vec![], name })
         }
     }
@@ -107,14 +115,13 @@ impl TypeCheck for Type {
             }
             Type::Array(self_type) => {
                 if let Type::Array(test_type) = typ {
-                   self_type.do_types_match(test_type)
+                    self_type.do_types_match(test_type)
                 } else {
                     Ok(false)
                 }
             }
             other => Ok(matches!(other, typ))
         }
-        
     }
 }
 
@@ -211,7 +218,7 @@ impl FuncType {
 
 
     fn match_returns(&self, rtn_type: &Type) -> Result<bool, ParseError> {
-        if *self.rtn_type == Type::Unresolved || rtn_type == Type::Unresolved {
+        if *self.rtn_type == Type::Unresolved || *rtn_type == Type::Unresolved {
             return Err(ParseError::TypeChecking(
                 format!("Unresolved parameter detected in type comparison, Type Param: {:?}, Test Param: {:?}",
                     self.rtn_type, rtn_type))

@@ -8,7 +8,7 @@ use crate::token;
 use crate::token::TokenType::*;
 
 
-struct SynicalState<'a> {
+struct LexerState<'a> {
     pub tokens: Vec<Token>,
     pub line_num: u32,
     pub line_char: u32,
@@ -18,10 +18,10 @@ struct SynicalState<'a> {
 }
 
 
-impl<'a> SynicalState<'a> {
+impl<'a> LexerState<'a> {
     pub fn new(source: &'a String) -> Self {
         let char_iter = source.chars().peekable();
-        SynicalState {
+        LexerState {
             tokens: Vec::new(),
             line_num: 0,
             line_char: 0,
@@ -76,12 +76,12 @@ impl<'a> SynicalState<'a> {
 
 
 pub fn process(input: String) -> Result<Vec<Token>, String> {
-    let mut state = SynicalState::new(&input);
+    let mut state = LexerState::new(&input);
 
     while state.have_next() {
         let c = state.advance();
 
-        if matches!(c, ' ' | '\t' | '\r') { continue; }
+        if matches!(c, ' ' | '\t' | '\r' |',') { continue; }
 
         if c == '\n' {
             state.inc_line_num();
@@ -100,7 +100,7 @@ pub fn process(input: String) -> Result<Vec<Token>, String> {
 }
 
 
-fn lex_double_token(state: &mut SynicalState) -> bool {
+fn lex_double_token(state: &mut LexerState) -> bool {
     if !state.have_next() { return false; }
 
     match token::match_double_token((state.curr_char, state.peek())) {
@@ -113,7 +113,7 @@ fn lex_double_token(state: &mut SynicalState) -> bool {
 }
 
 
-fn lex_single_token(state: &mut SynicalState) -> bool {
+fn lex_single_token(state: &mut LexerState) -> bool {
     match token::match_single_token(state.curr_char) {
         None => false,
         Some(value) => {
@@ -133,7 +133,7 @@ fn lex_single_token(state: &mut SynicalState) -> bool {
 }
 
 
-fn lex_word_token(state: &mut SynicalState) -> bool {
+fn lex_word_token(state: &mut LexerState) -> bool {
     let string_data = read_data_to_string(state);
     match token::match_word_token(util::SCACHE.resolve(string_data)) {
         None => state.add_token_data(TLiteral(Lit::Identifier), TokenData::String(string_data)),
@@ -142,7 +142,7 @@ fn lex_word_token(state: &mut SynicalState) -> bool {
 }
 
 
-fn lex_type(state: &mut SynicalState) -> bool {
+fn lex_type(state: &mut LexerState) -> bool {
     state.advance(); // skip the extra  :
     let type_string = read_data_to_string(state);
     state.add_token_data(TSyntactic(Syn::DoubleColon), TokenData::String(type_string));
@@ -150,7 +150,7 @@ fn lex_type(state: &mut SynicalState) -> bool {
 }
 
 
-fn lex_modifier(state: &mut SynicalState) -> bool {
+fn lex_modifier(state: &mut LexerState) -> bool {
     let mod_string = read_data_to_string(state);
     match token::match_modifier_token(SCACHE.resolve(mod_string)) {
         None => false,
@@ -162,7 +162,7 @@ fn lex_modifier(state: &mut SynicalState) -> bool {
 
 
 // TODO handle nested strings
-fn lex_string_literal(state: &mut SynicalState) -> bool {
+fn lex_string_literal(state: &mut LexerState) -> bool {
     let mut string_data = String::new();
 
     while state.have_next() && state.peek() != '"' {
@@ -176,31 +176,14 @@ fn lex_string_literal(state: &mut SynicalState) -> bool {
 }
 
 
-fn lex_instance(state: &mut SynicalState) -> bool {
+fn lex_instance(state: &mut LexerState) -> bool {
     state.advance(); // skip @ symbol
     let instance_id = read_data_to_string(state);
     state.add_token_data(TLiteral(Lit::Instance), TokenData::String(instance_id));
     true
 }
 
-// fn lex_quote(state: &mut SynicalState) {
-//     let mut data = String::new();
-//     if state.peek() == '(' {
-//         let mut depth = 1;
-//         state.advance(); // skip known paren
-//         while depth != 0 && state.have_next() {
-//             if state.peek() == '(' { depth += 1; }
-//             if state.peek() == ')' { depth -= 1; }
-//             data.push(state.peek());
-//             state.advance();
-//         }
-//     } else {
-//         data = read_data_to_string(state);
-//     }
-//     state.add_token_data(Literal(Lit::Quote), TokenData::String(data));
-// }
-
-fn read_data_to_string(state: &mut SynicalState) -> IString {
+fn read_data_to_string(state: &mut LexerState) -> IString {
     let mut string_data = String::new();
     string_data.push(state.curr_char);
     
@@ -214,7 +197,7 @@ fn read_data_to_string(state: &mut SynicalState) -> IString {
 }
 
 
-fn lex_number_token(state: &mut SynicalState) -> bool {
+fn lex_number_token(state: &mut LexerState) -> bool {
     let mut is_float: bool = false;
     let mut is_neg: bool = false;
 

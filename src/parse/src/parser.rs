@@ -3,7 +3,9 @@ use lang::{format_error, util};
 use lang::util::{IString, SCACHE};
 
 use crate::ast::*;
-use crate::grammar::{Arg, AssignStmntPattern, BlockExprPattern, ExprPattern, FExprPattern, LambdaExprPattern, LambdaFormPattern, LetStmntPattern, MemberAccess, Operation, Param, ParseMatch, SExprPattern, StmntPattern, SubParser};
+use crate::grammar::{Arg, AssignStmntPattern, BlockExprPattern, CondExprPattern, ExprPattern, 
+    FExprPattern, LambdaExprPattern, LambdaFormPattern, LetStmntPattern, MemberAccess, Operation,
+    Param, ParseMatch, PredicateForm, SExprPattern, StmntPattern, SubParser};
 use crate::{grammar, ParseError};
 use crate::token::*;
 use crate::token::TokenType::*;
@@ -30,7 +32,7 @@ pub enum ExprType {
 #[derive(Debug)]
 pub struct ParseResult {
     pub name_space: IString,
-    pub root_expressions: Vec<AstData<AstNode>>,
+    pub root_expressions: Vec<AstNode>,
 }
 
 
@@ -50,15 +52,18 @@ impl ParserState {
 
 
     pub fn process(&mut self) -> Result<ParseResult, ParseError> {
-        let mut root_expressions = Vec::<AstData<AstNode>>::with_capacity(10);
-        while self.have_next() {
+        let mut root_expressions = Vec::<AstNode>::with_capacity(10);
 
-            // root_expressions.push(self.parse_expr_data()?);
-            match self.parse_grammar_pattern() {
-                Ok(parse_data) => root_expressions.push(parse_data),
-                Err(err) => return Err(format_error!(self.line_char(), err))
-            }
+        while self.have_next() {
+            let grammar_match = {
+                let mut sub_parser = SubParser::new(|idx| self.peek_n(idx));
+                grammar::find_next_match(&mut sub_parser)?
+            };
+
+            let parsed_data = self.parse_grammar_pattern(grammar_match)?;
+            root_expressions.push(parsed_data)
         }
+
         Ok(ParseResult { name_space: self.name_space, root_expressions })
     }
 
@@ -106,9 +111,10 @@ impl ParserState {
     }
 
     pub fn check(&mut self, token_type: &TokenType) -> bool {
-        if !self.have_next() {
-            false
-        } else { &self.peek()?.token_type == token_type }
+        if self.have_next() {
+            let peek_token = self.peek().unwrap().token_type;
+            peek_token == *token_type
+        } else { false }
     }
 
     pub fn open_container_token_check(&self) -> Result<(), ParseError> {
@@ -149,14 +155,14 @@ impl ParserState {
         self.open_container_token_check()?;
 
         if !self.check(&token_type) {
-            ParseError::parse_error(format!("Expected: {:?}, Found: {:?}", token_type, self.peek()?))
+            ParseError::parse_error(format!("Expected: {:?}, Found: {:?}", token_type, self.peek()?))?
         }
         self.advance()
     }
 
     pub fn consume_left_paren(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::LeftParen)) {
-            ParseError::parse_error(format!("Expected: Left Paren, Found: {:?}", self.peek()?))
+            ParseError::parse_error(format!("Expected: Left Paren, Found: {:?}", self.peek()?))?
         }
         self.current += 1;
         self.depth += 1;
@@ -165,7 +171,7 @@ impl ParserState {
 
     pub fn consume_right_paren(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::RightParen)) {
-            ParseError::parse_error(format!("Expected: Right Paren, Found: {:?}", self.peek()?))
+            ParseError::parse_error(format!("Expected: Right Paren, Found: {:?}", self.peek()?))?
         }
         self.current += 1;
         self.depth -= 1;
@@ -174,7 +180,7 @@ impl ParserState {
 
     pub fn consume_left_bracket(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::LeftBracket)) {
-            ParseError::parse_error(format!("Expected: Left Bracket, Found: {:?}", self.peek()?))
+            ParseError::parse_error(format!("Expected: Left Bracket, Found: {:?}", self.peek()?))?
         }
         self.current += 1;
         Ok(())
@@ -182,7 +188,7 @@ impl ParserState {
 
     pub fn consume_right_bracket(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::RightBracket)) {
-            ParseError::parse_error(format!("Expected: Right Bracket, Found: {:?}", self.peek()?))
+            ParseError::parse_error(format!("Expected: Right Bracket, Found: {:?}", self.peek()?))?
         }
         self.current += 1;
         Ok(())
@@ -190,7 +196,7 @@ impl ParserState {
 
     pub fn consume_left_brace(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::LeftBrace)) {
-            ParseError::parse_error(format!("Expected: Left Brace, Found: {:?}", self.peek()?))
+            ParseError::parse_error(format!("Expected: Left Brace, Found: {:?}", self.peek()?))?
         }
         self.current += 1;
         Ok(())
@@ -198,7 +204,7 @@ impl ParserState {
 
     pub fn consume_right_brace(&mut self) -> Result<(), ParseError> {
         if !self.check(&TSyntactic(Syn::RightBrace)) {
-            ParseError::parse_error(format!("Expected: Right Brace, Found: {:?}", self.peek()?))
+            ParseError::parse_error(format!("Expected: Right Brace, Found: {:?}", self.peek()?))?
         }
         self.current += 1;
         Ok(())
@@ -211,8 +217,14 @@ impl ParserState {
 
     pub fn parse_grammar_pattern(&mut self, pattern: ParseMatch) -> Result<AstNode, ParseError> {
         match pattern {
-            ParseMatch::Expression(_) => {}
-            ParseMatch::Statement(_) => {}
+            ParseMatch::Expression(expr) => {
+                let expr = self.parse_expression(expr)?;
+                Ok(AstNode::Expression(expr))
+            }
+            ParseMatch::Statement(stmnt) => {
+                let stmnt = self.parse_statement(stmnt)?;
+                Ok(AstNode::Statement(stmnt))
+            }
         }
     }
 
@@ -230,7 +242,7 @@ impl ParserState {
             ExprPattern::FExpr(pat) => self.parse_f_expression(pat),
             ExprPattern::BExpr => todo!(),
             ExprPattern::BlockExpr(pat) => self.parse_block_expression(pat),
-            ExprPattern::CondExpr(_) => {}
+            ExprPattern::CondExpr(pat) => self.parse_condition_expression(pat),
             ExprPattern::LambdaExpr(pat) => self.parse_lambda_expression(pat),
             ExprPattern::LambdaFormExpr(pat) => self.parse_lambda_form(pat),
             ExprPattern::MatchExpr => todo!()
@@ -259,7 +271,7 @@ impl ParserState {
         for x in 0..count {
             if let TokenType::TModifier(modd) = self.advance()?.token_type {
                 modifiers.push(modd);
-            } else { ParseError::parsing_error(self.peek()?, "Expected modifier") }
+            } else { ParseError::parsing_error(self.peek()?, "Expected modifier")? }
         }
         Ok(Some(modifiers))
     }
@@ -395,7 +407,7 @@ impl ParserState {
         let mut sub_exprs = Vec::<FExprData>::with_capacity(pattern.namespace_count as usize + 3);
 
         // ::= [ NamespaceAccess ]
-        if let Some(ns) = self.parse_namespace(pattern.namespace_count)? { sub_exprs.append(ns) };
+        if let Some(mut ns) = self.parse_namespace(pattern.namespace_count)? { sub_exprs.append(&mut ns) };
 
         // ::= Identifier
         if pattern.has_identifier {
@@ -404,7 +416,7 @@ impl ParserState {
         }
 
         // ::= [ MemberAccessChain ]
-        if let Some(ac) = self.parse_member_access(pattern.access_chain)? { sub_exprs.append(ac); }
+        if let Some(mut ac) = self.parse_member_access(pattern.access_chain)? { sub_exprs.append(&mut ac); }
 
         Ok(Expression::FCall(AstData::new(sub_exprs, line_char, None)))
     }
@@ -419,17 +431,17 @@ impl ParserState {
                 Lit::Int => {
                     if let Some(TokenData::Integer(val)) = token.data {
                         Value::I64(val)
-                    } else { ParseError::parsing_error(self.peek()?, "Expected Integer Value") }
+                    } else { ParseError::parsing_error(self.peek()?, "Expected Integer Value")? }
                 }
                 Lit::Float => {
                     if let Some(TokenData::Float(val)) = token.data {
                         Value::F64(val)
-                    } else { ParseError::parsing_error(self.peek()?, "Expected Float Value") }
+                    } else { ParseError::parsing_error(self.peek()?, "Expected Float Value")? }
                 }
                 Lit::Identifier => {
                     if let Some(TokenData::String(val)) = token.data {
                         Value::Identifier(val)
-                    } else { ParseError::parsing_error(self.peek()?, "Expected Identifier") }
+                    } else { ParseError::parsing_error(self.peek()?, "Expected Identifier")? }
                 }
                 Lit::Nil => Value::Nil(())
             };
@@ -473,7 +485,7 @@ impl ParserState {
         let lambda = self.parse_lambda(pattern.form)?;
 
         // ::= ')'
-        self.consume_left_paren()?;
+        self.consume_right_paren()?;
         Ok(Expression::Lambda(AstData::new(lambda, line_char, typ)))
     }
 
@@ -497,6 +509,51 @@ impl ParserState {
         Ok(LambdaData { parameters, expr })
     }
 
+
+    // ::= '(' Expr '->' Expr [ ':' Expr ] ')'
+    pub fn parse_condition_expression(&mut self, pattern: CondExprPattern) -> Result<Expression, ParseError> {
+        let line_char = self.line_char()?;
+        // ::= '('
+        self.consume_left_paren()?;
+
+        // ::= Expr
+        let pred_expr = self.parse_expression(*pattern.pred_expr)?;
+
+        // ::= '->' Expr [ ':' Expr ]
+        let (then_expr, else_expr) = self.parse_predicate_form(*pattern.pred_form)?;
+
+        // ::= ')'
+        self.consume_right_paren()?;
+
+        let data = PredicateData { pred_expr, then_expr, else_expr };
+        Ok(Expression::Predicate(AstData::new(data, line_char, None)))
+    }
+
+    // ::= '->' Expr [ ':' Expr ]
+    pub fn parse_predicate_form(
+        &mut self,
+        pattern: PredicateForm,
+    ) -> Result<(Expression, Option<Expression>), ParseError> {
+
+        // ::= '->'
+        self.consume(TokenType::RIGHT_ARROW)?;
+
+        // ::= Expr
+        let then_expr = if let Some(then_pattern) = pattern.then_form {
+            self.parse_expression(then_pattern)?
+        } else {
+            ParseError::parsing_error(self.peek()?, "Expr")?
+        };
+
+        let else_expr = if let Some(else_pattern) = pattern.else_form {
+            // ::= [ ':' Expr ] 
+            self.consume(TokenType::TSyntactic(Syn::Colon))?;
+            Some(self.parse_expression(else_pattern)?)
+        } else { None };
+
+        Ok((then_expr, else_expr))
+    }
+
     pub fn parse_namespace(&mut self, count: u32) -> Result<Option<Vec<FExprData>>, ParseError> {
         if count == 0 { return Ok(None); };
 
@@ -505,7 +562,7 @@ impl ParserState {
             if let Some(TokenData::String(str)) = self.advance()?.data {
                 namespaces.push(FExprData::MAccess { identifier: str, m_type: MType::Namespace });
                 self.consume(TokenType::RIGHT_ARROW)?;
-            } else { ParseError::parsing_error(self.peek()?, "Namespace(s)") }
+            } else { ParseError::parsing_error(self.peek()?, "Namespace(s)")? }
         }
         Ok(Some(namespaces))
     }

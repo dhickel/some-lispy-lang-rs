@@ -77,16 +77,22 @@ where
 }
 
 
-pub struct SubParser<'a> {
+pub struct SubParser<'a, 'b> {
     idx: usize,
-    supplier: Box<dyn Fn(usize) -> Result<&'a Token, ParseError>>,
+    supplier: Box<dyn Fn(usize) -> Result<&'a Token, ParseError> + 'b>,
 }
 
-
-impl<'a> SubParser<'a> {
-    pub fn new(supplier: Box<dyn Fn(usize) -> Result<&'a Token, ParseError>>) -> Self {
-        Self { idx: 0, supplier }
+impl<'a, 'b> SubParser<'a, 'b> {
+    pub fn new<F>(supplier: F) -> Self
+    where
+        F: Fn(usize) -> Result<&'a Token, ParseError> + 'b
+    {
+        Self {
+            idx: 0,
+            supplier: Box::new(supplier)
+        }
     }
+
     pub fn advance(&mut self) -> Result<&'a Token, ParseError> {
         self.idx += 1;
         (self.supplier)(self.idx - 1)
@@ -194,9 +200,10 @@ pub struct Arg {
 }
 
 
+// FIXME, predicate form should atleast always have a then form
 pub struct PredicateForm {
-    then_form: Option<ExprPattern>,
-    else_form: Option<ExprPattern>,
+    pub then_form: Option<ExprPattern>,
+    pub else_form: Option<ExprPattern>,
 }
 
 

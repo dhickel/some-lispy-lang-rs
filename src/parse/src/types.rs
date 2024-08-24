@@ -3,7 +3,6 @@ use std::str::Matches;
 use std::sync::LazyLock;
 use ahash::AHashMap;
 use lang::util::{IString, SCACHE};
-use crate::ast::Param;
 use crate::ParseError;
 use crate::types::TypeState::Unresolved;
 

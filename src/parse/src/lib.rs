@@ -14,6 +14,7 @@ pub mod environment;
 pub mod grammar;
 
 
+#[derive(Debug)]
 pub enum ParseError {
     TypeChecking(String),
     TypeParsing(String),

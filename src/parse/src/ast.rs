@@ -27,7 +27,6 @@ impl<T> AstData<T> {
 }
 
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
     Statement(Statement),
@@ -147,7 +146,7 @@ impl Into<AstNode> for Expression {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredicateData {
     pub pred_expr: Expression,
-    pub then_expr: Option<Expression>,
+    pub then_expr: Expression,
     pub else_expr: Option<Expression>,
 }
 

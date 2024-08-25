@@ -1,17 +1,11 @@
-use crate::token::Token;
+use lang::token::Token;
 
 
-pub mod token;
 pub mod lexer;
 pub mod parser;
-pub mod ast;
 
-pub mod code_gen;
-pub mod op_codes;
-pub mod resolution;
-pub mod types;
-pub mod environment;
 pub mod grammar;
+mod tests;
 
 
 #[derive(Debug)]

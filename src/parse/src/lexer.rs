@@ -1,11 +1,11 @@
 use std::iter::Peekable;
 use std::str::Chars;
-use crate::token::{ Lit, Op, Syn, Token, TokenData, TokenType};
+use lang::token::{ Lit, Op, Syn, Token, TokenData, TokenType};
 
 use lang::util;
 use lang::util::{IString, SCACHE};
-use crate::token;
-use crate::token::TokenType::*;
+use lang::token;
+use lang::token::TokenType::*;
 
 
 struct LexerState<'a> {
@@ -19,7 +19,7 @@ struct LexerState<'a> {
 
 
 impl<'a> LexerState<'a> {
-    pub fn new(source: &'a String) -> Self {
+    pub fn new(source: &'a str) -> Self {
         let char_iter = source.chars().peekable();
         LexerState {
             tokens: Vec::new(),
@@ -75,8 +75,8 @@ impl<'a> LexerState<'a> {
 }
 
 
-pub fn process(input: String) -> Result<Vec<Token>, String> {
-    let mut state = LexerState::new(&input);
+pub fn process(input: &str) -> Result<Vec<Token>, String> {
+    let mut state = LexerState::new(input);
 
     while state.have_next() {
         let c = state.advance();
@@ -120,7 +120,7 @@ fn lex_single_token(state: &mut LexerState) -> bool {
             match value {
                 TSyntactic(Syn::DoubleQuote) => lex_string_literal(state),
                 TSyntactic(Syn::Ampersand) => lex_modifier(state),
-                TSyntactic(Syn::At) => lex_instance(state),
+               // FIXME TSyntactic(Syn::At) => lex_instance(state),
                 TOperation(Op::Minus) => {
                     if state.peek().is_numeric() {
                         lex_number_token(state)
@@ -176,12 +176,12 @@ fn lex_string_literal(state: &mut LexerState) -> bool {
 }
 
 
-fn lex_instance(state: &mut LexerState) -> bool {
-    state.advance(); // skip @ symbol
-    let instance_id = read_data_to_string(state);
-    state.add_token_data(TLiteral(Lit::Instance), TokenData::String(instance_id));
-    true
-}
+// fn lex_instance(state: &mut LexerState) -> bool {
+//     state.advance(); // skip @ symbol
+//     let instance_id = read_data_to_string(state);
+//     state.add_token_data(TLiteral(Lit::Instance), TokenData::String(instance_id));
+//     true
+// }
 
 fn read_data_to_string(state: &mut LexerState) -> IString {
     let mut string_data = String::new();

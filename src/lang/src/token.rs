@@ -1,11 +1,11 @@
-use lang::util::IString;
-use crate::token::Mod::*;
-use crate::token::Syn::*;
-use crate::token::Op::*;
+use crate::token::TokenType::{TBuiltIn, TDefinition, TLiteral, TModifier, TOperation, TSyntactic};
 use crate::token::BuiltIn::*;
 use crate::token::Def::*;
 use crate::token::Lit::*;
-use crate::token::TokenType::*;
+use crate::token::Mod::*;
+use crate::token::Op::*;
+use crate::token::Syn::*;
+use crate::util::IString;
 
 
 pub fn match_single_token(input: char) -> Option<TokenType> {
@@ -221,14 +221,6 @@ impl TokenType {
         matches!(token, Self::RIGHT_BRACKET)
     }
 }
-
-
-macro_rules! is_accessor {
-    ($token:expr) => {
-        matches!($token, TokenType::NAMESPACE_ACCESS | TokenType::METHOD_SPACE_ACCESS | TokenType::FIELD_SPACE_ACCESS)
-    };
-}
-
 
 
 

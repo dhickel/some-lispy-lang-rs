@@ -1,22 +1,30 @@
-use std::cell::LazyCell;
-use std::str::Matches;
-use std::sync::LazyLock;
 use ahash::AHashMap;
-use lang::util::{IString, SCACHE};
-use crate::ParseError;
-use crate::types::TypeState::Unresolved;
+use crate::util::{IString, SCACHE};
+
+
+#[derive(Debug)]
+pub enum TypeError {
+    CheckError(String)
+}
+
+
+impl Into<String> for TypeError {
+    fn into(self) -> String {
+        match self { TypeError::CheckError(str) => str }
+    }
+}
 
 
 pub enum TypeState {
     Unresolved,
     Valid,
     Invalid,
-    Error(ParseError),
+    Error(TypeError),
 }
 
 
-impl From<ParseError> for TypeState {
-    fn from(value: ParseError) -> Self {
+impl From<TypeError> for TypeState {
+    fn from(value: TypeError) -> Self {
         Self::Error(value)
     }
 }
@@ -35,7 +43,7 @@ impl From<bool> for TypeState {
 
 pub trait TypeCheck {
     fn get_type_state(&self) -> TypeState;
-    fn do_types_match(&self, typ: &Type) -> Result<bool, ParseError>;
+    fn do_types_match(&self, typ: &Type) -> Result<bool, TypeError>;
 }
 
 
@@ -58,8 +66,6 @@ pub enum Type {
 
 
 impl Type {
-
-
     pub fn parse_type_from_string(name: IString) -> Type {
         let name_str = SCACHE.resolve(name);
 
@@ -102,7 +108,7 @@ impl TypeCheck for Type {
         }
     }
 
-    fn do_types_match(&self, typ: &Type) -> Result<bool, ParseError> {
+    fn do_types_match(&self, typ: &Type) -> Result<bool, TypeError> {
         match self {
             Type::Lambda(self_type) => {
                 if let Type::Lambda(test_type) = typ {
@@ -119,7 +125,7 @@ impl TypeCheck for Type {
                     Ok(false)
                 }
             }
-            other => Ok(matches!(other, typ))
+            other => Ok(*other == *typ)
         }
     }
 }
@@ -150,9 +156,9 @@ impl Default for FuncType {
 
 
 impl FuncType {
-    pub fn init_params_unresolved(&mut self, param_count: usize) -> Result<(), ParseError> {
+    pub fn init_params_unresolved(&mut self, param_count: usize) -> Result<(), TypeError> {
         if !self.param_types.is_empty() {
-            Err(ParseError::TypeParsing("Attempted to reinitialize existing parameters to Unresolved".to_string()))
+            Err(TypeError::CheckError("Attempted to reinitialize existing parameters to Unresolved".to_string()))
         } else {
             self.param_types = std::iter::repeat(Type::Unresolved).take(param_count).collect();
             Ok(())
@@ -165,9 +171,9 @@ impl FuncType {
     }
 
 
-    pub fn set_param_type(&mut self, index: usize, typ: Type) -> Result<(), ParseError> {
+    pub fn set_param_type(&mut self, index: usize, typ: Type) -> Result<(), TypeError> {
         if index >= self.param_types.len() {
-            Err(ParseError::TypeParsing(
+            Err(TypeError::CheckError(
                 format!("Invalid parameter index: {}, params length: {}",
                     index, self.param_types.len()))
             )
@@ -175,7 +181,7 @@ impl FuncType {
             let p_type = &self.param_types[index];
             *p_type != Type::Unresolved && *p_type != typ
         } {
-            Err(ParseError::TypeParsing(
+            Err(TypeError::CheckError(
                 format!("Attempted to reassign parameter type, Existing: {:?}, New: {:?}",
                     self.param_types[index], typ))
             )
@@ -185,14 +191,14 @@ impl FuncType {
         }
     }
 
-    pub fn set_return_type(&mut self, rtn_type: Type) -> Result<(), ParseError> {
+    pub fn set_return_type(&mut self, rtn_type: Type) -> Result<(), TypeError> {
         if *self.rtn_type == Type::Unresolved {
             self.rtn_type = Box::new(rtn_type);
             Ok(())
         } else if *self.rtn_type == rtn_type {
             Ok(())
         } else {
-            Err(ParseError::TypeParsing(
+            Err(TypeError::CheckError(
                 format!("Attempted to reassign return type, Existing: {:?}, New: {:?}",
                     self.rtn_type, rtn_type))
             )
@@ -200,12 +206,12 @@ impl FuncType {
     }
 
 
-    fn match_parameters(&self, params: &[Type]) -> Result<bool, ParseError> {
+    fn match_parameters(&self, params: &[Type]) -> Result<bool, TypeError> {
         if params.len() != self.param_types.len() { return Ok(false); }
 
         for (self_param, test_param) in self.param_types.iter().zip(params.iter()) {
             if *self_param == Type::Unresolved || *test_param == Type::Unresolved {
-                return Err(ParseError::TypeChecking(
+                return Err(TypeError::CheckError(
                     format!("Unresolved parameter detected in type comparison, Type Param: {:?}, Test Param: {:?}",
                         self_param, test_param))
                 );
@@ -216,9 +222,9 @@ impl FuncType {
     }
 
 
-    fn match_returns(&self, rtn_type: &Type) -> Result<bool, ParseError> {
+    fn match_returns(&self, rtn_type: &Type) -> Result<bool, TypeError> {
         if *self.rtn_type == Type::Unresolved || *rtn_type == Type::Unresolved {
-            return Err(ParseError::TypeChecking(
+            return Err(TypeError::CheckError(
                 format!("Unresolved parameter detected in type comparison, Type Param: {:?}, Test Param: {:?}",
                     self.rtn_type, rtn_type))
             );
@@ -227,17 +233,17 @@ impl FuncType {
     }
 
 
-    pub fn is_predicate(&self) -> Result<bool, ParseError> {
+    pub fn is_predicate(&self) -> Result<bool, TypeError> {
         self.match_returns(&Type::Boolean)
     }
 
 
-    pub fn is_nil(&self) -> Result<bool, ParseError> {
+    pub fn is_nil(&self) -> Result<bool, TypeError> {
         self.match_returns(&Type::Nil)
     }
 
 
-    pub fn is_predicate_of(&self, params: &[Type]) -> Result<bool, ParseError> {
+    pub fn is_predicate_of(&self, params: &[Type]) -> Result<bool, TypeError> {
         if !self.match_returns(&Type::Boolean)? {
             Ok(false)
         } else { self.match_parameters(params) }
@@ -245,19 +251,19 @@ impl FuncType {
 
 
     // TODO should something with no params still be a consumer?
-    pub fn is_consumer_of(&self, params: &[Type]) -> Result<bool, ParseError> {
+    pub fn is_consumer_of(&self, params: &[Type]) -> Result<bool, TypeError> {
         if !self.is_nil()? {
             return Ok(false);
         } else { self.match_parameters(params) }
     }
 
 
-    pub fn is_supplier_of(&self, rtn_type: &Type) -> Result<bool, ParseError> {
+    pub fn is_supplier_of(&self, rtn_type: &Type) -> Result<bool, TypeError> {
         Ok(self.param_types.is_empty() && self.match_returns(rtn_type)?)
     }
 
 
-    pub fn is_function_of(&self, params: &[Type], rtn_type: &Type) -> Result<bool, ParseError> {
+    pub fn is_function_of(&self, params: &[Type], rtn_type: &Type) -> Result<bool, TypeError> {
         Ok(self.match_parameters(params)? && self.match_returns(rtn_type)?)
     }
 }

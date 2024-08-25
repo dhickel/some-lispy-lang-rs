@@ -1,9 +1,6 @@
-use std::collections::LinkedList;
-
-use lang::util::IString;
-use crate::environment::{ExprContext, ResData, SymbolCtx};
+use crate::util::IString;
 use crate::token::{Mod, Op};
-use crate::types::{Type, TypeCheck};
+use crate::types::Type;
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -11,7 +8,7 @@ pub struct AstData<T> {
     pub expr_type: Type,
     pub node_data: Box<T>,
     pub line_char: (u32, u32),
-    pub res_data: Option<ResData>,
+  //  pub res_data: Option<ResData>,
 }
 
 
@@ -21,7 +18,7 @@ impl<T> AstData<T> {
             expr_type: typ.unwrap_or(Type::default()),
             node_data: Box::new(data),
             line_char,
-            res_data: None,
+        //    res_data: None,
         }
     }
 }

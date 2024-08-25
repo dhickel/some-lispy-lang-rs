@@ -1,12 +1,12 @@
 use std::fmt::format;
 use std::ops::Deref;
 use lang::format_error;
-use crate::types::{FuncType, Type};
+use lang::types::{FuncType, Type};
 use lang::util::{IString, SCACHE};
-use crate::code_gen::GenData;
-use crate::environment::{Context, Environment, ResData, TypeData};
-use crate::parser::ParseResult;
-use crate::token::Op;
+use compile::code_gen::GenData;
+use compile::environment::{Context, Environment, ResData, TypeData};
+use parser::parser::ParseResult;
+use parser::token::Op;
 
 
 // TODO handle type hierarchies, current type checking check for the concrete type only, inference

@@ -1,5 +1,5 @@
 use std::mem;
-use lang::util;
+use crate::util;
 
 
 #[repr(u8)]

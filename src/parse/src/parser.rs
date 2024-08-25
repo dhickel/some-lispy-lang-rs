@@ -1,17 +1,16 @@
-use crate::types::{FuncType, Type};
-use lang::{format_error, util};
+use lang::types::{FuncType, Type};
 use lang::util::{IString, SCACHE};
 
-use crate::ast::*;
-use crate::grammar::{Arg, AssignStmntPattern, BlockExprPattern, CondExprPattern, ExprPattern, 
+use lang::ast::*;
+use crate::grammar::{Arg, AssignStmntPattern, BlockExprPattern, CondExprPattern, ExprPattern,
     FExprPattern, LambdaExprPattern, LambdaFormPattern, LetStmntPattern, MemberAccess, Operation,
     Param, ParseMatch, PredicateForm, SExprPattern, StmntPattern, SubParser};
 use crate::{grammar, ParseError};
-use crate::token::*;
-use crate::token::TokenType::*;
+use lang::token::*;
+use lang::token::TokenType::*;
 
 
-struct ParserState {
+pub struct ParserState {
     pub tokens: Vec<Token>,
     pub current: usize,
     pub end: usize,
@@ -60,6 +59,7 @@ impl ParserState {
                 grammar::find_next_match(&mut sub_parser)?
             };
 
+            println!("Parse Match: {:?}", grammar_match);
             let parsed_data = self.parse_grammar_pattern(grammar_match)?;
             root_expressions.push(parsed_data)
         }
@@ -268,7 +268,7 @@ impl ParserState {
         if count == 0 { return Ok(None); };
 
         let mut modifiers = Vec::<Mod>::with_capacity(count as usize);
-        for x in 0..count {
+        for _ in 0..count {
             if let TokenType::TModifier(modd) = self.advance()?.token_type {
                 modifiers.push(modd);
             } else { ParseError::parsing_error(self.peek()?, "Expected modifier")? }
@@ -306,9 +306,11 @@ impl ParserState {
 
         // ::= Identifier
         let typ = self.parse_type(false)?;
-        func_type.set_return_type(typ)?;
+        func_type.set_return_type(typ)
+            .map_err(|err| { ParseError::TypeChecking(format!("{:?}", err)) })?;
 
         // ::= '>'
+
         self.consume(TOperation(Op::Greater))?;
 
         Ok(Type::Lambda(func_type))
@@ -472,8 +474,7 @@ impl ParserState {
     pub fn parse_lambda_expression(&mut self, pattern: LambdaExprPattern) -> Result<Expression, ParseError> {
         let line_char = self.line_char()?;
 
-        // ::= '(' '=>'
-        self.consume_left_paren()?;
+        // ::=  '=>'
         self.consume(TokenType::LAMBDA_ARROW)?;
 
         // ::= [ (':' Type) ]
@@ -483,9 +484,7 @@ impl ParserState {
 
         // ::= '|' { Parameter } '|' Expr
         let lambda = self.parse_lambda(pattern.form)?;
-
-        // ::= ')'
-        self.consume_right_paren()?;
+        
         Ok(Expression::Lambda(AstData::new(lambda, line_char, typ)))
     }
 
@@ -558,7 +557,7 @@ impl ParserState {
         if count == 0 { return Ok(None); };
 
         let mut namespaces = Vec::<FExprData>::with_capacity(count as usize);
-        for x in 0..count {
+        for _ in 0..count {
             if let Some(TokenData::String(str)) = self.advance()?.data {
                 namespaces.push(FExprData::MAccess { identifier: str, m_type: MType::Namespace });
                 self.consume(TokenType::RIGHT_ARROW)?;

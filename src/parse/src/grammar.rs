@@ -1,9 +1,8 @@
 use std::cmp::PartialEq;
 use std::fmt::Debug;
-use crate::{ParseError, token};
-use crate::ast::Expression;
-use crate::grammar::ExprPattern::{FExpr, LambdaExpr, VExpr};
-use crate::token::{Def, Syn, Token, TokenType};
+use crate::ParseError;
+use crate::grammar::ExprPattern::{FExpr, LambdaExpr, LambdaFormExpr, VExpr};
+use lang::token::{Def, Syn, Token, TokenType};
 
 #[macro_export]
 macro_rules! match_fn {
@@ -82,14 +81,15 @@ pub struct SubParser<'a, 'b> {
     supplier: Box<dyn Fn(usize) -> Result<&'a Token, ParseError> + 'b>,
 }
 
+
 impl<'a, 'b> SubParser<'a, 'b> {
     pub fn new<F>(supplier: F) -> Self
     where
-        F: Fn(usize) -> Result<&'a Token, ParseError> + 'b
+        F: Fn(usize) -> Result<&'a Token, ParseError> + 'b,
     {
         Self {
             idx: 0,
-            supplier: Box::new(supplier)
+            supplier: Box::new(supplier),
         }
     }
 
@@ -99,7 +99,7 @@ impl<'a, 'b> SubParser<'a, 'b> {
     }
 
     pub fn peek_n(&self, n: usize) -> Result<&'a Token, ParseError> {
-        (self.supplier)(self.idx + n - 1)
+        (self.supplier)(self.idx + n)
     }
 
     pub fn consume_n(&mut self, n: usize) {
@@ -108,18 +108,21 @@ impl<'a, 'b> SubParser<'a, 'b> {
 }
 
 
+#[derive(Debug)]
 pub enum Operation {
     Expr(Box<ExprPattern>),
     Op,
 }
 
 
+#[derive(Debug)]
 pub struct SExprPattern {
     pub operation: Operation,
     pub operands: Option<Vec<ExprPattern>>,
 }
 
 
+#[derive(Debug)]
 pub struct FExprPattern {
     pub namespace_count: u32,
     pub has_identifier: bool,
@@ -127,29 +130,34 @@ pub struct FExprPattern {
 }
 
 
+#[derive(Debug)]
 pub struct BlockExprPattern {
     pub members: Option<Vec<ParseMatch>>,
 }
 
 
+#[derive(Debug)]
 pub struct CondExprPattern {
     pub pred_expr: Box<ExprPattern>,
     pub pred_form: Box<PredicateForm>,
 }
 
 
+#[derive(Debug)]
 pub struct LambdaExprPattern {
     pub has_type: bool,
     pub form: LambdaFormPattern,
 }
 
 
+#[derive(Debug)]
 pub struct LambdaFormPattern {
     pub parameters: Option<Vec<Param>>,
     pub expr: Box<ExprPattern>,
 }
 
 
+#[derive(Debug)]
 pub enum ExprPattern {
     SExpr(SExprPattern),
     VExpr,
@@ -163,6 +171,7 @@ pub enum ExprPattern {
 }
 
 
+#[derive(Debug)]
 pub struct LetStmntPattern {
     pub has_type: bool,
     pub modifier_count: u32,
@@ -170,35 +179,41 @@ pub struct LetStmntPattern {
 }
 
 
+#[derive(Debug)]
 pub struct AssignStmntPattern {
     pub expr: ExprPattern,
 }
 
 
+#[derive(Debug)]
 pub enum StmntPattern {
     Let(LetStmntPattern),
     Assign(AssignStmntPattern),
 }
 
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum BuiltIn {
     Match { is_bound: bool },
     Iter { is_range: bool },
 }
 
 
+#[derive(Debug)]
 pub struct Param {
     pub modifier_count: u32,
     pub has_type: bool,
 }
 
 
+#[derive(Debug)]
 pub struct Arg {
     pub modifier_count: u32,
     pub expr: ExprPattern,
 }
 
+
+#[derive(Debug)]
 
 // FIXME, predicate form should atleast always have a then form
 pub struct PredicateForm {
@@ -207,6 +222,7 @@ pub struct PredicateForm {
 }
 
 
+#[derive(Debug)]
 pub enum MemberAccess {
     Field,
     MethodCall { arguments: Option<Vec<Arg>> },
@@ -214,6 +230,7 @@ pub enum MemberAccess {
 }
 
 
+#[derive(Debug)]
 pub enum ParseMatch {
     Expression(ExprPattern),
     Statement(StmntPattern),
@@ -359,10 +376,10 @@ pub fn is_arguments(parser: &mut SubParser) -> Result<Option<Vec<Arg>>, ParseErr
 }
 
 
-// ::= '(' '=>' [ (':' Type) ] '|' { Parameters } '|' Expr ')'
+// ::=  '=>' [ (':' Type) ] '|' { Parameters } '|' Expr 
 pub fn is_lambda_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
-    // ::= ( '(' '=>' )
-    if !match_tokens(parser, &[MATCH_LEFT_PAREN, MATCH_LAMBDA_ARROW])? {
+    // ::= (  '=>' )
+    if !match_tokens(parser, &[MATCH_LAMBDA_ARROW])? {
         return Ok(None);
     }
 
@@ -374,13 +391,14 @@ pub fn is_lambda_expression(parser: &mut SubParser) -> Result<Option<ExprPattern
     } else { false };
 
     // ::= ('|' { Parameter } '|')
-    if let Some(LambdaExpr(mut expr)) = is_lambda_form(parser)? {
-        // ::= ')'
-        if !match_tokens(parser, &[MATCH_RIGHT_PAREN])? {
-            validation_error(parser.peek_n(1)?, ")")?
-        }
-        expr.has_type = has_type;
-        Ok(Some(LambdaExpr(expr)))
+    if let Some(LambdaFormExpr(mut expr)) = is_lambda_form(parser)? {
+        Ok(Some(LambdaExpr(LambdaExprPattern {
+            has_type,
+            form: LambdaFormPattern {
+                parameters: expr.parameters,
+                expr: Box::new(*expr.expr),
+            },
+        })))
     } else { validation_error(parser.peek_n(1)?, "Expr") }
 }
 
@@ -392,16 +410,16 @@ pub fn is_lambda_form(parser: &mut SubParser) -> Result<Option<ExprPattern>, Par
     }
 
     let parameters = is_parameters(parser)?;
-
     if !match_tokens(parser, &[MATCH_BAR])? {
         return validation_error(parser.peek_n(1)?, "|");
     }
 
+
     if let Some(expr) = is_expression(parser)? {
-        Ok(Some(LambdaExpr(
-            LambdaExprPattern {
-                has_type: false,
-                form: LambdaFormPattern { parameters, expr: Box::new(expr) },
+        Ok(Some(LambdaFormExpr(
+            LambdaFormPattern {
+                parameters,
+                expr: Box::new(expr),
             }))
         )
     } else { return validation_error(parser.peek_n(1)?, "Expr"); }
@@ -489,7 +507,8 @@ pub fn is_block_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>
 
 
 pub fn is_b_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
-    todo!()
+    // TODO implement this
+    Ok(None)
 }
 
 
@@ -593,7 +612,7 @@ pub fn is_type(parser: &mut SubParser) -> Result<bool, ParseError> {
     } else if matches!(t1.token_type, TokenType::FN) {
         parser.consume_n(1);
         if !is_func_type(parser)? {
-             validation_error(parser.peek_n(1)?, "Type<Fn>")?;
+            validation_error(parser.peek_n(1)?, "Type<Fn>")?;
         } else { return Ok(true); }
     } else { validation_error(t1, "Type")? }
 
@@ -609,7 +628,7 @@ pub fn is_array_type(parser: &mut SubParser) -> Result<bool, ParseError> {
         if let has_type = is_type(parser)? {
             if !has_type { return validation_error(t1, "Type"); }
         }
-    }
+    } else { return Ok(false); }
 
     t1 = parser.peek_n(1)?;
     if matches!(t1.token_type, TokenType::ANGLE_BRACKET_RIGHT) {

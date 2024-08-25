@@ -1,9 +1,9 @@
 use intmap::IntMap;
 use lang::util::{IString, SCACHE};
-use crate::ast::DefLambdaData;
-use crate::op_codes::{decode, OpCode};
-use crate::token::Mod;
-use crate::types::{FuncType, Type, TypeTable};
+use lang::ast::DefLambdaData;
+use parser::op_codes::{decode, OpCode};
+use parser::token::Mod;
+use lang::types::{FuncType, Type, TypeTable};
 
 
 #[derive(Debug)]

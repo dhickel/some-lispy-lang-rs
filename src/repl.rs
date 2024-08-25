@@ -3,10 +3,10 @@ extern crate core;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use lang::util::SCACHE;
-use parser::code_gen::CompUnit;
-use parser::environment::{Environment, MetaSpace};
+use compile::code_gen::CompUnit;
+use compile::environment::{Environment, MetaSpace};
 
-use parser::token::{Lit, TokenData, TokenType};
+use lang::token::{Lit, TokenData, TokenType};
 
 
 use vm;
@@ -53,7 +53,7 @@ fn main() {
     let mut ast = parser::parser::process(tokens).expect("Parse Err");
     println!("\nast: {:?}", &ast);
 
-    let resolved = parser::resolution::resolve_types(&mut ast, env);
+    let resolved = compile::resolution::resolve_types(&mut ast, env);
 
     println!("Resolved: {}", resolved);
 
@@ -63,7 +63,7 @@ fn main() {
         ns_code: Vec::<u8>::with_capacity(100),
     };
 
-    parser::code_gen::code_gen(ast.root_expressions, &mut comp_unit).expect("gen Err");
+    compile::code_gen::code_gen(ast.root_expressions, &mut comp_unit).expect("gen Err");
     //comp_unit.ns_code.push(OpCode::ReturnVal as u8);
 
     let mut vm = Vm::new(meta_space);

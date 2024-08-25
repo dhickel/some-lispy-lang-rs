@@ -3,10 +3,10 @@ use std::fmt::format;
 use std::ops::Deref;
 use lang::format_error;
 use lang::util::SCACHE;
-use crate::environment::{Context, MetaSpace, ResData};
-use crate::op_codes::{decode, OpCode};
-use crate::token::Op;
-use crate::types::Type;
+use compile::environment::{Context, MetaSpace, ResData};
+use parser::op_codes::{decode, OpCode};
+use parser::token::Op;
+use lang::types::Type;
 
 
 #[derive(Debug)]

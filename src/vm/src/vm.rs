@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Sub};
-use parser::op_codes::{decode, OpCode};
+use compile::op_codes::{decode, OpCode};
 use std::time::{SystemTime, UNIX_EPOCH};
-use parser::environment::{MetaSpace, PermSpace, PermNameSpace, StackFrame};
+use compile::environment::{MetaSpace, PermSpace, PermNameSpace, StackFrame};
 
 use crate::heap::Heap;
 

@@ -59,7 +59,7 @@ impl ParserState {
                 grammar::find_next_match(&mut sub_parser)?
             };
 
-            println!("Parse Match: {:?}", grammar_match);
+            println!("\nParse Match: {:?}\n", grammar_match);
             let parsed_data = self.parse_grammar_pattern(grammar_match)?;
             root_expressions.push(parsed_data)
         }
@@ -125,7 +125,7 @@ impl ParserState {
             TSyntactic(Syn::LeftBrace) | TSyntactic(Syn::RightBrace)
         ) {
             ParseError::parse_error(
-                "\"(,[,{,},],)\" should only be advanced via related  consumer function".to_string()
+                "\"(, [, {, }, ], )\" should only be advanced via related consumer function".to_string()
             )
         } else {
             Ok(())
@@ -456,7 +456,7 @@ impl ParserState {
         let line_char = self.line_char()?;
 
         // ::= '{'
-        self.consume_left_bracket()?;
+        self.consume_left_brace()?;
 
         let expr = if let Some(members) = pattern.members {
             let members = members.into_iter()
@@ -467,7 +467,7 @@ impl ParserState {
         } else { Expression::Block(AstData::new(vec![], line_char, None)) };
 
         // ::= '}'
-        self.consume_right_bracket()?;
+        self.consume_right_brace()?;
         Ok(expr)
     }
 
@@ -484,7 +484,7 @@ impl ParserState {
 
         // ::= '|' { Parameter } '|' Expr
         let lambda = self.parse_lambda(pattern.form)?;
-        
+
         Ok(Expression::Lambda(AstData::new(lambda, line_char, typ)))
     }
 
@@ -532,16 +532,15 @@ impl ParserState {
     pub fn parse_predicate_form(
         &mut self,
         pattern: PredicateForm,
-    ) -> Result<(Expression, Option<Expression>), ParseError> {
+    ) -> Result<(Option<Expression>, Option<Expression>), ParseError> {
 
-        // ::= '->'
-        self.consume(TokenType::RIGHT_ARROW)?;
 
-        // ::= Expr
+        // ::= '->' Expr
         let then_expr = if let Some(then_pattern) = pattern.then_form {
-            self.parse_expression(then_pattern)?
+            self.consume(TokenType::RIGHT_ARROW)?;
+            Some(self.parse_expression(then_pattern)?)
         } else {
-            ParseError::parsing_error(self.peek()?, "Expr")?
+           None
         };
 
         let else_expr = if let Some(else_pattern) = pattern.else_form {
@@ -582,17 +581,18 @@ impl ParserState {
                     MemberAccess::MethodCall { arguments } => {
                         // ::=  '::'
                         self.consume(TokenType::METHOD_SPACE_ACCESS)?;
-                        // ::=  [ Identifier ] 
+                        // ::=  [ Identifier ]
                         let identifier = if matches!(self.peek()?. token_type, TokenType::IDENTIFIER) {
                             Some(self.parse_identifier()?)
                         } else { None };
 
+                  
                         // ::= '['
-                        self.consume(TokenType::LEFT_BRACKET)?;
+                        self.consume_left_bracket()?;
                         // ::= { Argument }
                         let arguments = self.parse_arguments(arguments)?;
                         // ::= ']'
-                        self.consume(TokenType::RIGHT_BRACKET)?;
+                        self.consume_right_bracket()?;
                         Ok(FExprData::MCall { method: identifier, arguments })
                     }
                     MemberAccess::MethodAccess => {

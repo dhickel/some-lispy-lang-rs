@@ -143,7 +143,7 @@ impl Into<AstNode> for Expression {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredicateData {
     pub pred_expr: Expression,
-    pub then_expr: Expression,
+    pub then_expr: Option<Expression>,
     pub else_expr: Option<Expression>,
 }
 

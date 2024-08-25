@@ -290,7 +290,7 @@ pub fn is_let_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, 
 }
 
 
-// ::= Identifier ':=' Expr
+// ::= Identifier ':=' Expr // TODO better error when = is used for assignment on accident
 pub fn is_assign_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, ParseError> {
     // ::= Identifier ':='
     if !match_tokens(parser, &[MATCH_IDENTIFIER, MATCH_ASSIGN])? { return Ok(None); }
@@ -306,9 +306,11 @@ pub fn is_assign_statement(parser: &mut SubParser) -> Result<Option<StmntPattern
 // Expression Grammar //
 ////////////////////////
 
+
+// NOTE the order of these matter
 const EXPR_CHECKS: [fn(&mut SubParser) -> Result<Option<ExprPattern>, ParseError>; 7] = [
     is_block_expression, is_lambda_expression, is_lambda_form, is_b_expression,
-    is_s_expression, is_v_expression, is_f_expression
+    is_s_expression, is_v_expression, is_f_expression,
 ];
 
 
@@ -376,7 +378,7 @@ pub fn is_arguments(parser: &mut SubParser) -> Result<Option<Vec<Arg>>, ParseErr
 }
 
 
-// ::=  '=>' [ (':' Type) ] '|' { Parameters } '|' Expr 
+// ::=  '=>' [ (':' Type) ] '|' { Parameters } '|' Expr
 pub fn is_lambda_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
     // ::= (  '=>' )
     if !match_tokens(parser, &[MATCH_LAMBDA_ARROW])? {
@@ -447,18 +449,19 @@ pub fn is_s_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, Pa
             validation_error(parser.peek_n(1)?, "PredicateForm cannot be used with operators")?
         }
     }
-
+    
     // ::= { Expr }
     let mut operands = Vec::new();
     while let Some(expr) = is_expression(parser)? {
         operands.push(expr)
     }
 
+    
     // ::= ')'
     if !match_tokens(parser, &[MATCH_RIGHT_PAREN])? {
         validation_error(parser.peek_n(1)?, ")")?
     }
-
+    
     Ok(Some(ExprPattern::SExpr(SExprPattern {
         operation,
         operands: if operands.is_empty() { None } else { Some(operands) },
@@ -480,7 +483,13 @@ pub fn is_f_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, Pa
 
 // ::= Identifier | Value
 pub fn is_v_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
-    if match_tokens(parser, &[|t| matches!(t.token_type, TokenType::TLiteral(_))])? {
+    let t1 = parser.peek_n(1)?.token_type;
+    let t2 = parser.peek_n(2)?.token_type;
+    if matches!(t1, TokenType::TLiteral(_)) && !matches!(t2,
+        TokenType::RIGHT_ARROW | TokenType::METHOD_SPACE_ACCESS
+        | TokenType::FIELD_SPACE_ACCESS | TokenType::LEFT_BRACKET)
+    {
+        parser.consume_n(1);
         Ok(Some(VExpr))
     } else { Ok(None) }
 }
@@ -491,6 +500,7 @@ pub fn is_block_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>
     if !match_tokens(parser, &[MATCH_LEFT_BRACE])? {
         return Ok(None);
     }
+
 
     let mut block_members = Vec::<ParseMatch>::with_capacity(5);
 

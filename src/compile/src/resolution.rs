@@ -1,14 +1,6 @@
 use std::fmt::format;
 use std::ops::Deref;
-use lang::format_error;
-use lang::types::{FuncType, Type};
-use lang::util::{IString, SCACHE};
-use compile::code_gen::GenData;
-use compile::environment::{Context, Environment, ResData, TypeData};
-use parser::parser::ParseResult;
-use parser::token::Op;
-
-
+use crate::environment::{Context, Environment, ResData};
 // TODO handle type hierarchies, current type checking check for the concrete type only, inference
 //  for hierarchical types and conversions needs implemented (add a matching function to Type?)  
 
@@ -32,7 +24,7 @@ pub fn resolve_types(mut parse_result: &mut ParseResult, mut env: Environment) -
                 }
                 Err(err) => {
                     fully_resolved = false;
-                    println!("{}", format_error!(node.line_char, err));
+                    println!("{}", format_args!(node.line_char, err));
                 }
             }
         }

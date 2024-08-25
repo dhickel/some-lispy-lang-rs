@@ -1,9 +1,4 @@
 use intmap::IntMap;
-use lang::util::{IString, SCACHE};
-use lang::ast::DefLambdaData;
-use parser::op_codes::{decode, OpCode};
-use parser::token::Mod;
-use lang::types::{FuncType, Type, TypeTable};
 
 
 #[derive(Debug)]
@@ -195,7 +190,7 @@ impl MetaSpace {
 
 // TODO, REPL and dynamicism is WIP, namespace should store index/count for var/func/constants
 //  then data can get added to the RunTimeSpace, and the actual namespace data reset, then
-//  when adding new data via the repl dynamically the indexs persists for code gen to match
+//  when adding new data via the repl dynamically the indices persists for code gen to match
 //  with the run time structure updates. This way data is copied but only in one structure at a time.
 //  Pointers are used for efficient copy operations, which is fine as long as code is single thread
 //  since the dynamic structures can re allocate, but this wont happen mid copy in a ST environment

@@ -449,19 +449,19 @@ pub fn is_s_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, Pa
             validation_error(parser.peek_n(1)?, "PredicateForm cannot be used with operators")?
         }
     }
-    
+
     // ::= { Expr }
     let mut operands = Vec::new();
     while let Some(expr) = is_expression(parser)? {
         operands.push(expr)
     }
 
-    
+
     // ::= ')'
     if !match_tokens(parser, &[MATCH_RIGHT_PAREN])? {
         validation_error(parser.peek_n(1)?, ")")?
     }
-    
+
     Ok(Some(ExprPattern::SExpr(SExprPattern {
         operation,
         operands: if operands.is_empty() { None } else { Some(operands) },
@@ -624,7 +624,7 @@ pub fn is_type(parser: &mut SubParser) -> Result<bool, ParseError> {
         if !is_func_type(parser)? {
             validation_error(parser.peek_n(1)?, "Type<Fn>")?;
         } else { return Ok(true); }
-    } else { validation_error(t1, "Type")? }
+    } else { return Ok(false); }
 
     let _ = is_array_type(parser)?;
     Ok(true)
@@ -653,19 +653,21 @@ pub fn is_func_type(parser: &mut SubParser) -> Result<bool, ParseError> {
 
     if matches!(t1.token_type, TokenType::ANGLE_BRACKET_LEFT) {
         parser.consume_n(1)
-    } else { return validation_error(t1, "Func '<' ({Type}- | '_') ';' Type '>'"); }
+    } else { return validation_error(t1, "Func !!! '<' !!! ({Type}- | '_') ';' Type '>'"); }
 
-    while matches!(is_type(parser)?, true) {}
-
-    if matches!(t1.token_type, TokenType::TSyntactic(Syn::SemiColon)) {
-        parser.consume_n(1)
-    } else { return validation_error(t1, "Func '<' ({Type}- | '_') ';' Type '>'"); }
+    while matches!(is_type(parser)?, true) { /* Spin past parameter types */ }
 
     t1 = parser.peek_n(1)?;
-    if matches!(t1.token_type, TokenType::ANGLE_BRACKET_LEFT) {
+    if matches!(t1.token_type, TokenType::TSyntactic(Syn::SemiColon)) {
+        parser.consume_n(1);
+        if !is_type(parser)? { return validation_error(t1, "Type"); }
+    } else { return validation_error(t1, "Func '<' ({Type}- | '_') !!! ';' !!! Type '>'"); }
+
+    t1 = parser.peek_n(1)?;
+    if matches!(t1.token_type, TokenType::ANGLE_BRACKET_RIGHT) {
         parser.consume_n(1);
         Ok(true)
-    } else { return validation_error(t1, "Func '<' ({Type}- | '_') ';' Type '>'"); }
+    } else { validation_error(t1, "Func '<' ({Type}- | '_') ';' Type !!! '>' !!!") }
 }
 
 

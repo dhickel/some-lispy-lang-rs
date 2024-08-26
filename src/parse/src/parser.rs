@@ -1,4 +1,4 @@
-use lang::types::{FuncType, Type};
+use lang::types::{FuncType, ObjType, Type, UnresolvedType};
 use lang::util::{IString, SCACHE};
 
 use lang::ast::*;
@@ -8,6 +8,7 @@ use crate::grammar::{Arg, AssignStmntPattern, BlockExprPattern, CondExprPattern,
 use crate::{grammar, ParseError};
 use lang::token::*;
 use lang::token::TokenType::*;
+use lang::types::Type::Unresolved;
 
 
 pub struct ParserState {
@@ -219,11 +220,11 @@ impl ParserState {
         match pattern {
             ParseMatch::Expression(expr) => {
                 let expr = self.parse_expression(expr)?;
-                Ok(AstNode::Expression(expr))
+                Ok(expr.into())
             }
             ParseMatch::Statement(stmnt) => {
                 let stmnt = self.parse_statement(stmnt)?;
-                Ok(AstNode::Statement(stmnt))
+                Ok(stmnt.into())
             }
         }
     }
@@ -281,26 +282,36 @@ impl ParserState {
             // ::= ':'
             self.consume(TSyntactic(Syn::Colon))?;
         }
-        let identifier = self.parse_identifier()?;
 
-        match Type::parse_type_from_string(identifier) {
-            Type::Lambda(func_type) => self.parse_func_type(func_type),
-            Type::Array(arr_type) => self.parse_array_type(),
-            __ => Ok(__),
-        }
+
+        if matches!(self.peek()?.token_type, TokenType::FN) {
+            self.advance()?;
+            Ok(self.parse_func_type()?)
+        } else if let Some(TokenData::String(str)) = self.consume(TokenType::IDENTIFIER)?.data {
+            if matches!(self.peek()?.token_type, TokenType::ANGLE_BRACKET_LEFT) {
+                self.advance()?;
+                let typ = self.parse_type(false)?;
+                self.consume(TokenType::ANGLE_BRACKET_RIGHT)?;
+                Ok(typ)
+            } else {
+                Ok(Type::parse_type_from_string(str))
+            }
+        } else { ParseError::parsing_error(self.peek()?, "Expected Identifier for type") }
     }
 
     // ::= '<' { Identifier } ';' Identifier } '>'
-    pub fn parse_func_type(&mut self, mut func_type: FuncType) -> Result<Type, ParseError> {
+    pub fn parse_func_type(&mut self) -> Result<Type, ParseError> {
+        let mut func_type = FuncType::default();
+
         // ::= '<'
         self.consume(TOperation(Op::Less))?;
+
 
         // ::= { Identifier }
         while matches!(self.peek()?.token_type, TokenType::IDENTIFIER) {
             let typ = self.parse_type(false)?;
             func_type.add_param_type(typ);
         }
-
         // ::= ';'
         self.consume(TSyntactic(Syn::SemiColon))?;
 
@@ -338,7 +349,7 @@ impl ParserState {
         // ::= [ ':' Type ]
         let typ = if pattern.has_type {
             self.parse_type(true)?
-        } else { Type::Unresolved };
+        } else { UnresolvedType::Unknown.into() };
 
         // ::= { Modifier }
         let modifiers = self.parse_modifiers(pattern.modifier_count)?;
@@ -424,30 +435,32 @@ impl ParserState {
     }
 
     pub fn parse_v_expression(&mut self) -> Result<Expression, ParseError> {
+        let line_char = self.line_char()?;
         let token = self.advance()?;
+
         if let TokenType::TLiteral(lit) = token.token_type {
-            let value = match lit {
-                Lit::True => Value::Boolean(true),
-                Lit::False => Value::Boolean(false),
-                Lit::String => Value::String, // FIXME, need to actual implement strings
+            let (typ, value) = match lit {
+                Lit::True => (Some(Type::Boolean), Value::Boolean(true)),
+                Lit::False => (Some(Type::Boolean), Value::Boolean(false)),
+                Lit::String => (Some(Type::String), Value::String), // FIXME, need to actual implement strings
                 Lit::Int => {
                     if let Some(TokenData::Integer(val)) = token.data {
-                        Value::I64(val)
+                        (Some(Type::Integer), Value::I64(val))
                     } else { ParseError::parsing_error(self.peek()?, "Expected Integer Value")? }
                 }
                 Lit::Float => {
                     if let Some(TokenData::Float(val)) = token.data {
-                        Value::F64(val)
+                        (Some(Type::Float), Value::F64(val))
                     } else { ParseError::parsing_error(self.peek()?, "Expected Float Value")? }
                 }
                 Lit::Identifier => {
                     if let Some(TokenData::String(val)) = token.data {
-                        Value::Identifier(val)
+                        (Some(UnresolvedType::Unknown.into()), Value::Identifier(val))
                     } else { ParseError::parsing_error(self.peek()?, "Expected Identifier")? }
                 }
-                Lit::Nil => Value::Nil(())
+                Lit::Nil => (Some(Type::Nil), Value::Nil(())),
             };
-            Ok(Expression::Value(value))
+            Ok(Expression::Value(AstData::new(value, line_char, typ)))
         } else { ParseError::parsing_error(self.peek()?, "Expected value expression") }
     }
 
@@ -540,7 +553,7 @@ impl ParserState {
             self.consume(TokenType::RIGHT_ARROW)?;
             Some(self.parse_expression(then_pattern)?)
         } else {
-           None
+            None
         };
 
         let else_expr = if let Some(else_pattern) = pattern.else_form {
@@ -586,7 +599,7 @@ impl ParserState {
                             Some(self.parse_identifier()?)
                         } else { None };
 
-                  
+
                         // ::= '['
                         self.consume_left_bracket()?;
                         // ::= { Argument }

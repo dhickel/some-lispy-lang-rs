@@ -1,4 +1,6 @@
 use ahash::AHashMap;
+use crate::token::Def;
+use crate::types::Type::Unresolved;
 use crate::util::{IString, SCACHE};
 
 
@@ -47,10 +49,9 @@ pub trait TypeCheck {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
-    #[default]
-    Unresolved,
+    Unresolved(UnresolvedType),
     Integer,
     Float,
     Boolean,
@@ -65,6 +66,22 @@ pub enum Type {
 }
 
 
+impl Default for Type { fn default() -> Self { Unresolved(UnresolvedType::Unknown) } }
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub enum UnresolvedType {
+    #[default]
+    Unknown,
+    Identifier(IString),
+    Ignore,
+    Any,
+}
+
+
+impl Into<Type> for UnresolvedType { fn into(self) -> Type { Unresolved(self) } }
+
+
 impl Type {
     pub fn parse_type_from_string(name: IString) -> Type {
         let name_str = SCACHE.resolve(name);
@@ -77,11 +94,10 @@ impl Type {
             "void" => Type::Void,
             "Nil" => Type::Nil,
             "Tuple" => Type::Tuple,
-            "Array" => Type::Array(Box::new(Type::Unresolved)),
+            "Array" => Type::Array(Box::new(UnresolvedType::Unknown.into())),
             "Fn" => Type::Lambda(FuncType::default()),
-            "_" => Type::Unresolved,
             "()" => Type::Nil,
-            _ => Type::Object(ObjType { super_types: vec![], name })
+            _ => UnresolvedType::Identifier(name).into()
         }
     }
 }
@@ -90,15 +106,15 @@ impl Type {
 impl TypeCheck for Type {
     fn get_type_state(&self) -> TypeState {
         match self {
-            Type::Unresolved => TypeState::Unresolved,
+            Type::Unresolved(_) => TypeState::Unresolved,
             Type::Lambda(func_type) => {
-                match func_type.match_returns(&Type::Unresolved) {
+                match func_type.match_returns(&Type::Unresolved(UnresolvedType::Unknown)) { // FIXME? idk tf is going on with all of this
                     Ok(is_unresolved) if is_unresolved => return TypeState::Invalid,
                     Err(err) => return TypeState::from(err),
                     _ => {}
                 }
 
-                match func_type.param_types.iter().any(|t| *t == Type::Unresolved) {
+                match func_type.param_types.iter().any(|t| matches!(*t, Type::Unresolved(_))) {
                     true => TypeState::Invalid,
                     false => TypeState::Valid
                 }
@@ -148,7 +164,7 @@ pub struct FuncType {
 impl Default for FuncType {
     fn default() -> Self {
         Self {
-            rtn_type: Box::new(Type::Unresolved),
+            rtn_type: Box::new(UnresolvedType::Unknown.into()),
             param_types: vec![],
         }
     }
@@ -160,7 +176,7 @@ impl FuncType {
         if !self.param_types.is_empty() {
             Err(TypeError::CheckError("Attempted to reinitialize existing parameters to Unresolved".to_string()))
         } else {
-            self.param_types = std::iter::repeat(Type::Unresolved).take(param_count).collect();
+            self.param_types = std::iter::repeat(UnresolvedType::Unknown.into()).take(param_count).collect();
             Ok(())
         }
     }
@@ -179,7 +195,7 @@ impl FuncType {
             )
         } else if {
             let p_type = &self.param_types[index];
-            *p_type != Type::Unresolved && *p_type != typ
+            !matches!(*p_type, Type::Unresolved(_)) && *p_type != typ
         } {
             Err(TypeError::CheckError(
                 format!("Attempted to reassign parameter type, Existing: {:?}, New: {:?}",
@@ -192,7 +208,7 @@ impl FuncType {
     }
 
     pub fn set_return_type(&mut self, rtn_type: Type) -> Result<(), TypeError> {
-        if *self.rtn_type == Type::Unresolved {
+        if matches!(*self.rtn_type, Type::Unresolved(_)) {
             self.rtn_type = Box::new(rtn_type);
             Ok(())
         } else if *self.rtn_type == rtn_type {
@@ -210,7 +226,7 @@ impl FuncType {
         if params.len() != self.param_types.len() { return Ok(false); }
 
         for (self_param, test_param) in self.param_types.iter().zip(params.iter()) {
-            if *self_param == Type::Unresolved || *test_param == Type::Unresolved {
+            if matches!(*self_param, Type::Unresolved(_)) || matches!(*test_param, Type::Unresolved(_)) {
                 return Err(TypeError::CheckError(
                     format!("Unresolved parameter detected in type comparison, Type Param: {:?}, Test Param: {:?}",
                         self_param, test_param))
@@ -223,7 +239,7 @@ impl FuncType {
 
 
     fn match_returns(&self, rtn_type: &Type) -> Result<bool, TypeError> {
-        if *self.rtn_type == Type::Unresolved || *rtn_type == Type::Unresolved {
+        if matches!(*self.rtn_type,  Type::Unresolved(_)) || matches!(*rtn_type, Type::Unresolved(_)) {
             return Err(TypeError::CheckError(
                 format!("Unresolved parameter detected in type comparison, Type Param: {:?}, Test Param: {:?}",
                     self.rtn_type, rtn_type))
@@ -345,7 +361,7 @@ impl Default for TypeTable {
 
 impl TypeTable {
     pub fn get_or_define_type(&mut self, typ: &Type) -> u16 {
-        if matches!(typ, Type::Unresolved) {
+        if matches!(typ, Type::Unresolved(_)) {
             panic!("Passed unresolved type to define_type");
         }
         if self.type_defs.contains_key(&typ) {

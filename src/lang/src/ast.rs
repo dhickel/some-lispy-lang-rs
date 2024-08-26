@@ -73,7 +73,7 @@ pub struct LetData {
 pub enum Expression {
     SCall(AstData<SCallData>),
     FCall(AstData<Vec<FExprData>>),
-    Value(Value),
+    Value(AstData<Value>),
     OpCall(AstData<OpCallData>),
     Block(AstData<Vec<AstNode>>),
     Predicate(AstData<PredicateData>),

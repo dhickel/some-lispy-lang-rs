@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 intmap = "2.0.0"
+bitflags = "2.6.0"
+lang = {path = "../lang"}
+parser = {path = "../parse"}

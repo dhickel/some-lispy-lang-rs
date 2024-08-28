@@ -8,7 +8,7 @@ pub struct AstData<T> {
     pub expr_type: Type,
     pub node_data: Box<T>,
     pub line_char: (u32, u32),
-  //  pub res_data: Option<ResData>,
+    //  pub res_data: Option<ResData>,
 }
 
 
@@ -18,7 +18,7 @@ impl<T> AstData<T> {
             expr_type: typ.unwrap_or(Type::default()),
             node_data: Box::new(data),
             line_char,
-        //    res_data: None,
+            //    res_data: None,
         }
     }
 }
@@ -78,6 +78,33 @@ pub enum Expression {
     Block(AstData<Vec<AstNode>>),
     Predicate(AstData<PredicateData>),
     Lambda(AstData<LambdaData>),
+}
+
+
+impl Expression {
+    pub fn get_type(&self) -> &Type {
+        match self {
+            Expression::SCall(data) => &data.expr_type,
+            Expression::FCall(data) => &data.expr_type,
+            Expression::Value(data) => &data.expr_type,
+            Expression::OpCall(data) => &data.expr_type,
+            Expression::Block(data) => &data.expr_type,
+            Expression::Predicate(data) => &data.expr_type,
+            Expression::Lambda(data) => &data.expr_type,
+        }
+    }
+
+    pub fn get_line_char(&self) -> (u32, u32) {
+        match self {
+            Expression::SCall(data) => data.line_char,
+            Expression::FCall(data) => data.line_char,
+            Expression::Value(data) => data.line_char,
+            Expression::OpCall(data) => data.line_char,
+            Expression::Block(data) => data.line_char,
+            Expression::Predicate(data) => data.line_char,
+            Expression::Lambda(data) => data.line_char,
+        }
+    }
 }
 
 

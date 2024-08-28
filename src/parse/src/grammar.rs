@@ -6,9 +6,7 @@ use lang::token::{Def, Syn, Token, TokenType};
 
 #[macro_export]
 macro_rules! match_fn {
-    ($variant:pat) => {
-        |t: &Token| matches!(t.token_type, $variant)
-    };
+    ($variant:pat) => {|t: &Token| matches!(t.token_type, $variant)};
 }
 
 const MATCH_METHOD_ACCESS: fn(&Token) -> bool = match_fn!(TokenType::METHOD_SPACE_ACCESS);

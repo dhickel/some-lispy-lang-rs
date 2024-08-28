@@ -1,6 +1,6 @@
 use std::fmt::format;
 use std::ops::Deref;
-use crate::environment::{Context, Environment, ResData};
+use crate::environment::{Context, Environment, SymbolContext};
 // TODO handle type hierarchies, current type checking check for the concrete type only, inference
 //  for hierarchical types and conversions needs implemented (add a matching function to Type?)  
 
@@ -99,7 +99,7 @@ fn resolve(node: &mut AstData, env: &mut Environment) -> Result<Type, String> {
 
 // FIXME need to refactor defs to take modifiers as an optional, vs initing empty arrays
 
-pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     println!("resovling def Var for {:?}", SCACHE.resolve(data.name));
 
 
@@ -130,7 +130,7 @@ pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<O
 }
 
 
-pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let resolved_type = resolve(&mut data.body, env)?;
     if resolved_type == Type::Unresolved { return Ok(None); }
 
@@ -151,7 +151,7 @@ pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Env
 }
 
 
-pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let func_type = if let Some(Type::Lambda(func_type)) = &data.d_type {
         func_type
     } else { return Err(format!("Invalid type for function definition: {:?}", &data)); };
@@ -175,17 +175,17 @@ pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result
 }
 
 
-pub fn resolve_def_struct(data: &mut DefStructData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_def_struct(data: &mut DefStructData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     todo!()
 }
 
 
-pub fn resolve_def_class(data: &mut DefClassData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_def_class(data: &mut DefClassData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     todo!()
 }
 
 
-pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let resolved_type = resolve(&mut data.value, env)?;
 
     if resolved_type == Type::Unresolved {
@@ -199,7 +199,7 @@ pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Resu
 
     if let Some(target_res) = ctx {
         println!("target ctx: {:?}", target_res);
-        let res_data = ResData {
+        let res_data = SymbolContext {
             target_ctx: Some(target_res.self_ctx.clone()),
             self_ctx: Context::Expr(env.get_env_ctx()),
             type_data: TypeData::from_type(&resolved_type, &mut env.meta_space.types),
@@ -211,7 +211,7 @@ pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Resu
 }
 
 
-pub fn resolve_expr_multi(data: &mut MultiExprData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_multi(data: &mut MultiExprData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     env.push_scope();
 
     let mut resolved_type = Type::Unresolved;
@@ -231,13 +231,13 @@ pub fn resolve_expr_multi(data: &mut MultiExprData, env: &mut Environment) -> Re
         let ctx = env.get_env_ctx();
         let type_id = env.meta_space.types.get_or_define_type(&resolved_type);
         let type_data = TypeData::from_type(&resolved_type, &mut env.meta_space.types);
-        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
 }
 
 
-pub fn resolve_expr_print(data: &mut AstData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_print(data: &mut AstData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let resolved_type = resolve(data, env)?;
     if resolved_type == Type::Unresolved {
         Ok(None)
@@ -245,13 +245,13 @@ pub fn resolve_expr_print(data: &mut AstData, env: &mut Environment) -> Result<O
         let ctx = env.get_env_ctx();
         let type_id = env.meta_space.types.void;
         let type_data = TypeData::from_type(&resolved_type, &mut env.meta_space.types);
-        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
 }
 
 
-pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     env.push_scope();
     let cond_type = resolve(&mut data.if_branch.cond_node, env)?;
     env.pop_scope();
@@ -287,7 +287,7 @@ pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Optio
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_or_define_type(&expr_type);
     let type_data = TypeData::from_type(&expr_type, &mut env.meta_space.types);
-    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
 
@@ -296,7 +296,7 @@ pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Optio
 //  could be called first to see if they are resolved and avoid duplicate resolve calls and scopes
 //  being pushed. This happens in several of these resolution functions.
 
-pub fn resolve_expr_cond(data: &mut CondData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_cond(data: &mut CondData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let mut unresolved = false;
     let mut types = Vec::<Type>::with_capacity(data.cond_branches.len() + 1);
 
@@ -336,18 +336,18 @@ pub fn resolve_expr_cond(data: &mut CondData, env: &mut Environment) -> Result<O
     if all_match {
         let type_id = env.meta_space.types.get_or_define_type(&base_type);
         let type_data = TypeData::from_type(base_type, &mut env.meta_space.types);
-        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     } else {
         let type_id = env.meta_space.types.get_or_define_type(&Type::Void);
         let type_data = TypeData::from_type(base_type, &mut env.meta_space.types);
-        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
 }
 
 
-pub fn resolve_expr_while(data: &mut WhileData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_while(data: &mut WhileData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     env.push_scope();
     let cond_type = resolve(&mut data.condition, env)?;
     env.pop_scope();
@@ -365,30 +365,30 @@ pub fn resolve_expr_while(data: &mut WhileData, env: &mut Environment) -> Result
         let ctx = env.get_env_ctx();
         let type_id = env.meta_space.types.get_or_define_type(&body_type);
         let type_data = TypeData::from_type(&body_type, &mut env.meta_space.types);
-        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
 }
 
 
 // TODO annotate pair data and runtime representation with member type info?
-pub fn resolve_expr_cons(data: &mut ConsData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_cons(data: &mut ConsData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let ctx = env.get_env_ctx();
     let type_data = TypeData::from_type(&Type::Tuple, &mut env.meta_space.types);
-    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
 
 
-pub fn resolve_expr_pair_list(data: &mut OpCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_pair_list(data: &mut OpCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let ctx = env.get_env_ctx();
     let type_data = TypeData::from_type(&Type::Tuple, &mut env.meta_space.types);
-    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
 
 
-pub fn resolve_expr_array(data: &mut OpCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_array(data: &mut OpCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let mut resolved = true;
     let mut types = Vec::<Type>::with_capacity(data.operands.len());
 
@@ -409,14 +409,14 @@ pub fn resolve_expr_array(data: &mut OpCallData, env: &mut Environment) -> Resul
     } else {
         let type_id = env.meta_space.types.get_or_define_type(&base_type);
         let type_data = TypeData::from_type(base_type, &mut env.meta_space.types);
-        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
         Ok(Some(res_data))
     }
 }
 
 
 // Fixme Need to either makes cons list only contain the same type, or add sometime of runtime inference
-pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let index_type = if let Some(expr) = &mut data.index_expr {
         resolve(expr, env)?
     } else {
@@ -435,14 +435,14 @@ pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> R
 
     let ctx = env.get_env_ctx();
     let type_data = TypeData::from_type(&Type::Void, &mut env.meta_space.types);
-    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
 
 
 // TODO need to type check args = param here
 
-pub fn resolve_func_call(data: &mut FCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_func_call(data: &mut FCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     if let Some(args) = &mut data.arguments {
         args.iter_mut().for_each(|arg| {
             let _ = resolve(&mut arg.value, env);
@@ -459,7 +459,7 @@ pub fn resolve_func_call(data: &mut FCallData, env: &mut Environment) -> Result<
         // };
 
         let type_data = target_ctx.type_data.clone();
-        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
+        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
         println!("\n\n{:?}", res_data);
         Ok(Some(res_data))
     } else {
@@ -468,27 +468,27 @@ pub fn resolve_func_call(data: &mut FCallData, env: &mut Environment) -> Result<
 }
 
 
-pub fn resolve_func_call_inner(data: &mut InnerFuncCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_func_call_inner(data: &mut InnerFuncCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let ctx = env.get_env_ctx();
     let typ = resolve(&mut data.expr, env)?;
     let type_id = env.meta_space.types.get_type_id(&typ);
     let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
-    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
 
 
-pub fn resolve_obj_call(data: &mut ObjectCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_obj_call(data: &mut ObjectCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     todo!()
 }
 
 
-pub fn resolve_literal_call(data: &mut LiteralCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_literal_call(data: &mut LiteralCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     if let Some(target_ctx) = env.get_symbol_ctx(data.name) {
         let ctx = env.get_env_ctx();
         let type_data = target_ctx.type_data.clone();
 
-        let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
+        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
         Ok(Some(res_data))
     } else {
         return Err(format!("Failed to resolve literal symbol: {}", SCACHE.resolve(data.name)));
@@ -496,32 +496,32 @@ pub fn resolve_literal_call(data: &mut LiteralCallData, env: &mut Environment) -
 }
 
 
-pub fn resolve_obj_assign(data: &mut ObjectAssignData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_obj_assign(data: &mut ObjectAssignData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     todo!()
 }
 
 
-pub fn resolve_gen_rand(data: &mut GenRandData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_gen_rand(data: &mut GenRandData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let ctx = env.get_env_ctx();
     let typ = if data.is_float { Type::Float } else { Type::Integer };
     let type_id = if data.is_float { env.meta_space.types.float } else { env.meta_space.types.int };
     let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
-    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }
 
 
-pub fn resolve_direct_inst(data: &mut DirectInst, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_direct_inst(data: &mut DirectInst, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     todo!()
 }
 
 
-pub fn resolve_init_inst(data: &mut FCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_init_inst(data: &mut FCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     todo!()
 }
 
 
-pub fn resolve_operation(data: &mut OpCallData, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_operation(data: &mut OpCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let mut resolved = true;
     let mut op_infer = Type::Integer;
 
@@ -553,16 +553,16 @@ pub fn resolve_operation(data: &mut OpCallData, env: &mut Environment) -> Result
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_type_id(&typ);
     let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
-    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
 
     Ok(Some(res_data))
 }
 
 
-pub fn resolve_primitive(typ: Type, env: &mut Environment) -> Result<Option<ResData>, String> {
+pub fn resolve_primitive(typ: Type, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
     let ctx = env.get_env_ctx();
     let type_id = env.meta_space.types.get_type_id(&typ);
     let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
-    let res_data = ResData { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
+    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
     Ok(Some(res_data))
 }

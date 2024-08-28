@@ -1,18 +1,27 @@
+use std::string::ParseError;
 use ahash::AHashMap;
-use crate::token::Def;
-use crate::types::Type::Unresolved;
+use intmap::IntMap;
+use crate::ast::Value::U16;
 use crate::util::{IString, SCACHE};
+use crate::ValueType;
 
 
 #[derive(Debug)]
 pub enum TypeError {
-    CheckError(String)
+    CheckError(String),
+    Resolution(String),
+    InvalidOperation(String),
+    TypeOverflow,
 }
 
 
 impl Into<String> for TypeError {
     fn into(self) -> String {
-        match self { TypeError::CheckError(str) => str }
+        match self {
+            TypeError::CheckError(str) | TypeError::Resolution(str)
+            | TypeError::InvalidOperation(str) => str,
+            TypeError::TypeOverflow => format!("{:?}", self).to_string()
+        }
     }
 }
 
@@ -36,9 +45,7 @@ impl From<bool> for TypeState {
     fn from(value: bool) -> Self {
         if value {
             Self::Valid
-        } else {
-            Self::Invalid
-        }
+        } else { Self::Invalid }
     }
 }
 
@@ -59,14 +66,13 @@ pub enum Type {
     String,
     Tuple,
     Nil,
-    Void,
     Quote,
     Object(ObjType),
     Lambda(FuncType),
 }
 
 
-impl Default for Type { fn default() -> Self { Unresolved(UnresolvedType::Unknown) } }
+impl Default for Type { fn default() -> Self { Type::Unresolved(UnresolvedType::Unknown) } }
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -74,24 +80,21 @@ pub enum UnresolvedType {
     #[default]
     Unknown,
     Identifier(IString),
-    Ignore,
-    Any,
 }
 
 
-impl Into<Type> for UnresolvedType { fn into(self) -> Type { Unresolved(self) } }
+impl Into<Type> for UnresolvedType { fn into(self) -> Type { Type::Unresolved(self) } }
 
 
 impl Type {
     pub fn parse_type_from_string(name: IString) -> Type {
         let name_str = SCACHE.resolve(name);
-
+        // TODO add _ and * type modifiers
         match name_str {
             "Int" => Type::Integer,
             "Float" => Type::Float,
             "Bool" => Type::Boolean,
             "String" => Type::String,
-            "void" => Type::Void,
             "Nil" => Type::Nil,
             "Tuple" => Type::Tuple,
             "Array" => Type::Array(Box::new(UnresolvedType::Unknown.into())),
@@ -100,7 +103,27 @@ impl Type {
             _ => UnresolvedType::Identifier(name).into()
         }
     }
+
+    pub fn expr_type(&self) -> &Type {
+        match self {
+            Type::Lambda(func_type) => &func_type.rtn_type,
+            _ => self
+        }
+    }
+
+    pub fn is_resolved(&self) -> bool {
+        match self {
+            Type::Unresolved(_) => false,
+            Type::Integer | Type::Float | Type::Boolean | Type::String | Type::Nil => true,
+            Type::Array(inner) => inner.is_resolved(),
+            Type::Lambda(func_type) => func_type.is_resolved(),
+            Type::Tuple => todo!("Implement Tuples"),
+            Type::Quote => todo!("Implement Quotes"),
+            Type::Object(_) => todo!("Implement Objects"),
+        }
+    }
 }
+
 
 
 impl TypeCheck for Type {
@@ -181,11 +204,21 @@ impl FuncType {
         }
     }
 
+    pub fn are_params_resolved(&self) -> bool {
+        self.param_types.iter().all(|p| p.is_resolved())
+    }
+
+    pub fn is_return_resolved(&self) -> bool {
+        !matches!(*self.rtn_type, Type::Unresolved(_))
+    }
+
+    pub fn is_resolved(&self) -> bool {
+        self.are_params_resolved() && self.is_return_resolved()
+    }
 
     pub fn add_param_type(&mut self, typ: Type) {
         self.param_types.push(typ)
     }
-
 
     pub fn set_param_type(&mut self, index: usize, typ: Type) -> Result<(), TypeError> {
         if index >= self.param_types.len() {
@@ -287,115 +320,175 @@ impl FuncType {
 
 #[derive(Debug)]
 pub struct TypeTable {
-    type_defs: AHashMap<Type, u16>,
-    type_ids: Vec<Type>,
-    type_names: AHashMap<IString, u16>,
-    pub nil: u16,
-    pub bool: u16,
-    pub int: u16,
-    pub float: u16,
-    pub string: u16,
-    pub pair: u16,
-    pub void: u16,
+    type_map: Vec<Type>,
+    type_enum_id_map: AHashMap<Type, u16>,
+    type_string_id_map: IntMap<u16>,
 }
 
 
 impl Default for TypeTable {
     fn default() -> Self {
-        let mut type_defs = AHashMap::<Type, u16>::with_capacity(50);
-        let mut type_ids = Vec::<Type>::with_capacity(50);
-        let mut type_names = AHashMap::<IString, u16>::with_capacity(50);
+        let mut type_map = Vec::<Type>::with_capacity(100);
+        let mut type_enum_id_map = AHashMap::<Type, u16>::with_capacity(100);
+        let mut type_string_id_map = IntMap::<u16>::with_capacity(100);
 
+        type_map.push(Type::Nil);
+        type_enum_id_map.insert(Type::Nil, Self::NIL);
+        type_string_id_map.insert(SCACHE.const_nil.into(), Self::NIL);
 
-        let nil = type_ids.len() as u16;
-        type_ids.push(Type::Nil);
-        type_defs.insert(Type::Nil, nil);
-        type_names.insert(SCACHE.const_nil, nil);
+        type_map.push(Type::Boolean);
+        type_enum_id_map.insert(Type::Boolean, Self::BOOL);
+        type_string_id_map.insert(SCACHE.const_bool.into(), Self::BOOL);
 
-        let void = type_ids.len() as u16;
-        type_ids.push(Type::Void);
-        type_defs.insert(Type::Void, void);
-        type_names.insert(SCACHE.const_void, void);
+        type_map.push(Type::Integer);
+        type_enum_id_map.insert(Type::Integer, Self::INT);
+        type_string_id_map.insert(SCACHE.const_int.into(), Self::INT);
 
-        let bool = type_ids.len() as u16;
-        type_ids.push(Type::Boolean);
-        type_defs.insert(Type::Boolean, bool);
-        type_names.insert(SCACHE.const_bool, bool);
+        type_map.push(Type::Float);
+        type_enum_id_map.insert(Type::Float, Self::FLOAT);
+        type_string_id_map.insert(SCACHE.const_float.into(), Self::FLOAT);
 
-        let int = type_ids.len() as u16;
-        type_ids.push(Type::Integer);
-        type_defs.insert(Type::Integer, int);
-        type_names.insert(SCACHE.const_int, int);
+        type_map.push(Type::String);
+        type_enum_id_map.insert(Type::String, Self::STRING);
+        type_string_id_map.insert(SCACHE.const_string.into(), Self::STRING);
 
-        let float = type_ids.len() as u16;
-        type_ids.push(Type::Float);
-        type_defs.insert(Type::Float, float);
-        type_names.insert(SCACHE.const_float, float);
-
-        let string = type_ids.len() as u16;
-        type_ids.push(Type::String);
-        type_defs.insert(Type::String, string);
-        type_names.insert(SCACHE.const_string, string);
-
-        let pair = type_ids.len() as u16;
-        type_ids.push(Type::Tuple);
-        type_defs.insert(Type::Tuple, pair);
-        type_names.insert(SCACHE.const_pair, pair);
-
-
-        TypeTable {
-            type_defs,
-            type_ids,
-            type_names,
-            nil,
-            bool,
-            int,
-            float,
-            string,
-            pair,
-            void,
-        }
+        TypeTable { type_map, type_enum_id_map, type_string_id_map }
     }
 }
 
 
+pub struct TypeEntry {
+    type_id: Option<u16>,
+    typ: Type,
+}
+
+
+impl TypeEntry {
+    pub fn type_id(&self) -> Option<u16> { self.type_id }
+    pub fn typ(&self) -> &Type { &self.typ }
+}
+
+
+// TODO clean up the structure and remove all the cloning, I assume type system
+//  will be fully redone at some point anyway
 impl TypeTable {
-    pub fn get_or_define_type(&mut self, typ: &Type) -> u16 {
-        if matches!(typ, Type::Unresolved(_)) {
-            panic!("Passed unresolved type to define_type");
-        }
-        if self.type_defs.contains_key(&typ) {
-            return *self.type_defs.get(&typ).unwrap();
-        }
+    const NIL: u16 = 0;
+    const BOOL: u16 = 1;
+    const INT: u16 = 2;
+    const FLOAT: u16 = 3;
+    const STRING: u16 = 4;
 
-        let id = self.type_ids.len();
-
-
-        // match &typ {
-        //     Type::Array(data) => {}{ self.type_names.insert(SCACHE.intern("".to_string()), id as u16); }
-        //     Type::Object(data) => { self.type_names.insert(data.name, id as u16); }
-        //     Type::Lambda(data) => todo!(),
-        //     _ => panic!(),
-        // }
-
-        if id > u16::MAX as usize { panic!("Exceeded maximum type definitions (65,535)"); }
-        self.type_ids.push(typ.clone());
-        self.type_defs.insert(typ.clone(), id as u16);
-        id as u16
+    fn get_entry(&self, type_id: u16) -> TypeEntry {
+        TypeEntry { type_id: Some(type_id), typ: self.type_map[type_id as usize].clone() }
     }
 
+    fn resolve_type_name(&self, name: IString) -> Option<u16> {
+        self.type_string_id_map.get(name.into()).copied()
+    }
+
+
+    // Only call from definition statements, and on variant of internal types (Arrays/Lambdas atm)
+    fn define_new_type(&mut self, typ: &Type) -> Result<TypeEntry, TypeError> {
+        if self.type_enum_id_map.contains_key(&typ) {
+            return Err(
+                TypeError::InvalidOperation("Fatal<Internal>: Attempted to redefine existing type".to_string())
+            );
+        }
+
+        let idx = {
+            let len = self.type_map.len();
+            if len > u16::MAX as usize {
+                return Err(TypeError::TypeOverflow);
+            } else { len as u16 }
+        };
+
+        self.type_enum_id_map.insert(typ.clone(), idx);
+
+        if let Type::Object(obj_typ) = &typ {
+            self.type_string_id_map.insert(obj_typ.name.into(), idx);
+        }
+
+        self.type_map.push(typ.clone());
+
+        Ok(TypeEntry { type_id: Some(idx), typ: self.type_map[idx as usize].clone() })
+    }
+
+
+    pub fn resolve_type(&mut self, typ: &Type) -> Result<(bool, Option<TypeEntry>), TypeError> {
+        if typ.is_resolved() {
+            return Ok((true, Some(self.get_entry(*self.type_enum_id_map.get(typ).unwrap()))));
+        }
+
+
+        // Insert new types should only happen on functions and arrays. As these are variations
+        //  of built-in types. All other definitions must occur via definition statements;
+        match typ {
+            Type::Array(inner) => {
+                if let (true, Some(type_entry)) = self.resolve_type(inner)? {
+                    let resolved_type = Type::Array(Box::new(type_entry.typ));
+                    if let Some(existing) = self.type_enum_id_map.get(&resolved_type) {
+                        Ok((true, Some(TypeEntry { type_id: Some(*existing), typ: typ.clone() })))
+                    } else { Ok((true, Some(self.define_new_type(typ)?))) }
+                } else { Ok((false, None)) }
+            }
+
+            Type::Lambda(func_type) => {
+                let mut resolved_type = FuncType::default();
+                if !func_type.are_params_resolved() {
+                    for param in func_type.param_types.iter() {
+                        if !param.is_resolved() {
+                            if let (true, Some(entry)) = self.resolve_type(param)? {
+                                resolved_type.param_types.push(entry.typ);
+                            } else { resolved_type.param_types.push(param.clone()) }
+                        }
+                    }
+                } else { resolved_type.param_types = func_type.param_types.clone() }
+
+                if !func_type.is_return_resolved() {
+                    if let Ok((true, Some(entry))) = self.resolve_type(&func_type.rtn_type) {
+                        resolved_type.rtn_type = Box::new(entry.typ)
+                    }
+                } else { resolved_type.rtn_type = func_type.rtn_type.clone() }
+
+                let resolved_type = Type::Lambda(resolved_type);
+
+                if resolved_type.is_resolved() {
+                    if let Some(existing) = self.type_enum_id_map.get(&resolved_type) {
+                        Ok((true, Some(TypeEntry { type_id: Some(*existing), typ: resolved_type })))
+                    } else { Ok((true, Some(self.define_new_type(&resolved_type)?))) }
+                } else { Ok((false, Some(TypeEntry { type_id: None, typ: resolved_type }))) }
+            }
+            
+            Type::Unresolved(unresolved) => {
+                match unresolved {
+                    UnresolvedType::Identifier(i_str) => {
+                        if let Some(type_id) = self.type_string_id_map.get(i_str.value.into()) {
+                            Ok((true, Some(TypeEntry { type_id: Some(*type_id), typ: typ.clone() })))
+                        } else { Ok((false, None)) }
+                    }
+                    _ => panic!("Fatal<Internal>: Unknown types should not be resolved directly")
+                }
+            }
+            Type::Quote => todo!("Implement Quote"),
+            Type::Object(_) => todo!("Implement Objects"),
+            Type::Tuple => todo!("Implement Tuples"),
+            Type::Nil | Type::Boolean | Type::Integer | Type::Float | Type::String => panic!("Should already exist"),
+        }
+    }
+
+
     pub fn get_type_id(&self, typ: &Type) -> u16 {
-        return *self.type_defs.get(typ).unwrap_or_else(|| panic!("Invalid Type{:?}", typ));
+        return *self.type_enum_id_map.get(typ).unwrap_or_else(|| panic!());
     }
 
     pub fn get_type_by_id(&self, id: u16) -> &Type {
         unsafe {
-            self.type_ids.get_unchecked(id as usize)
+            self.type_map.get_unchecked(id as usize)
         }
     }
 
     pub fn get_type_by_name(&self, i_string: IString) -> Option<&Type> {
-        return if let Some(id) = self.type_names.get(&i_string) {
+        return if let Some(id) = self.type_string_id_map.get(i_string.into()) {
             Some(self.get_type_by_id(*id))
         } else { None };
     }

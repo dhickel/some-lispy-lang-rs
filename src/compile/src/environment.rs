@@ -1,4 +1,7 @@
+use std::cmp::Ordering;
 use intmap::IntMap;
+use lang::{ModifierFlags, ValueType};
+use lang::util::IString;
 
 
 #[derive(Debug)]
@@ -72,7 +75,7 @@ impl MetaSpace {
     }
 
 
-    pub fn add_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString, data: ResData) -> &ResData {
+    pub fn add_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString, data: SymbolContext) -> &SymbolContext {
         let mut ns = self.namespaces.get_mut(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
@@ -80,7 +83,7 @@ impl MetaSpace {
             ns.symbol_table.get_mut(scope_id as u64).unwrap().insert_checked(name.value, data);
             ns.symbol_table.get(scope_id as u64).unwrap().get(name.value).unwrap()
         } else {
-            let mut scope_map = IntMap::<ResData>::with_capacity(5);
+            let mut scope_map = IntMap::<SymbolContext>::with_capacity(5);
             scope_map.insert(name.value, data);
             ns.symbol_table.insert(scope_id as u64, scope_map);
             ns.symbol_table.get(scope_id as u64).unwrap().get(name.value).unwrap()
@@ -92,7 +95,7 @@ impl MetaSpace {
     }
 
 
-    pub fn get_symbol(&self, ns_id: u16, scope_id: u32, name_val: u64) -> Option<&ResData> {
+    pub fn get_symbol(&self, ns_id: u16, scope_id: u32, name_val: u64) -> Option<&SymbolContext> {
         let mut ns = self.namespaces.get(ns_id as usize)
             .expect("Fatal: Failed to resolve namespace");
 
@@ -200,7 +203,7 @@ impl MetaSpace {
 #[derive(Debug)]
 pub struct NameSpace {
     pub name: IString,
-    pub symbol_table: IntMap<IntMap<ResData>>,
+    pub symbol_table: IntMap<IntMap<SymbolContext>>,
     pub variables: Vec<VarMeta>,
     pub functions: Vec<FuncMeta>,
     pub obj_metadata: Vec<ObjectMeta>,
@@ -325,7 +328,7 @@ impl NameSpace {
     pub fn new(name: IString) -> Self {
         NameSpace {
             name,
-            symbol_table: IntMap::<IntMap::<ResData>>::with_capacity(35),
+            symbol_table: IntMap::<IntMap::<SymbolContext>>::with_capacity(35),
             variables: Vec::<VarMeta>::with_capacity(20),
             functions: Vec::<FuncMeta>::with_capacity(20),
             obj_metadata: Vec::<ObjectMeta>::new(),
@@ -400,8 +403,8 @@ pub enum ObjectMeta {
 #[derive(Debug)]
 pub struct ClassMeta {
     pub name: IString,
-    pub global_symbols: IntMap<ResData>,
-    pub local_symbols: IntMap<IntMap<ResData>>,
+    pub global_symbols: IntMap<SymbolContext>,
+    pub local_symbols: IntMap<IntMap<SymbolContext>>,
     pub variables: Vec<VarMeta>,
     pub functions: Vec<FuncMeta>,
     pub obj_metadata: Vec<ObjectMeta>,
@@ -413,8 +416,8 @@ impl ClassMeta {
     pub fn new(name: IString) -> Self {
         ClassMeta {
             name,
-            global_symbols: IntMap::<ResData>::with_capacity(20),
-            local_symbols: IntMap::<IntMap::<ResData>>::with_capacity(35),
+            global_symbols: IntMap::<SymbolContext>::with_capacity(20),
+            local_symbols: IntMap::<IntMap::<SymbolContext>>::with_capacity(35),
             variables: Vec::<VarMeta>::with_capacity(20),
             functions: Vec::<FuncMeta>::with_capacity(20),
             obj_metadata: Vec::<ObjectMeta>::new(),
@@ -432,17 +435,30 @@ pub struct RecordMeta {}
 pub struct InterfaceMeta {}
 
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ResData {
+#[derive(Debug, Clone)]
+pub struct SymbolContext {
+    pub name: IString,
+    pub symbol_type: ValueType,
+    pub mod_flags: ModifierFlags,
+    pub ns_idx: u16,
+    pub scope: u32,
+    pub depth: u32,
     pub self_ctx: Context,
-    pub target_ctx: Option<Context>,
     pub type_data: TypeData,
+}
+
+
+impl PartialEq for SymbolContext { fn eq(&self, other: &Self) -> bool { self.name == other.name } }
+
+
+impl PartialOrd for SymbolContext {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { self.name.partial_cmp(other) }
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Context {
-    Symbol(SymbolCtx),
+    Symbol(SymbolContext),
     Expr(ExprContext),
 }
 
@@ -466,13 +482,13 @@ pub struct SymbolCtx {
 pub struct ExprContext {
     pub scope: u32,
     pub depth: u32,
-    pub ns: u16,
+    pub namespace: u16,
     pub class: Option<u16>,
     pub func: Option<u16>,
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub struct TypeData {
     pub full_type_id: u16,
     pub rtn_type_id: u16,
@@ -572,6 +588,15 @@ impl<'a> Environment<'a> {
         *self.active_scopes.get(self.active_scopes.len() - 2).unwrap()
     }
 
+
+    /*
+    Scope popping and pushing takes a slightly abstract approach. The current scope and all scopes
+    "in-scope" are held in a vec. When a scope is entered the current scope and the current depth
+    are incremented. When a scope is exited only the depth is decremented. This is done to ensure
+    that each scope is unique, as then on the next scope entrance the depth will be incremented back
+    the same value it was before the last scope popped. Depth relates to how many scopes there are
+    currently stacked, while the current scope is always incremented to a higher un-seen value
+     */
     pub fn push_scope(&mut self) {
         self.curr_scope += 1;
         self.curr_depth += 1;
@@ -589,7 +614,7 @@ impl<'a> Environment<'a> {
         self.pop_scope();
     }
 
-    pub fn add_func_symbol(&mut self, name: IString, lambda: &DefLambdaData, typ: &FuncType) -> Result<&ResData, String> {
+    pub fn add_func_symbol(&mut self, name: IString, lambda: &DefLambdaData, typ: &FuncType) -> Result<&SymbolContext, String> {
         self.push_scope();
 
         println!("Added func def: {:?}:{:?}", SCACHE.resolve(name), name.value);
@@ -643,7 +668,7 @@ impl<'a> Environment<'a> {
             if *typ.rtn_type == Type::Void { false } else { true },
         );
 
-        let res_data = ResData {
+        let res_data = SymbolContext {
             self_ctx: Context::Symbol(symbol_data),
             target_ctx: None,
             type_data: TypeData::from_type(&Type::Lambda(typ.clone()), &mut self.meta_space.types),
@@ -663,7 +688,7 @@ impl<'a> Environment<'a> {
     // If not top level, check for existing functions first as it may be nested in a class.
     // If not currently resolve a function body, and not a top level ns def, symbol must be
     // a top level class definition
-    pub fn add_var_symbol(&mut self, name: IString, typ: Type, mods: Option<Vec<Mod>>) -> Result<&ResData, String> {
+    pub fn add_var_symbol(&mut self, name: IString, typ: Type, mods: Option<Vec<Mod>>) -> Result<&SymbolContext, String> {
         let type_id = self.meta_space.types.get_or_define_type(&typ);
         let def = VarMeta { name };
 
@@ -672,7 +697,7 @@ impl<'a> Environment<'a> {
         } else {
             let index = self.meta_space.add_var_def(self.curr_ns, def);
             let symbol_data = SymbolCtx::new(self.get_env_ctx(), index, mods, false);
-            let res_data = ResData {
+            let res_data = SymbolContext {
                 self_ctx: Context::Symbol(symbol_data),
                 target_ctx: None,
                 type_data: TypeData::from_type(&typ, &mut self.meta_space.types),
@@ -692,7 +717,7 @@ impl<'a> Environment<'a> {
     }
 
 
-    pub fn get_symbol_ctx(&self, name: IString) -> Option<&ResData> {
+    pub fn get_symbol_ctx(&self, name: IString) -> Option<&SymbolContext> {
         for &scope_id in self.active_scopes.iter().rev() {
             if let Some(data) = self.meta_space.get_symbol(self.curr_ns, scope_id, name.value) {
                 return Some(data);

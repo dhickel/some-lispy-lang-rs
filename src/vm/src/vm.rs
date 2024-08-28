@@ -3,7 +3,7 @@ use std::ops::{Add, Div, Mul, Sub};
 use compile::op_codes::{decode, OpCode};
 use std::time::{SystemTime, UNIX_EPOCH};
 use compile::environment::{MetaSpace, PermSpace, PermNameSpace, StackFrame};
-
+use lang::op_codes::OpCode;
 use crate::heap::Heap;
 
 macro_rules! nano_time {

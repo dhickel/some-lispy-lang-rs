@@ -293,9 +293,7 @@ impl ParserState {
                 let typ = self.parse_type(false)?;
                 self.consume(TokenType::ANGLE_BRACKET_RIGHT)?;
                 Ok(typ)
-            } else {
-                Ok(Type::parse_type_from_string(str))
-            }
+            } else { Ok(Type::parse_type_from_string(str)) }
         } else { ParseError::parsing_error(self.peek()?, "Expected Identifier for type") }
     }
 
@@ -305,13 +303,13 @@ impl ParserState {
 
         // ::= '<'
         self.consume(TOperation(Op::Less))?;
-
-
+        
         // ::= { Identifier }
         while matches!(self.peek()?.token_type, TokenType::IDENTIFIER) {
             let typ = self.parse_type(false)?;
             func_type.add_param_type(typ);
         }
+        
         // ::= ';'
         self.consume(TSyntactic(Syn::SemiColon))?;
 
@@ -321,9 +319,7 @@ impl ParserState {
             .map_err(|err| { ParseError::TypeChecking(format!("{:?}", err)) })?;
 
         // ::= '>'
-
         self.consume(TOperation(Op::Greater))?;
-
         Ok(Type::Lambda(func_type))
     }
 
@@ -350,7 +346,7 @@ impl ParserState {
         let typ = if pattern.has_type {
             self.parse_type(true)?
         } else { UnresolvedType::Unknown.into() };
-
+        
         // ::= { Modifier }
         let modifiers = self.parse_modifiers(pattern.modifier_count)?;
 
@@ -359,7 +355,7 @@ impl ParserState {
 
         // ::= Expr
         let assignment = self.parse_expression(pattern.expr)?;
-
+        
         let let_data = LetData { identifier, modifiers, assignment };
         Ok(Statement::Let(AstData::new(let_data, line_char, Some(typ))))
     }
@@ -546,15 +542,11 @@ impl ParserState {
         &mut self,
         pattern: PredicateForm,
     ) -> Result<(Option<Expression>, Option<Expression>), ParseError> {
-
-
         // ::= '->' Expr
         let then_expr = if let Some(then_pattern) = pattern.then_form {
             self.consume(TokenType::RIGHT_ARROW)?;
             Some(self.parse_expression(then_pattern)?)
-        } else {
-            None
-        };
+        } else { None };
 
         let else_expr = if let Some(else_pattern) = pattern.else_form {
             // ::= [ ':' Expr ] 
@@ -598,8 +590,7 @@ impl ParserState {
                         let identifier = if matches!(self.peek()?. token_type, TokenType::IDENTIFIER) {
                             Some(self.parse_identifier()?)
                         } else { None };
-
-
+                        
                         // ::= '['
                         self.consume_left_bracket()?;
                         // ::= { Argument }

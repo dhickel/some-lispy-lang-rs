@@ -1,4 +1,5 @@
 use std::alloc::{alloc, Layout};
+use std::cmp::Ordering;
 use std::sync::{Mutex};
 
 use ahash::AHashMap;
@@ -6,21 +7,24 @@ use lazy_static::lazy_static;
 
 
 pub struct Interner {
-    map: AHashMap<String, u64>,
+    map: AHashMap<String, u32>,
     list: Vec<*const str>,
 }
 
 
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, PartialOrd)]
 pub struct IString {
-    pub value: u64,
+    pub value: u32,
 }
 
 
-impl PartialEq<u64> for IString {
-    fn eq(&self, other: &u64) -> bool {
-        self.value == *other
-    }
+impl Into<u64> for IString { fn into(self) -> u64 { self.value as u64 } }
+impl Into<u32> for IString { fn into(self) -> u32 { self.value  } }
+
+impl PartialEq<u32> for IString { fn eq(&self, other: &u32) -> bool { self.value == *other } }
+
+impl PartialOrd<u32> for IString {
+    fn partial_cmp(&self, other: &u32) -> Option<Ordering> { self.value.partial_cmp(other) }
 }
 
 
@@ -46,7 +50,11 @@ impl Interner {
             return IString { value: id };
         }
 
-        let new_id = self.list.len() as u64;
+        let new_id = if self.list.len() > u32::MAX as usize {
+            panic!("Interner Overflow")
+        } else { self.list.len() as u32 };
+
+
         let raw_ptr = string.as_str() as *const str;
         self.list.push(raw_ptr);
         self.map.insert(string, new_id);
@@ -98,7 +106,7 @@ pub struct SCache {
     pub const_string: IString,
     pub const_nil: IString,
     pub const_pair: IString,
-    pub const_void: IString
+    pub const_void: IString,
 }
 
 
@@ -113,11 +121,11 @@ impl Default for SCache {
         let const_post = cache.intern("post".to_string());
         let const_final = cache.intern("final".to_string());
         let const_validate = cache.intern("validate".to_string());
-        let const_int = cache.intern("int".to_string());
-        let const_float = cache.intern("float".to_string());
-        let const_bool = cache.intern("bool".to_string());
-        let const_string = cache.intern("string".to_string());
-        let const_nil = cache.intern("#nil".to_string());
+        let const_int = cache.intern("Int".to_string());
+        let const_float = cache.intern("Float".to_string());
+        let const_bool = cache.intern("Bool".to_string());
+        let const_string = cache.intern("String".to_string());
+        let const_nil = cache.intern("Nil".to_string());
         let const_pair = cache.intern("pair".to_string());
         let const_void = cache.intern("#void".to_string());
 

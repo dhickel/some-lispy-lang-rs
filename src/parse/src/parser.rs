@@ -8,7 +8,6 @@ use crate::grammar::{Arg, AssignStmntPattern, BlockExprPattern, CondExprPattern,
 use crate::{grammar, ParseError};
 use lang::token::*;
 use lang::token::TokenType::*;
-use lang::types::Type::Unresolved;
 
 
 pub struct ParserState {
@@ -229,14 +228,14 @@ impl ParserState {
         }
     }
 
-    pub fn parse_statement(&mut self, stmnt: StmntPattern) -> Result<Statement, ParseError> {
+    pub fn parse_statement(&mut self, stmnt: StmntPattern) -> Result<StmntVariant, ParseError> {
         match stmnt {
             StmntPattern::Let(let_pat) => self.parse_let_statement(let_pat),
             StmntPattern::Assign(assign_pat) => self.parse_assignment_statement(assign_pat)
         }
     }
 
-    pub fn parse_expression(&mut self, expr: ExprPattern) -> Result<Expression, ParseError> {
+    pub fn parse_expression(&mut self, expr: ExprPattern) -> Result<ExprVariant, ParseError> {
         match expr {
             ExprPattern::SExpr(pat) => self.parse_s_expression(pat),
             ExprPattern::VExpr => self.parse_v_expression(),
@@ -333,7 +332,7 @@ impl ParserState {
     ////////////////
 
     // ::= 'let' Identifier { Modifier } [ ':' Type ] '=' Expr
-    pub fn parse_let_statement(&mut self, pattern: LetStmntPattern) -> Result<Statement, ParseError> {
+    pub fn parse_let_statement(&mut self, pattern: LetStmntPattern) -> Result<StmntVariant, ParseError> {
         let line_char = self.line_char()?;
 
         // ::= let
@@ -357,11 +356,11 @@ impl ParserState {
         let assignment = self.parse_expression(pattern.expr)?;
         
         let let_data = LetData { identifier, modifiers, assignment };
-        Ok(Statement::Let(AstData::new(let_data, line_char, Some(typ))))
+        Ok(StmntVariant::Let(AstData::new(let_data, line_char, Some(typ))))
     }
 
     // ::= Identifier ':=' Expr
-    pub fn parse_assignment_statement(&mut self, pattern: AssignStmntPattern) -> Result<Statement, ParseError> {
+    pub fn parse_assignment_statement(&mut self, pattern: AssignStmntPattern) -> Result<StmntVariant, ParseError> {
         let line_char = self.line_char()?;
 
         // ::= Identifier
@@ -374,11 +373,11 @@ impl ParserState {
         let value = self.parse_expression(pattern.expr)?;
 
         let assign_data = AssignData { identifier, namespace: None, value };
-        Ok(Statement::Assign(AstData::new(assign_data, line_char, None)))
+        Ok(StmntVariant::Assign(AstData::new(assign_data, line_char, None)))
     }
 
     // ::= '(' Expr | Operation { Expr }
-    pub fn parse_s_expression(&mut self, pattern: SExprPattern) -> Result<Expression, ParseError> {
+    pub fn parse_s_expression(&mut self, pattern: SExprPattern) -> Result<ExprVariant, ParseError> {
         let line_char = self.line_char()?;
 
         // ::= '('
@@ -392,7 +391,7 @@ impl ParserState {
 
         // ::= { Expr } 
         let operands = if let Some(operands) = pattern.operands {
-            let mut operand_expr = Vec::<Expression>::with_capacity(operands.len());
+            let mut operand_expr = Vec::<ExprVariant>::with_capacity(operands.len());
             for expr in operands { operand_expr.push(self.parse_expression(expr)?) }
             Some(operand_expr)
         } else { None };
@@ -402,15 +401,15 @@ impl ParserState {
 
         if let Some(op) = op {
             let data = OpCallData { operation: op, operands };
-            Ok(Expression::OpCall(AstData::new(data, line_char, None)))
+            Ok(ExprVariant::OpCall(AstData::new(data, line_char, None)))
         } else if let Some(expr) = expr_op {
             let data = SCallData { operation_expr: expr, operand_exprs: operands };
-            Ok(Expression::SCall(AstData::new(data, line_char, None)))
+            Ok(ExprVariant::SCall(AstData::new(data, line_char, None)))
         } else { ParseError::parsing_error(self.peek()?, "Proper Expression") }
     }
 
     //::=  [ NamespaceAccess ] [ Identifier ] [ MemberAccessChain ]
-    pub fn parse_f_expression(&mut self, pattern: FExprPattern) -> Result<Expression, ParseError> {
+    pub fn parse_f_expression(&mut self, pattern: FExprPattern) -> Result<ExprVariant, ParseError> {
         let line_char = self.line_char()?;
 
         let mut sub_exprs = Vec::<FExprData>::with_capacity(pattern.namespace_count as usize + 3);
@@ -427,10 +426,10 @@ impl ParserState {
         // ::= [ MemberAccessChain ]
         if let Some(mut ac) = self.parse_member_access(pattern.access_chain)? { sub_exprs.append(&mut ac); }
 
-        Ok(Expression::FCall(AstData::new(sub_exprs, line_char, None)))
+        Ok(ExprVariant::FCall(AstData::new(sub_exprs, line_char, None)))
     }
 
-    pub fn parse_v_expression(&mut self) -> Result<Expression, ParseError> {
+    pub fn parse_v_expression(&mut self) -> Result<ExprVariant, ParseError> {
         let line_char = self.line_char()?;
         let token = self.advance()?;
 
@@ -456,12 +455,12 @@ impl ParserState {
                 }
                 Lit::Nil => (Some(Type::Nil), Value::Nil(())),
             };
-            Ok(Expression::Value(AstData::new(value, line_char, typ)))
+            Ok(ExprVariant::Value(AstData::new(value, line_char, typ)))
         } else { ParseError::parsing_error(self.peek()?, "Expected value expression") }
     }
 
     // ::= '{' { Expr | Stmnt } '}'
-    pub fn parse_block_expression(&mut self, pattern: BlockExprPattern) -> Result<Expression, ParseError> {
+    pub fn parse_block_expression(&mut self, pattern: BlockExprPattern) -> Result<ExprVariant, ParseError> {
         let line_char = self.line_char()?;
 
         // ::= '{'
@@ -472,15 +471,15 @@ impl ParserState {
                 .map(|pat| Ok(self.parse_grammar_pattern(pat)?))
                 .collect::<Result<Vec<AstNode>, ParseError>>()?;
 
-            Expression::Block(AstData::new(members, line_char, None))
-        } else { Expression::Block(AstData::new(vec![], line_char, None)) };
+            ExprVariant::Block(AstData::new(members, line_char, None))
+        } else { ExprVariant::Block(AstData::new(vec![], line_char, None)) };
 
         // ::= '}'
         self.consume_right_brace()?;
         Ok(expr)
     }
 
-    pub fn parse_lambda_expression(&mut self, pattern: LambdaExprPattern) -> Result<Expression, ParseError> {
+    pub fn parse_lambda_expression(&mut self, pattern: LambdaExprPattern) -> Result<ExprVariant, ParseError> {
         let line_char = self.line_char()?;
 
         // ::=  '=>'
@@ -494,13 +493,13 @@ impl ParserState {
         // ::= '|' { Parameter } '|' Expr
         let lambda = self.parse_lambda(pattern.form)?;
 
-        Ok(Expression::Lambda(AstData::new(lambda, line_char, typ)))
+        Ok(ExprVariant::Lambda(AstData::new(lambda, line_char, typ)))
     }
 
-    pub fn parse_lambda_form(&mut self, pattern: LambdaFormPattern) -> Result<Expression, ParseError> {
+    pub fn parse_lambda_form(&mut self, pattern: LambdaFormPattern) -> Result<ExprVariant, ParseError> {
         let line_char = self.line_char()?;
         let lambda = self.parse_lambda(pattern)?;
-        Ok(Expression::Lambda(AstData::new(lambda, line_char, None)))
+        Ok(ExprVariant::Lambda(AstData::new(lambda, line_char, None)))
     }
 
     // ::= '|' { Parameter } '|' Expr
@@ -519,7 +518,7 @@ impl ParserState {
 
 
     // ::= '(' Expr '->' Expr [ ':' Expr ] ')'
-    pub fn parse_condition_expression(&mut self, pattern: CondExprPattern) -> Result<Expression, ParseError> {
+    pub fn parse_condition_expression(&mut self, pattern: CondExprPattern) -> Result<ExprVariant, ParseError> {
         let line_char = self.line_char()?;
         // ::= '('
         self.consume_left_paren()?;
@@ -534,14 +533,14 @@ impl ParserState {
         self.consume_right_paren()?;
 
         let data = PredicateData { pred_expr, then_expr, else_expr };
-        Ok(Expression::Predicate(AstData::new(data, line_char, None)))
+        Ok(ExprVariant::Predicate(AstData::new(data, line_char, None)))
     }
 
     // ::= '->' Expr [ ':' Expr ]
     pub fn parse_predicate_form(
         &mut self,
         pattern: PredicateForm,
-    ) -> Result<(Option<Expression>, Option<Expression>), ParseError> {
+    ) -> Result<(Option<ExprVariant>, Option<ExprVariant>), ParseError> {
         // ::= '->' Expr
         let then_expr = if let Some(then_pattern) = pattern.then_form {
             self.consume(TokenType::RIGHT_ARROW)?;

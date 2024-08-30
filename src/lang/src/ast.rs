@@ -1,24 +1,88 @@
 use crate::util::IString;
 use crate::token::{Mod, Op};
-use crate::types::Type;
+use crate::types::{Type, TypeError, TypeId, TypeTable};
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AstData<T> {
-    pub expr_type: Type,
+    pub resolve_state: ResolveState,
     pub node_data: Box<T>,
     pub line_char: (u32, u32),
-    //  pub res_data: Option<ResData>,
+}
+
+
+impl<T> AstData<T> {
+    pub fn update_resolve_state(&mut self, state: ResolveState) -> &ResolveState {
+        self.resolve_state = state;
+        &self.resolve_state
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolveState {
+    Unresolved(Type),
+    Resolved(ResolveData),
+}
+
+
+impl ResolveState {
+    pub fn is_resolved(&self) -> bool { matches!(self, Self::Unresolved(_)) }
+
+    pub fn get_type(&self) -> &Type {
+        match self {
+            ResolveState::Unresolved(typ) => typ,
+            ResolveState::Resolved(res) => &res.typ
+        }
+    }
+
+    pub fn get_type_id(&self) -> Option<TypeId> {
+        if let ResolveState::Resolved(res) = self {
+            Some(res.type_id)
+        } else { None }
+    }
+
+    pub fn get_type_and_id(&self) -> (&Type, Option<TypeId>) {
+        (self.get_type(), self.get_type_id())
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolveData {
+    pub type_id: TypeId,
+    pub ns_id: u16,
+    pub scope_id: u32,
+    pub typ: Type,
+    pub meta_data: Option<MetaData>,
+}
+
+
+impl ResolveData {
+    pub fn new(ns_id: u16, scope_id: u32, type_id: TypeId, typ: Type) -> Self {
+        if matches!(typ, Type::Unresolved(_)) {
+            panic!("Fatal<internal>: Constructed resolution data with unresolved type")
+        }
+        Self { type_id, ns_id, scope_id, typ, meta_data: None }
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum MetaData {
+    #[default]
+    None,
+    Primitive,
+    Function { rtn_type: TypeId, param_types: Option<Vec<TypeId>> }, // TODO add function classifications?
 }
 
 
 impl<T> AstData<T> {
     pub fn new(data: T, line_char: (u32, u32), typ: Option<Type>) -> Self {
         Self {
-            expr_type: typ.unwrap_or(Type::default()),
+            resolve_state: ResolveState::Unresolved(typ.unwrap_or_default()),
             node_data: Box::new(data),
             line_char,
-            //    res_data: None,
         }
     }
 }
@@ -26,8 +90,8 @@ impl<T> AstData<T> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
-    Statement(Statement),
-    Expression(Expression),
+    Statement(StmntVariant),
+    Expression(ExprVariant),
 }
 
 
@@ -40,13 +104,13 @@ impl AstNode {}
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Statement {
+pub enum StmntVariant {
     Let(AstData<LetData>),
     Assign(AstData<AssignData>),
 }
 
 
-impl Into<AstNode> for Statement {
+impl Into<AstNode> for StmntVariant {
     fn into(self) -> AstNode {
         AstNode::Statement(self)
     }
@@ -57,7 +121,7 @@ impl Into<AstNode> for Statement {
 pub struct AssignData {
     pub namespace: Option<IString>,
     pub identifier: IString,
-    pub value: Expression,
+    pub value: ExprVariant,
 }
 
 
@@ -65,12 +129,21 @@ pub struct AssignData {
 pub struct LetData {
     pub identifier: IString,
     pub modifiers: Option<Vec<Mod>>,
-    pub assignment: Expression,
+    pub assignment: ExprVariant,
+}
+
+
+impl LetData {
+    pub fn get_mod_sliced(&self) -> Option<&[Mod]> {
+        if let Some(mods) = &self.modifiers {
+            Some(mods)
+        } else { None }
+    }
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expression {
+pub enum ExprVariant {
     SCall(AstData<SCallData>),
     FCall(AstData<Vec<FExprData>>),
     Value(AstData<Value>),
@@ -81,28 +154,28 @@ pub enum Expression {
 }
 
 
-impl Expression {
-    pub fn get_type(&self) -> &Type {
+impl ExprVariant {
+    pub fn get_line_char(&self) -> (u32, u32) {
         match self {
-            Expression::SCall(data) => &data.expr_type,
-            Expression::FCall(data) => &data.expr_type,
-            Expression::Value(data) => &data.expr_type,
-            Expression::OpCall(data) => &data.expr_type,
-            Expression::Block(data) => &data.expr_type,
-            Expression::Predicate(data) => &data.expr_type,
-            Expression::Lambda(data) => &data.expr_type,
+            ExprVariant::SCall(data) => data.line_char,
+            ExprVariant::FCall(data) => data.line_char,
+            ExprVariant::Value(data) => data.line_char,
+            ExprVariant::OpCall(data) => data.line_char,
+            ExprVariant::Block(data) => data.line_char,
+            ExprVariant::Predicate(data) => data.line_char,
+            ExprVariant::Lambda(data) => data.line_char,
         }
     }
 
-    pub fn get_line_char(&self) -> (u32, u32) {
+    pub fn get_resolve_state(&self) -> &ResolveState {
         match self {
-            Expression::SCall(data) => data.line_char,
-            Expression::FCall(data) => data.line_char,
-            Expression::Value(data) => data.line_char,
-            Expression::OpCall(data) => data.line_char,
-            Expression::Block(data) => data.line_char,
-            Expression::Predicate(data) => data.line_char,
-            Expression::Lambda(data) => data.line_char,
+            ExprVariant::SCall(data) => &data.resolve_state,
+            ExprVariant::FCall(data) => &data.resolve_state,
+            ExprVariant::Value(data) => &data.resolve_state,
+            ExprVariant::OpCall(data) => &data.resolve_state,
+            ExprVariant::Block(data) => &data.resolve_state,
+            ExprVariant::Predicate(data) => &data.resolve_state,
+            ExprVariant::Lambda(data) => &data.resolve_state,
         }
     }
 }
@@ -110,15 +183,15 @@ impl Expression {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SCallData {
-    pub operation_expr: Expression,
-    pub operand_exprs: Option<Vec<Expression>>,
+    pub operation_expr: ExprVariant,
+    pub operand_exprs: Option<Vec<ExprVariant>>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaData {
     pub parameters: Option<Vec<Parameter>>,
-    pub expr: Expression,
+    pub expr: ExprVariant,
 }
 
 
@@ -132,7 +205,7 @@ pub enum FExprData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Argument {
     pub modifiers: Option<Vec<Mod>>,
-    pub expr: Expression,
+    pub expr: ExprVariant,
 }
 
 
@@ -156,11 +229,11 @@ pub enum MType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpCallData {
     pub operation: Op,
-    pub operands: Option<Vec<Expression>>,
+    pub operands: Option<Vec<ExprVariant>>,
 }
 
 
-impl Into<AstNode> for Expression {
+impl Into<AstNode> for ExprVariant {
     fn into(self) -> AstNode {
         AstNode::Expression(self)
     }
@@ -169,16 +242,14 @@ impl Into<AstNode> for Expression {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredicateData {
-    pub pred_expr: Expression,
-    pub then_expr: Option<Expression>,
-    pub else_expr: Option<Expression>,
+    pub pred_expr: ExprVariant,
+    pub then_expr: Option<ExprVariant>,
+    pub else_expr: Option<ExprVariant>,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
-    I8(i8),
-    I16(i16),
     I32(i32),
     I64(i64),
     U8(u8),
@@ -196,6 +267,23 @@ pub enum Value {
     Tuple,
     Identifier(IString),
 }
+
+
+impl Value {
+    pub fn get_type_info_if_primitive(&self) -> Option<(Type, TypeId)> {
+        match self {
+            Value::I32(_) | Value::I64(_) | Value::U8(_) |
+            Value::U16(_) | Value::U32(_) | Value::U64(_) => Some((Type::Integer, TypeTable::INT)),
+            Value::F32(_) | Value::F64(_) => Some((Type::Float, TypeTable::FLOAT)),
+            Value::Boolean(_) => Some((Type::Boolean, TypeTable::BOOL)),
+            Value::String => Some((Type::String, TypeTable::STRING)),
+            _ => None
+        }
+    }
+}
+
+
+
 
 
 

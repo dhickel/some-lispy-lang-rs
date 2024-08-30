@@ -11,20 +11,45 @@ pub mod token;
 
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ValueType {
-    Primitive,
+    Primitive(PrimType),
+    Array,
+    Tuple,
     Object,
-    Namespace,
-    Symbol,
-    Type,
     Function,
+    Type,
+    Quote,
+    Definition(DefType),
+}
+
+
+// FIXME switch to object type once it is finalized
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DefType {
+    Namespace,
     Interface,
     Record,
     Struct,
     AbsClass,
     Class,
-    Quote,
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub enum PrimType {
+    U8,
+    U16,
+    U32,
+    U64,
+    I32,
+    I64,
+    F32,
+    F64,
+    Bool,
+    String,
 }
 
 
@@ -32,15 +57,15 @@ impl From<&Type> for ValueType {
     fn from(value: &Type) -> Self {
         match value {
             Type::Unresolved(_) => panic!("Fatal<internal>: Attempted to convert unresolved Type to ValueType"),
-            Type::Integer => ValueType::Primitive,
-            Type::Float => ValueType::Primitive,
-            Type::Boolean => ValueType::Primitive,
-            Type::Array(_) => ValueType::Primitive,
-            Type::String => ValueType::Primitive,
-            Type::Tuple => ValueType::Primitive,
+            Type::Integer => ValueType::Primitive(PrimType::I64),
+            Type::Float => ValueType::Primitive(PrimType::F64),
+            Type::Boolean => ValueType::Primitive(PrimType::Bool),
+            Type::Array(_) => ValueType::Array,
+            Type::String => ValueType::Primitive(PrimType::String),
+            Type::Tuple(_) => ValueType::Tuple,
             Type::Nil => panic!("Fatal<internal>: Attempted to cover Nil to ValueType"),
             Type::Quote => ValueType::Quote,
-            Type::Object(_) => ValueType::Class, // FIXME, this need to map the type of object
+            Type::Object(_) => ValueType::Definition(DefType::Class), // FIXME, this need to map the type of object
             Type::Lambda(_) => ValueType::Function
         }
     }
@@ -50,7 +75,6 @@ impl From<&Type> for ValueType {
 
 
 bitflags! {
-    /// Represents a set of flags.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct ModifierFlags: u16 {
         const NONE          = 0b00000000;
@@ -63,18 +87,18 @@ bitflags! {
 }
 
 impl ModifierFlags {
-    pub fn from_mods(mods: Option<&[Mod]>) -> ModifierFlags {
+    pub fn from_mods(mods: &[Mod]) -> ModifierFlags {
         let mut flag = ModifierFlags::NONE;
-        if let Some(mods) = mods {
-            mods.iter().for_each(|modd| {
-                match modd {
-                    Mod::Mutable => flag |= ModifierFlags::MUTABLE,
-                    Mod::Public => flag |= ModifierFlags::PUBLIC,
-                    Mod::Const => flag |= ModifierFlags::FINAL,
-                    Mod::Optional => flag |= ModifierFlags::OPTIONAL
-                }
-            });
-        }
+
+        mods.iter().for_each(|modd| {
+            match modd {
+                Mod::Mutable => flag |= ModifierFlags::MUTABLE,
+                Mod::Public => flag |= ModifierFlags::PUBLIC,
+                Mod::Const => flag |= ModifierFlags::FINAL,
+                Mod::Optional => flag |= ModifierFlags::OPTIONAL
+            }
+        });
+        
         flag
     }
 }

@@ -3,7 +3,8 @@ use std::string::{ParseError, ToString};
 use std::sync::{Arc, Mutex, RwLock};
 use intmap::IntMap;
 use lang::{ModifierFlags, ValueType};
-use lang::types::{Type, TypeTable};
+use lang::ast::ResolveData;
+use lang::types::{Type, TypeId, TypeTable};
 use lang::util::{IString, SCACHE};
 use crate::environment::{NameSpace, TypeData};
 
@@ -15,7 +16,7 @@ pub enum EnvError {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SymbolContext {
     pub name: IString,
     pub value_type: ValueType,
@@ -23,7 +24,7 @@ pub struct SymbolContext {
     pub ns_idx: u16,
     pub scope: u32,
     pub depth: u32,
-    pub typ: Type,
+    pub type_id: TypeId,
 }
 
 
@@ -31,7 +32,7 @@ impl PartialEq for SymbolContext { fn eq(&self, other: &Self) -> bool { self.nam
 
 
 impl PartialOrd for SymbolContext {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { self.name.partial_cmp(other) }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { self.name.partial_cmp(&other.name) }
 }
 
 
@@ -44,18 +45,15 @@ struct SymbolTable {
 impl SymbolTable {
     fn gen_key(ns_id: u16, scope_id: u32) -> u64 { ((ns_id as u64) << 32) | (scope_id as u64) }
 
-    fn sorted_insert(&self, existing: &mut Vec<SymbolContext>, symbol_context: SymbolContext) -> Result<(), EnvError> {
+    fn sorted_insert(&self, existing: &[SymbolContext], symbol_context: SymbolContext) -> Result<usize, EnvError> {
         match existing.binary_search_by(
             |s| s.partial_cmp(&symbol_context).unwrap_or(Ordering::Less)
         ) {
-            Ok(existing) => {
+            Ok(_) => {
                 let symbol_name = SCACHE.resolve(symbol_context.name);
                 Err(EnvError::DupeSymbol(format!("Duplicate symbol declared: {:?}", symbol_name)))
             }
-            Err(index) => {
-                existing.insert(index, symbol_context);
-                Ok(())
-            }
+            Err(index) => Ok(index)
         }
     }
 
@@ -63,27 +61,31 @@ impl SymbolTable {
         let key = Self::gen_key(ns_id, scope_id);
 
         if let Some(existing) = self.table.get_mut(key) {
-            self.sorted_insert(existing, symbol_context)?;
-            Ok(())
-        } else {
-            self.table.insert(key, vec![symbol_context]);
-            Ok(())
-        }
+            match existing.binary_search_by(|s| s.partial_cmp(&symbol_context).unwrap_or(Ordering::Less)) {
+                Ok(_) => {
+                    let symbol_name = SCACHE.resolve(symbol_context.name);
+                    return Err(EnvError::DupeSymbol(format!("Duplicate symbol declared: {:?}", symbol_name)));
+                }
+                Err(index) => existing.insert(index, symbol_context)
+            }
+        } else { self.table.insert(key, vec![symbol_context]); }
+        Ok(())
     }
 
-    pub fn get_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString) -> Option<&SymbolContext> {
+
+    pub fn get_symbol(&self, ns_id: u16, scope_id: u32, name: IString) -> Option<SymbolContext> {
         let key = Self::gen_key(ns_id, scope_id);
 
-        if let Some(existing) = self.table.get_mut(key) {
+        if let Some(existing) = self.table.get(key) {
             if let Ok(found) = existing.binary_search_by(
                 |s| s.name.partial_cmp(&name).unwrap_or(Ordering::Less)
             ) {
-                existing.get(found)
+                existing.get(found).copied()
             } else { None }
         } else { None }
     }
 
-    pub fn find_symbol(&mut self, ns_id: u16, active_scopes: &[u32], name: IString) -> Option<&SymbolContext> {
+    pub fn find_symbol(&self, ns_id: u16, active_scopes: &[u32], name: IString) -> Option<SymbolContext> {
         active_scopes.iter().find_map(|s_id| { self.get_symbol(ns_id, *s_id, name) })
     }
 }
@@ -137,7 +139,7 @@ pub struct SubEnvironment {
 
 impl SubEnvironment {
     pub fn get_parent_scope(&self) -> Result<u32, EnvError> {
-        *self.active_scopes.get(self.active_scopes.len() - 2)
+        self.active_scopes.get(self.active_scopes.len() - 2).copied()
             .ok_or(EnvError::InvalidAccess("Scope index out of bounds".to_string()))
     }
 
@@ -160,13 +162,24 @@ impl SubEnvironment {
         self.active_scopes.pop().expect("Fatal<internal>: Popped global scope");
     }
 
-    pub fn add_symbol(&mut self, name: IString, typ: Type, mod_flags: ModifierFlags) -> Result<(), EnvError> {
+
+    // FIXME clone here
+    pub fn get_type_by_id(&mut self, type_id: TypeId) -> Type {
+        self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone()
+    }
+
+    pub fn are_types_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
+        self.type_table_ref.read().unwrap().type_id_compatible(src_type, dst_type)
+    }
+
+    pub fn add_symbol(&mut self, name: IString, type_id: TypeId, mod_flags: ModifierFlags) -> Result<(), EnvError> {
+        let typ = self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone();
         let value_type: ValueType = ValueType::from(&typ);
         let symbol = SymbolContext {
             name,
             value_type,
             mod_flags,
-            typ,
+            type_id: type_id,
             ns_idx: self.curr_ns,
             scope: self.curr_scope,
             depth: self.curr_depth,
@@ -174,15 +187,21 @@ impl SubEnvironment {
         self.symbol_table_ref.write().unwrap().insert_symbol(self.curr_ns, self.get_curr_scope(), symbol)
     }
 
+    pub fn get_resolve_data(&self, typ: Type, type_id: TypeId) -> ResolveData {
+        ResolveData::new(self.curr_ns, self.curr_scope, type_id, typ)
+    }
+
+    pub fn get_nil_resolve(&self) -> ResolveData {
+        ResolveData::new(self.curr_ns, self.curr_scope, TypeTable::NIL, Type::Nil)
+    }
+
     // TODO add ability to look up other namespaces via name?
-    pub fn get_symbol(&mut self, ns: u16, scope_id: u32, name: IString) -> Option<&SymbolContext> {
+    pub fn get_symbol(&self, ns: u16, scope_id: u32, name: IString) -> Option<SymbolContext> {
         self.symbol_table_ref.read().unwrap().get_symbol(ns, scope_id, name)
     }
 
     // FIXME  Need to traverse global and import spaces as well
-    pub fn find_symbol_in_scope(&mut self, name: IString) -> Option<&SymbolContext> {
+    pub fn find_symbol_in_scope(&self, name: IString) -> Option<SymbolContext> {
         self.symbol_table_ref.read().unwrap().find_symbol(self.curr_ns, &self.active_scopes, name)
     }
-
-    fn new_symbol_context(&self, name: IString, typ: Type, value_type: ValueType, mod_flags: ModifierFlags) -> SymbolContext {}
 }

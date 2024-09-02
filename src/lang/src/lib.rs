@@ -39,6 +39,7 @@ pub enum DefType {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
+
 pub enum PrimType {
     U8,
     U16,

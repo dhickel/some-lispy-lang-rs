@@ -415,16 +415,20 @@ impl ParserState {
         let mut sub_exprs = Vec::<FExprData>::with_capacity(pattern.namespace_count as usize + 3);
 
         // ::= [ NamespaceAccess ]
-        if let Some(mut ns) = self.parse_namespace(pattern.namespace_count)? { sub_exprs.append(&mut ns) };
+        if let Some(mut ns) = self.parse_namespace(pattern.namespace_count)? {
+            sub_exprs.append(&mut ns) 
+        };
 
         // ::= Identifier
         if pattern.has_identifier {
             let identifier = self.parse_identifier()?;
-            sub_exprs.push(FExprData::MAccess { identifier, m_type: MType::Identifier })
+            sub_exprs.push(FExprData::FAccess { identifier, m_type: MType::Identifier })
         }
 
         // ::= [ MemberAccessChain ]
-        if let Some(mut ac) = self.parse_member_access(pattern.access_chain)? { sub_exprs.append(&mut ac); }
+        if let Some(mut ac) = self.parse_member_access(pattern.access_chain)? {
+            sub_exprs.append(&mut ac);
+        }
 
         Ok(ExprVariant::FCall(AstData::new(sub_exprs, line_char, None)))
     }
@@ -513,7 +517,7 @@ impl ParserState {
 
         let expr = self.parse_expression(*pattern.expr)?;
 
-        Ok(LambdaData { parameters, expr })
+        Ok(LambdaData { parameters, body_expr: expr })
     }
 
 
@@ -562,7 +566,7 @@ impl ParserState {
         let mut namespaces = Vec::<FExprData>::with_capacity(count as usize);
         for _ in 0..count {
             if let Some(TokenData::String(str)) = self.advance()?.data {
-                namespaces.push(FExprData::MAccess { identifier: str, m_type: MType::Namespace });
+                namespaces.push(FExprData::FAccess { identifier: str, m_type: MType::Namespace });
                 self.consume(TokenType::RIGHT_ARROW)?;
             } else { ParseError::parsing_error(self.peek()?, "Namespace(s)")? }
         }
@@ -580,7 +584,7 @@ impl ParserState {
                         // ::= ':.'
                         self.consume(TokenType::FIELD_SPACE_ACCESS)?;
                         let identifier = self.parse_identifier()?;
-                        Ok(FExprData::MAccess { identifier, m_type: MType::Field })
+                        Ok(FExprData::FAccess { identifier, m_type: MType::Field })
                     }
                     MemberAccess::MethodCall { arguments } => {
                         // ::=  '::'
@@ -596,13 +600,13 @@ impl ParserState {
                         let arguments = self.parse_arguments(arguments)?;
                         // ::= ']'
                         self.consume_right_bracket()?;
-                        Ok(FExprData::MCall { method: identifier, arguments })
+                        Ok(FExprData::FCall { method: identifier, arguments })
                     }
                     MemberAccess::MethodAccess => {
                         // ::=  '::'
                         self.consume(TokenType::METHOD_SPACE_ACCESS)?;
                         let identifier = self.parse_identifier()?;
-                        Ok(FExprData::MAccess { identifier, m_type: MType::Identifier })
+                        Ok(FExprData::FAccess { identifier, m_type: MType::Identifier })
                     }
                 }
             }).collect::<Result<Vec<FExprData>, ParseError>>()?;

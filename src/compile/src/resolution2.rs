@@ -1,14 +1,14 @@
 use std::any::Any;
-use lang::ast::{Argument, AssignData, AstData, AstNode, ExprVariant, FExprData, LetData, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, Value};
-use lang::{ModifierFlags, ValueType};
+use std::fmt::format;
+use lang::ast::{Argument, AssignData, AstData, AstNode, ExprVariant, FExprData, FuncMeta, FuncParam, LambdaData, LetData, MetaData, MType, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, Value};
+use lang::ModifierFlags;
 use lang::types::{Type, TypeId, TypeTable, UnresolvedType};
 use lang::types::UnresolvedType::Unknown;
 use lang::util::{IString, SCACHE};
-use parser::ParseError;
 use crate::environment2::{EnvError, SubEnvironment};
 use crate::{ValuePrecedence, Warning};
 
-macro_rules! wrap_scope {
+macro_rules! with_scope {
     ($self:expr, $($func:tt)*) => {{
         $self.env.push_scope();
         let result = $($func)*;
@@ -21,10 +21,12 @@ macro_rules! wrap_scope {
 pub enum ResolveError {
     EnvError(String),
     InvalidAssignment(String),
+    InvalidParameter(String),
     InvalidOperation(String),
     InvalidArgument(String),
 }
 
+// TODO dont allow statements inside any expression except a block expression
 
 impl ResolveError {
     pub fn invalid_assignment<T>(line_char: (u32, u32), t1: &Type, t2: &Type) -> Result<T, ResolveError> {
@@ -34,7 +36,7 @@ impl ResolveError {
                 line_char.0, line_char.1, t1, t2)))
     }
 
-    pub fn invalid_argument<T>(line_char: (u32, u32), msg: String) -> Result<T, ResolveError> {
+    pub fn invalid_argument<T>(line_char: (u32, u32), msg: &str) -> Result<T, ResolveError> {
         Err(Self::InvalidAssignment(
             format!("Line: {}, Char: {}, Invalid argument: {:?}", line_char.0, line_char.1, msg))
         )
@@ -52,6 +54,10 @@ impl ResolveError {
         Err(Self::InvalidOperation(
             format!("Line: {}, Char: {}, Invalid operation{:?}: {:?}", line_char.0, line_char.1, symbol, info))
         )
+    }
+
+    pub fn invalid_parameter<T>(line_char: (u32, u32), msg: &str) -> Result<T, ResolveError> {
+        Err(Self::InvalidParameter(format!("Line: {}, Char: {}, Invalid parameter: {:?}", line_char.0, line_char.1, msg)))
     }
 }
 
@@ -84,11 +90,10 @@ impl Resolver {
 
 
     fn resolve_top_node(&mut self, node: &mut AstNode) -> Result<bool, ResolveError> {
-        let result = match node {
+        match node {
             AstNode::Statement(stmnt) => self.resolve_statement(stmnt),
             AstNode::Expression(expr) => self.resolve_expression(expr)
-        };
-        todo!()
+        }
     }
 
 
@@ -103,12 +108,12 @@ impl Resolver {
     fn resolve_expression(&mut self, expr: &mut ExprVariant) -> Result<bool, ResolveError> {
         match expr {
             ExprVariant::SCall(s_call_data) => self.resolve_s_expr(s_call_data),
-            ExprVariant::FCall(f_call_data) => { todo!() }
+            ExprVariant::FCall(f_call_data) => self.resolve_f_expr(f_call_data),
             ExprVariant::Value(value_data) => self.resolve_value(value_data),
             ExprVariant::OpCall(op_call_data) => self.resolve_op_expr(op_call_data),
-            ExprVariant::Block(block_expr_data) => self.resolve_block_expression(block_expr_data),
-            ExprVariant::Predicate(predicate_data) => { todo!() }
-            ExprVariant::Lambda(lambda_data) => { todo!() }
+            ExprVariant::Block(block_expr_data) => with_scope!(self, self.resolve_block_expression(block_expr_data)),
+            ExprVariant::Predicate(predicate_data) => self.resolve_predicate_expression(predicate_data),
+            ExprVariant::Lambda(lambda_data) => with_scope!(self, self.resolve_lambda_expression(lambda_data)),
         }
     }
 
@@ -142,7 +147,12 @@ impl Resolver {
                 ModifierFlags::from_mods(modifiers)
             } else { ModifierFlags::NONE };
 
-            if let Err(err) = self.env.add_symbol(name, symbol_state.get_type_id().unwrap(), modifiers) {
+            // Handle different types of assignments (functions need special handling)
+            let meta_data = if let ResolveState::Resolved(res) = &data.node_data.assignment.get_resolve_state() {
+                res.meta_data.clone()
+            } else { panic!("Fatal<internal>: Assignment expected to be resolved") };
+
+            if let Err(err) = self.env.add_symbol(name, symbol_state.get_type_id().unwrap(), modifiers, meta_data) {
                 return ResolveError::env_error(data.line_char, err)?;
             } else { Ok(true) }
         } else { ResolveError::invalid_assignment(data.line_char, assign_type, &symbol_state.get_type()) }
@@ -177,17 +187,15 @@ impl Resolver {
     fn resolve_s_expr(&mut self, data: &mut AstData<SCallData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
 
-        let (op_resolved, op_type, op_type_id)
-            = if self.resolve_expression(&mut data.node_data.operation_expr)? {
+        let (op_resolved, op_type, op_type_id) = if self.resolve_expression(&mut data.node_data.operation_expr)? {
             (true, data.resolve_state.get_type(), Some(data.resolve_state.get_type_id().unwrap()))
         } else { (false, &Type::Unresolved(Unknown), None) };
 
         if let Some(exprs) = data.node_data.operand_exprs.as_mut() {
-            let operands_resolved = exprs.iter_mut()
-                .try_fold(true, |acc, expr| {
-                    let result = self.resolve_expression(expr)?;
-                    Ok(acc && result)
-                })?;
+            let operands_resolved = exprs.iter_mut().try_fold(true, |acc, expr| {
+                let result = self.resolve_expression(expr)?;
+                Ok(acc && result)
+            })?;
 
             if op_resolved && operands_resolved {
                 let res_data = self.env.get_resolve_data(op_type.clone(), op_type_id.unwrap());
@@ -198,7 +206,35 @@ impl Resolver {
     }
 
 
-    fn resolve_f_expr(&mut self, data: &mut AstData<FExprData>) -> Result<bool, ResolveError> {
+    fn resolve_f_expr(&mut self, data: &mut AstData<Vec<FExprData>>) -> Result<bool, ResolveError> {
+        // let prior ;
+        let first = true;
+        for expr_data in data.node_data.iter_mut() {
+            match expr_data {
+                FExprData::FCall { method, arguments } => {
+                    if let Some(method) = method {
+                        // this is a local call 
+                        // TODO local calls should be callable as both ::<func> and <func>, currently only ::<func> works 
+                        if first {
+                            self.env.find_symbol_in_scope(*method).is_some();
+                        }
+                        if let Some(args) = arguments {}
+                    } else {
+                        // This handles when an object is called with ::[] on itself
+                        todo!()
+                    }
+                }
+                FExprData::FAccess { identifier, m_type } => {
+                    match m_type {
+                        MType::Namespace => {}
+                        MType::MethodCall => {}
+                        MType::Field => {}
+                        MType::Identifier => {}
+                    }
+                    todo!()
+                }
+            }
+        }
         todo!()
     }
 
@@ -216,11 +252,10 @@ impl Resolver {
         if data.resolve_state.is_resolved() { return Ok(true); }
 
         if let Some(exprs) = data.node_data.operands.as_mut() {
-            let operands_resolved = exprs.iter_mut()
-                .try_fold(true, |acc, expr| {
-                    let result = self.resolve_expression(expr)?;
-                    Ok(acc && result)
-                })?;
+            let operands_resolved = exprs.iter_mut().try_fold(true, |acc, expr| {
+                let result = self.resolve_expression(expr)?;
+                Ok(acc && result)
+            })?;
 
 
             if operands_resolved {
@@ -229,8 +264,7 @@ impl Resolver {
                         Ok(*val.node_data.clone())
                     } else {
                         ResolveError::invalid_argument(
-                            data.line_char,
-                            format!("Operation: {:?}, index: {}", data.node_data.operation, i),
+                            data.line_char, &format!("Operation: {:?}, index: {}", data.node_data.operation, i),
                         )
                     }
                 }).collect::<Result<Vec<Value>, ResolveError>>()?;
@@ -238,8 +272,7 @@ impl Resolver {
                 let (made_change, return_val) = match ValuePrecedence::primitive_operation_return_coercion(&expr_values) {
                     Ok(val) => val,
                     Err(err) => return ResolveError::invalid_argument(
-                        data.line_char,
-                        format!("Operation: {:?}, {}", data.node_data.operation, err).to_string(),
+                        data.line_char, &format!("Operation: {:?}, {}", data.node_data.operation, err).to_string(),
                     ),
                 };
 
@@ -253,6 +286,7 @@ impl Resolver {
         } else { Err(ResolveError::InvalidArgument("Operation expression requires arguments".to_string())) }
     }
 
+
     fn resolve_block_expression(&mut self, data: &mut AstData<Vec<AstNode>>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
 
@@ -262,11 +296,10 @@ impl Resolver {
             return Ok(true);
         }
 
-        let block_resolved = data.node_data.iter_mut()
-            .try_fold(true, |acc, node| {
-                let result = self.resolve_top_node(node)?;
-                Ok(acc && result)
-            })?;
+        let block_resolved = data.node_data.iter_mut().try_fold(true, |acc, node| {
+            let result = self.resolve_top_node(node)?;
+            Ok(acc && result)
+        })?;
 
         if block_resolved {
             match data.node_data.last() {
@@ -283,6 +316,7 @@ impl Resolver {
             Ok(true)
         } else { Ok(false) }
     }
+
 
     fn resolve_predicate_expression(&mut self, data: &mut AstData<PredicateData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
@@ -307,8 +341,7 @@ impl Resolver {
         if let (Some(then_resolve), Some(else_resolve)) = (then_resolve, else_resolve) {
             if !(then_resolve && else_resolve) { return Ok(false); }
 
-            if let (Some(then_state), Some(else_state))
-                = (&data.node_data.then_expr, &data.node_data.else_expr)
+            if let (Some(then_state), Some(else_state)) = (&data.node_data.then_expr, &data.node_data.else_expr)
             {
                 let (then_type, then_id) = then_state.get_resolve_state().get_type_and_id();
                 let else_type = else_state.get_resolve_state().get_type();
@@ -342,5 +375,70 @@ impl Resolver {
             } else { panic!("Fatal<internal>: Failed to match expected branch, shouldn't happen") }
         } else { ResolveError::invalid_operation(data.line_char, "Predicate with no branches", None) }
     }
-}
 
+
+    fn resolve_lambda_expression(&mut self, data: &mut AstData<LambdaData>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+        let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;
+
+        let params_resolved = if let Some(params) = &mut data.node_data.parameters {
+            if params.is_empty() {
+                true
+            } else {
+                let mut resolved_types = Vec::with_capacity(params.len());
+                let mut fully_resolved = true;
+                // FIXME, currently no type inference is support so just check for types
+                for p in params.iter() {
+                    if let Some(typ) = &p.typ {
+                        if let Some(id) = self.env.get_id_for_type(typ) {
+                            resolved_types.push(id)
+                        } else {
+                            fully_resolved = false
+                        }
+                    } else {
+                        return ResolveError::invalid_parameter(data.line_char, "Parameters must be typed");
+                    }
+                }
+
+                if fully_resolved {
+                    for (param, id) in params.iter().zip(resolved_types.into_iter()) {
+                        if let Err(err) = self.env.add_symbol(
+                            param.identifier,
+                            id, // FIXME need to keep from cloning this
+                            ModifierFlags::from_mods(&param.modifiers.clone().unwrap_or(vec![])),
+                            None,
+                        ) {
+                            return ResolveError::invalid_parameter(
+                                data.line_char, format!("Error in lambda parameters: {:?}", err).as_str(),
+                            );
+                        };
+                    }
+                    true
+                } else { false }
+            }
+        } else { true };
+
+
+        if params_resolved && body_resolved {
+            let params = if let Some(params) = &data.node_data.parameters {
+                Some(params.iter().map(|p| {
+                    let (typ, type_id) = self.env.get_type_and_id_by_name(p.identifier).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
+
+                    FuncParam {
+                        name: p.identifier, // FIXME clone, this all could be cleaned up really
+                        modifier_flags: ModifierFlags::from_mods(&p.modifiers.clone().unwrap_or(vec![])),
+                        typ,
+                        type_id,
+                    }
+                }).collect::<Vec<FuncParam>>())
+            } else { None };
+
+            let body_type_and_id = data.node_data.body_expr.get_resolve_state().get_type_and_id();
+            let mut res_data = self.env.get_resolve_data(body_type_and_id.0.clone(), body_type_and_id.1.unwrap());
+            res_data.meta_data = Some(MetaData::Function(params));
+            data.resolve_state = ResolveState::Resolved(res_data);
+            Ok(true)
+        } else { Ok(false) }
+    }
+}

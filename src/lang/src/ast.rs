@@ -1,3 +1,4 @@
+use crate::ModifierFlags;
 use crate::util::IString;
 use crate::token::{Mod, Op};
 use crate::types::{Type, TypeError, TypeId, TypeTable};
@@ -73,7 +74,21 @@ pub enum MetaData {
     #[default]
     None,
     Primitive,
-    Function { rtn_type: TypeId, param_types: Option<Vec<TypeId>> }, // TODO add function classifications?
+    Function(Option<Vec<FuncParam>>), // TODO add function classifications?
+}
+
+
+pub struct FuncMeta {
+    pub params: Option<Vec<FuncParam>>,
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FuncParam {
+    pub name: IString,
+    pub modifier_flags: ModifierFlags,
+    pub typ: Option<Type>,
+    pub type_id: Option<TypeId>,
 }
 
 
@@ -191,14 +206,14 @@ pub struct SCallData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaData {
     pub parameters: Option<Vec<Parameter>>,
-    pub expr: ExprVariant,
+    pub body_expr: ExprVariant,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FExprData {
-    MCall { method: Option<IString>, arguments: Option<Vec<Argument>> },
-    MAccess { identifier: IString, m_type: MType },
+    FCall { method: Option<IString>, arguments: Option<Vec<Argument>> },
+    FAccess { identifier: IString, m_type: MType },
 }
 
 

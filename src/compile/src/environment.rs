@@ -435,18 +435,6 @@ pub struct RecordMeta {}
 pub struct InterfaceMeta {}
 
 
-#[derive(Debug, Clone)]
-pub struct SymbolContext {
-    pub name: IString,
-    pub symbol_type: ValueType,
-    pub mod_flags: ModifierFlags,
-    pub ns_idx: u16,
-    pub scope: u32,
-    pub depth: u32,
-    pub self_ctx: Context,
-    pub type_data: TypeData,
-}
-
 
 impl PartialEq for SymbolContext { fn eq(&self, other: &Self) -> bool { self.name == other.name } }
 

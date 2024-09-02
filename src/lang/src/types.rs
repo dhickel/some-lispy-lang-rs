@@ -25,10 +25,10 @@ impl From<usize> for TypeId {
     }
 }
 
-// 
+//
 // impl Deref for TypeId {
 //     type Target = u16;
-// 
+//
 //     fn deref(&self) -> &Self::Target {
 //         &self.0
 //     }
@@ -47,8 +47,7 @@ pub enum TypeError {
 impl Into<String> for TypeError {
     fn into(self) -> String {
         match self {
-            TypeError::CheckError(str) | TypeError::Resolution(str)
-            | TypeError::InvalidOperation(str) => str,
+            TypeError::CheckError(str) | TypeError::Resolution(str) | TypeError::InvalidOperation(str) => str,
             TypeError::TypeOverflow => format!("{:?}", self).to_string()
         }
     }
@@ -114,16 +113,14 @@ impl Type {
             Type::Quote => todo!("Quote compatibility checks"),
             Type::Tuple(self_types) => {
                 if let Type::Tuple(pther_types) = other {
-                    self_types.iter().zip(pther_types.iter())
-                        .all(|(s, o)| s.compatible_with(o))
+                    self_types.iter().zip(pther_types.iter()).all(|(s, o)| s.compatible_with(o))
                 } else { false }
             }
             Type::Object(_) => todo!("Object compatibility checks"),
             Type::Lambda(self_func) => {
                 if let Type::Lambda(other_func) = other {
                     if !self_func.rtn_type.compatible_with(&other_func.rtn_type) { return false; }
-                    self_func.param_types.iter().zip(other_func.param_types.iter())
-                        .all(|(s, o)| s.compatible_with(o))
+                    self_func.param_types.iter().zip(other_func.param_types.iter()).all(|(s, o)| s.compatible_with(o))
                 } else { false }
             }
         }
@@ -218,8 +215,7 @@ impl TypeCheck for Type {
         match self {
             Type::Lambda(self_type) => {
                 if let Type::Lambda(test_type) = typ {
-                    Ok(self_type.match_returns(&test_type.rtn_type)?
-                        && self_type.match_parameters(&test_type.param_types)?)
+                    Ok(self_type.match_returns(&test_type.rtn_type)? && self_type.match_parameters(&test_type.param_types)?)
                 } else {
                     Ok(false)
                 }
@@ -323,6 +319,7 @@ impl FuncType {
 
 
     // FIXME we may not want to use these matches here and use to type compatibility call to check these
+
     fn match_parameters(&self, params: &[Type]) -> Result<bool, TypeError> {
         if params.len() != self.param_types.len() { return Ok(false); }
 
@@ -438,7 +435,8 @@ impl TypeEntry {
 
 
 // TODO clean up the structure and remove all the cloning, I assume type system
-//  will be fully redone at some point anyway
+//  will be fully redone at some point anyway  
+
 impl TypeTable {
     pub const NIL: TypeId = TypeId(0);
     pub const BOOL: TypeId = TypeId(1);
@@ -455,7 +453,8 @@ impl TypeTable {
     }
 
 
-    // Only call from definition statements, and on variant of internal types (Arrays/Lambdas atm)
+    // Only call from definition statements, and on variant of internal types (Arrays/Lambdas atm) 
+
     fn define_new_type(&mut self, typ: &Type) -> Result<TypeEntry, TypeError> {
         if self.type_enum_id_map.contains_key(&typ) {
             return Err(
@@ -472,9 +471,7 @@ impl TypeTable {
 
         self.type_enum_id_map.insert(typ.clone(), idx);
 
-        if let Type::Object(obj_typ) = &typ {
-            self.type_string_id_map.insert(obj_typ.name.into(), idx);
-        }
+        if let Type::Object(obj_typ) = &typ { self.type_string_id_map.insert(obj_typ.name.into(), idx); }
 
         self.type_map.push(typ.clone());
 
@@ -544,13 +541,15 @@ impl TypeTable {
     }
 
 
-    pub fn get_type_id(&self, typ: &Type) -> TypeId {
-        return *self.type_enum_id_map.get(typ).unwrap_or_else(|| panic!());
+    pub fn get_type_id(&self, typ: &Type) -> Option<TypeId> {
+        self.type_enum_id_map.get(typ).map_or_else(|| None, |t| Some(*t))
     }
+
 
     pub fn get_type_by_id(&self, id: TypeId) -> &Type {
         unsafe { self.type_map.get_unchecked(id.as_usize()) }
     }
+
 
     pub fn type_id_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
         let src = &self.type_map[src_type.as_usize()];
@@ -558,9 +557,15 @@ impl TypeTable {
         dst.compatible_with(src)
     }
 
+
     pub fn get_type_by_name(&self, i_string: IString) -> Option<&Type> {
         return if let Some(id) = self.type_string_id_map.get(i_string.into()) {
             Some(self.get_type_by_id(*id))
         } else { None };
+    }
+
+
+    pub fn get_type_and_id_by_name(&self, i_string: IString) -> Option<(&Type, TypeId)> {
+        return self.type_string_id_map.get(i_string.into()).map(|id| (self.get_type_by_id(*id), *id));
     }
 }

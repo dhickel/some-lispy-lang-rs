@@ -9,6 +9,7 @@ pub mod resolution;
 pub mod environment;
 mod environment2;
 mod resolution2;
+mod code_gen2;
 
 
 pub enum Warning {

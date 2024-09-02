@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
+use std::fs::Metadata;
 use std::string::{ParseError, ToString};
 use std::sync::{Arc, Mutex, RwLock};
 use intmap::IntMap;
 use lang::{ModifierFlags, ValueType};
-use lang::ast::ResolveData;
+use lang::ast::{MetaData, ResolveData};
 use lang::types::{Type, TypeId, TypeTable};
 use lang::util::{IString, SCACHE};
 use crate::environment::{NameSpace, TypeData};
@@ -16,7 +17,7 @@ pub enum EnvError {
 }
 
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SymbolContext {
     pub name: IString,
     pub value_type: ValueType,
@@ -25,6 +26,7 @@ pub struct SymbolContext {
     pub scope: u32,
     pub depth: u32,
     pub type_id: TypeId,
+    pub meta_data: Option<MetaData>,
 }
 
 
@@ -80,7 +82,7 @@ impl SymbolTable {
             if let Ok(found) = existing.binary_search_by(
                 |s| s.name.partial_cmp(&name).unwrap_or(Ordering::Less)
             ) {
-                existing.get(found).copied()
+                existing.get(found).map(|s| s.clone())
             } else { None }
         } else { None }
     }
@@ -139,8 +141,7 @@ pub struct SubEnvironment {
 
 impl SubEnvironment {
     pub fn get_parent_scope(&self) -> Result<u32, EnvError> {
-        self.active_scopes.get(self.active_scopes.len() - 2).copied()
-            .ok_or(EnvError::InvalidAccess("Scope index out of bounds".to_string()))
+        self.active_scopes.get(self.active_scopes.len() - 2).copied().ok_or(EnvError::InvalidAccess("Scope index out of bounds".to_string()))
     }
 
     pub fn get_curr_scope(&self) -> u32 {
@@ -164,22 +165,40 @@ impl SubEnvironment {
 
 
     // FIXME clone here
-    pub fn get_type_by_id(&mut self, type_id: TypeId) -> Type {
+    pub fn get_type_by_id(&self, type_id: TypeId) -> Type {
         self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone()
+    }
+
+    pub fn get_type_by_name(&self, name: IString) -> Option<Type> {
+        self.type_table_ref.read().unwrap().get_type_by_name(name).map_or_else(|| None, |t| Some(t.clone()))
+    }
+    pub fn get_type_and_id_by_name(&self, name: IString) -> Option<(Type, TypeId)> {
+        self.type_table_ref.read().unwrap().get_type_and_id_by_name(name).map_or_else(|| None, |t| Some((t.0.clone(), t.1)))
+    }
+    
+    pub fn get_id_for_type(&self, typ: &Type) -> Option<TypeId> {
+        self.type_table_ref.read().unwrap().get_type_id(typ)
     }
 
     pub fn are_types_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
         self.type_table_ref.read().unwrap().type_id_compatible(src_type, dst_type)
     }
 
-    pub fn add_symbol(&mut self, name: IString, type_id: TypeId, mod_flags: ModifierFlags) -> Result<(), EnvError> {
+    pub fn add_symbol(
+        &mut self,
+        name: IString,
+        type_id: TypeId,
+        mod_flags: ModifierFlags,
+        meta_data: Option<MetaData>,
+    ) -> Result<(), EnvError> {
         let typ = self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone();
         let value_type: ValueType = ValueType::from(&typ);
         let symbol = SymbolContext {
             name,
             value_type,
             mod_flags,
-            type_id: type_id,
+            meta_data,
+            type_id,
             ns_idx: self.curr_ns,
             scope: self.curr_scope,
             depth: self.curr_depth,

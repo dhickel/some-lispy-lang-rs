@@ -1,15 +1,11 @@
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display};
 use lang::ast::Value;
-use crate::resolution2::ResolveError;
 
 
 pub mod code_gen;
 pub mod resolution;
 pub mod environment;
-mod environment2;
-mod resolution2;
-mod code_gen2;
+mod ir;
 
 
 pub enum Warning {
@@ -20,7 +16,7 @@ pub enum Warning {
 
 impl Warning {
     pub fn return_coercion(line_char: (u32, u32), v1: &Value) -> Warning {
-        Self::Arithmetic(format!("Line: {}, Char: {}, coercion of primitive type: {:?}, to: {:?}", line_char.0, line_char.1, v1))
+        Self::Arithmetic(format!("Line: {}, Char: {}, coercion of primitive type: {:?}", line_char.0, line_char.1, v1))
     }
 
     pub fn empty_block(line_char: (u32, u32)) -> Warning {

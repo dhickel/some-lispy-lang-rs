@@ -77,9 +77,11 @@ pub enum MetaData {
     Function(Option<Vec<FuncParam>>), // TODO add function classifications?
 }
 
+#[derive(Default, Debug)]
 
 pub struct FuncMeta {
     pub params: Option<Vec<FuncParam>>,
+    pub locals: Vec<TypeId>,
 }
 
 

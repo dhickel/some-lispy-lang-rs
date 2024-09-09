@@ -99,7 +99,7 @@ impl ModifierFlags {
                 Mod::Optional => flag |= ModifierFlags::OPTIONAL
             }
         });
-        
+
         flag
     }
 }

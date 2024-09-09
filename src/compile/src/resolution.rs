@@ -1,568 +1,448 @@
+use std::any::Any;
 use std::fmt::format;
-use std::ops::Deref;
-use crate::environment::{Context, Environment, SymbolContext};
-// TODO handle type hierarchies, current type checking check for the concrete type only, inference
-//  for hierarchical types and conversions needs implemented (add a matching function to Type?)  
+use lang::ast::{Argument, AssignData, AstData, AstNode, ExprVariant, FExprData, FuncMeta, FuncParam, LambdaData, LetData, MetaData, MType, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, Value};
+use lang::ModifierFlags;
+use lang::types::{Type, TypeId, TypeTable, UnresolvedType};
+use lang::types::UnresolvedType::Unknown;
+use lang::util::{IString, SCACHE};
+use crate::environment::{EnvError, SubEnvironment};
+use crate::{ValuePrecedence, Warning};
+
+macro_rules! with_scope {
+    ($self:expr, $($func:tt)*) => {{
+        $self.env.push_scope();
+        let result = $($func)*;
+        $self.env.pop_scope();
+        result
+    }}
+}
 
 
-pub fn resolve_types(mut parse_result: &mut ParseResult, mut env: Environment) -> bool {
-    // Need a starting scope for resolution to properly work, also add a quick depth check as
-    // this will signal resolutions errors where a scope is not popped
-    let start_depth = env.get_env_ctx().depth;
-    env.push_scope();
+#[derive(Debug)]
+pub enum ResolveError {
+    EnvError(String),
+    InvalidAssignment(String),
+    InvalidParameter(String),
+    InvalidOperation(String),
+    InvalidArgument(String),
+}
 
-    let mut fully_resolved = true;
-    for _ in 0..1 {
-        //fully_resolved = true;
-        for node in parse_result.root_expressions.iter_mut() {
-            match resolve(node, &mut env) {
-                Ok(typ) => {
-                    match typ {
-                        Type::Unresolved => { fully_resolved = false; }
-                        _ => { println!("{:?}", typ) }
+// TODO dont allow statements inside any expression except a block expression
+
+impl ResolveError {
+    pub fn invalid_assignment<T>(line_char: (u32, u32), t1: &Type, t2: &Type) -> Result<T, ResolveError> {
+        Err(Self::InvalidAssignment(
+            format!(
+                "Line: {}, Char: {}, Cannot assign type: {:?}, to symbol of type: {:?}",
+                line_char.0, line_char.1, t1, t2)))
+    }
+
+    pub fn invalid_argument<T>(line_char: (u32, u32), msg: &str) -> Result<T, ResolveError> {
+        Err(Self::InvalidAssignment(
+            format!("Line: {}, Char: {}, Invalid argument: {:?}", line_char.0, line_char.1, msg))
+        )
+    }
+
+    pub fn env_error<T>(line_char: (u32, u32), env_error: EnvError) -> Result<T, ResolveError> {
+        Err(Self::EnvError(format!("Line: {}, Char: {}, {:?}", line_char.0, line_char.1, env_error)))
+    }
+
+    pub fn invalid_operation<T>(line_char: (u32, u32), info: &str, symbol: Option<IString>) -> Result<T, ResolveError> {
+        let symbol = if let Some(symbol) = symbol {
+            format!(", Symbol: {:?}", SCACHE.resolve(symbol))
+        } else { "".to_string() };
+
+        Err(Self::InvalidOperation(
+            format!("Line: {}, Char: {}, Invalid operation{:?}: {:?}", line_char.0, line_char.1, symbol, info))
+        )
+    }
+
+    pub fn invalid_parameter<T>(line_char: (u32, u32), msg: &str) -> Result<T, ResolveError> {
+        Err(Self::InvalidParameter(format!("Line: {}, Char: {}, Invalid parameter: {:?}", line_char.0, line_char.1, msg)))
+    }
+}
+
+
+pub enum ResolutionResult {}
+
+
+pub struct Resolver<'a> {
+    fully_resolved: bool,
+    ast_nodes: Vec<AstNode>,
+    env: &'a mut SubEnvironment,
+    warnings: Vec<Warning>,
+}
+
+
+impl<'a> Resolver<'a> {
+    pub fn new(ast_nodes: Vec<AstNode>, env: &'a mut SubEnvironment) -> Self {
+        Self { fully_resolved: false, ast_nodes, env, warnings: vec![] }
+    }
+
+    pub fn resolve(&mut self, attempts: u32) -> Result<bool, ResolveError> { 
+        for _ in 0..attempts {
+            let mut cloned_ast = self.ast_nodes.clone(); // FIXME, working around BC
+            let resolved = cloned_ast.iter_mut().try_fold(true, |acc, node| {
+                let result = self.resolve_top_node(node)?;
+                Ok(acc && result)
+            })?;
+            self.ast_nodes = cloned_ast; // FIXME, working around BC
+            if resolved { return Ok(true); }
+        }
+        return Ok(false);
+    }
+
+
+    fn resolve_top_node(&mut self, node: &mut AstNode) -> Result<bool, ResolveError> {
+        match node {
+            AstNode::Statement(stmnt) => self.resolve_statement(stmnt),
+            AstNode::Expression(expr) => self.resolve_expression(expr)
+        }
+    }
+
+
+    fn resolve_statement(&mut self, stmnt: &mut StmntVariant) -> Result<bool, ResolveError> {
+        match stmnt {
+            StmntVariant::Let(let_data) => self.resolve_let_stmnt(let_data),
+            StmntVariant::Assign(assign_data) => self.resolve_assign_stmnt(assign_data)
+        }
+    }
+
+
+    fn resolve_expression(&mut self, expr: &mut ExprVariant) -> Result<bool, ResolveError> {
+        match expr {
+            ExprVariant::SCall(s_call_data) => self.resolve_s_expr(s_call_data),
+            ExprVariant::FCall(f_call_data) => self.resolve_f_expr(f_call_data),
+            ExprVariant::Value(value_data) => self.resolve_value(value_data),
+            ExprVariant::OpCall(op_call_data) => self.resolve_op_expr(op_call_data),
+            ExprVariant::Block(block_expr_data) => with_scope!(self, self.resolve_block_expression(block_expr_data)),
+            ExprVariant::Predicate(predicate_data) => self.resolve_predicate_expression(predicate_data),
+            ExprVariant::Lambda(lambda_data) => with_scope!(self, self.resolve_lambda_expression(lambda_data)),
+        }
+    }
+
+
+    ////////////////
+    // Statements //
+    ////////////////
+
+    // TODO type table insertions for user types
+
+    fn resolve_let_stmnt(&mut self, data: &mut AstData<LetData>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+        let assign_type = if self.resolve_expression(&mut data.node_data.assignment)? {
+            data.resolve_state.get_type()
+        } else { return Ok(false); };
+
+        let symbol_state = &data.resolve_state;
+
+        if assign_type.compatible_with(symbol_state.get_type()) {
+            let symbol_state = ResolveState::Resolved(
+                self.env.get_resolve_data(symbol_state.get_type().clone(), symbol_state.get_type_id().unwrap())
+            );
+
+            // Update the resolve state, and then borrow it back to make borrow checker happy.
+            data.resolve_state = symbol_state;
+            let symbol_state = &data.resolve_state;
+
+            let name = data.node_data.identifier;
+            let modifiers = if let Some(modifiers) = &data.node_data.modifiers {
+                ModifierFlags::from_mods(modifiers)
+            } else { ModifierFlags::NONE };
+
+            // Handle different types of assignments (functions need special handling)
+            let meta_data = if let ResolveState::Resolved(res) = &data.node_data.assignment.get_resolve_state() {
+                res.meta_data.clone()
+            } else { panic!("Fatal<internal>: Assignment expected to be resolved") };
+
+            if let Err(err) = self.env.add_symbol(name, symbol_state.get_type_id().unwrap(), modifiers, meta_data) {
+                return ResolveError::env_error(data.line_char, err)?;
+            } else { Ok(true) }
+        } else { ResolveError::invalid_assignment(data.line_char, assign_type, &symbol_state.get_type()) }
+    }
+
+
+    fn resolve_assign_stmnt(&mut self, data: &mut AstData<AssignData>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+        let identifier = data.node_data.identifier;
+
+        if let Some(symbol) = self.env.find_symbol_in_scope(identifier) {
+            if symbol.mod_flags.contains(ModifierFlags::MUTABLE) {
+                let value_type_id = if self.resolve_expression(&mut data.node_data.value)? {
+                    data.resolve_state.get_type_id().unwrap()
+                } else { return Ok(false); };
+
+                if self.env.are_types_compatible(value_type_id, symbol.type_id) {
+                    Ok(true)
+                } else {
+                    ResolveError::invalid_assignment(data.line_char, &data.resolve_state.get_type(), data.resolve_state.get_type())
+                }
+            } else { Ok(false) }
+        } else { ResolveError::invalid_operation(data.line_char, "Symbol is immutable", Some(identifier)) }
+    }
+
+
+    /////////////////
+    // Expressions //
+    /////////////////
+
+    fn resolve_s_expr(&mut self, data: &mut AstData<SCallData>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+        let (op_resolved, op_type, op_type_id) = if self.resolve_expression(&mut data.node_data.operation_expr)? {
+            (true, data.resolve_state.get_type(), Some(data.resolve_state.get_type_id().unwrap()))
+        } else { (false, &Type::Unresolved(Unknown), None) };
+
+        if let Some(exprs) = data.node_data.operand_exprs.as_mut() {
+            let operands_resolved = exprs.iter_mut().try_fold(true, |acc, expr| {
+                let result = self.resolve_expression(expr)?;
+                Ok(acc && result)
+            })?;
+
+            if op_resolved && operands_resolved {
+                let res_data = self.env.get_resolve_data(op_type.clone(), op_type_id.unwrap());
+                data.resolve_state = ResolveState::Resolved(res_data);
+                Ok(true)
+            } else { Ok(false) }
+        } else { Ok(true) }
+    }
+
+
+    fn resolve_f_expr(&mut self, data: &mut AstData<Vec<FExprData>>) -> Result<bool, ResolveError> {
+        // let prior ;
+        let first = true;
+        for expr_data in data.node_data.iter_mut() {
+            match expr_data {
+                FExprData::FCall { method, arguments } => {
+                    if let Some(method) = method {
+                        // this is a local call 
+                        // TODO local calls should be callable as both ::<func> and <func>, currently only ::<func> works 
+                        if first {
+                            self.env.find_symbol_in_scope(*method).is_some();
+                        }
+                        if let Some(args) = arguments {}
+                    } else {
+                        // This handles when an object is called with ::[] on itself
+                        todo!()
                     }
                 }
-                Err(err) => {
-                    fully_resolved = false;
-                    println!("{}", format_args!(node.line_char, err));
+                FExprData::FAccess { identifier, m_type } => {
+                    match m_type {
+                        MType::Namespace => {}
+                        MType::MethodCall => {}
+                        MType::Field => {}
+                        MType::Identifier => {}
+                    }
+                    todo!()
                 }
             }
         }
+        todo!()
     }
 
-    env.pop_scope();
-    let end_depth = env.get_env_ctx().depth;
-    if start_depth != end_depth {
-        let msg = format!(
-            "Fatal: Compilation Error |  Ending scope dpeth: ({}) != starting scope depth: ({})",
-            start_depth, end_depth
-        );
-        panic!("{:?}", msg);
-    }
 
-    fully_resolved
-}
-
-
-fn resolve(node: &mut AstData, env: &mut Environment) -> Result<Type, String> {
-    if let Some(typ) = node.resolved_type() { return Ok(typ); }
-    let res_data = match &mut *node.node_data {
-        AstData::DefVariable(data) => resolve_def_var(data, env),
-        AstData::DefLambda(data) => {
-            resolve_def_lambda(
-                data,
-                SCACHE.intern(format!("Lambda:{}:{}:{}", env.curr_ns, node.line_char.0, node.line_char.1).to_string()),
-                env,
-            )
+    fn resolve_value(&mut self, data: &mut AstData<Value>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); } else {
+            panic!("Currently every this should be resolved at run time (primitives")
         }
-        AstData::DefFunction(data) => resolve_def_func(data, env),
-        AstData::DefStruct(data) => resolve_def_struct(data, env),
-        AstData::DefClass(data) => resolve_def_class(data, env),
-        AstData::ExprAssignment(data) => resolve_expr_assign(data, env),
-        AstData::ExprMulti(data) => resolve_expr_multi(data, env),
-        AstData::ExprPrint(data) => resolve_expr_print(data, env),
-        AstData::ExprIf(data) => resolve_expr_if(data, env),
-        AstData::ExprCond(data) => resolve_expr_cond(data, env),
-        AstData::ExprWhileLoop(data) => resolve_expr_while(data, env), //TODO handle return assignment
-        AstData::ExprCons(data) => resolve_expr_cons(data, env),
-        AstData::ExprPairList(data) => resolve_expr_pair_list(data, env),
-        AstData::ExprArray(data) => resolve_expr_array(data, env),
-        AstData::ExprListAccess(data) => resolve_expr_list_acc(data, env),
-        AstData::ExprFuncCall(data) => resolve_func_call(data, env),
-        AstData::ExprFuncCalInner(data) => resolve_func_call_inner(data, env),
-        AstData::ExprObjectCall(data) => resolve_obj_call(data, env), // TODO will need to resolve accessor to their type
-        AstData::ExprLiteralCall(data) => resolve_literal_call(data, env),
-        AstData::ExprObjectAssignment(data) => resolve_obj_assign(data, env), // TODO will need to resolve accessor to their type
-        AstData::ExprGenRand(data) => resolve_gen_rand(data, env),
-        AstData::ExprDirectInst(data) => resolve_direct_inst(data, env),
-        AstData::ExprInitInst(data) => resolve_init_inst(data, env),
-        AstData::Operation(data) => resolve_operation(data, env),
-        AstData::LitInteger(_) => resolve_primitive(Type::Integer, env),
-        AstData::LitFloat(_) => resolve_primitive(Type::Float, env),
-        AstData::LitBoolean(_) => resolve_primitive(Type::Boolean, env),
-        AstData::LitString(_) => resolve_primitive(Type::String, env),
-        AstData::LitQuote => todo!(),
-        AstData::LitObject => todo!(),
-        AstData::LitStruct() => todo!(),
-        AstData::LitNil => resolve_primitive(Type::Nil, env),
-        AstData::LitArray => todo!(),
-        AstData::LitPair => todo!(),
-        AstData::LitLambda => todo!(),
-    };
 
-    if let Some(data) = res_data? {
-        let typ = data.type_data.rtn_type.clone();
-        node.res_data = Some(data);
-        Ok(typ)
-    } else { Ok(Type::Unresolved) }
-}
-
-// FIXME need to refactor defs to take modifiers as an optional, vs initing empty arrays
-
-pub fn resolve_def_var(data: &mut DefVarData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    println!("resovling def Var for {:?}", SCACHE.resolve(data.name));
+        // TODO: non-primitive types will need resolved here, but we need to object system for that
+    }
 
 
-    // FIXME, currently this messy match is used to handle the case of an existing function being assigned to new variable
-    if let AstData::ExprLiteralCall(ref lit) = *data.value.node_data {
-        if let Some(symbol) = env.meta_space.get_symbol(env.curr_ns, env.get_curr_scope(), lit.name.value) {
-            if let Context::Symbol(sym) = &symbol.self_ctx {
-                if sym.func.is_some() {
-                    let res_data = env.meta_space.add_symbol(env.curr_ns, env.get_curr_scope(), data.name, symbol.clone());
-                    return Ok(Some(res_data.clone()));
+    fn resolve_op_expr(&mut self, data: &mut AstData<OpCallData>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+        if let Some(exprs) = data.node_data.operands.as_mut() {
+            let operands_resolved = exprs.iter_mut().try_fold(true, |acc, expr| {
+                let result = self.resolve_expression(expr)?;
+                Ok(acc && result)
+            })?;
+
+
+            if operands_resolved {
+                let expr_values = exprs.iter().enumerate().map(|(i, expr)| {
+                    if let ExprVariant::Value(val) = expr {
+                        Ok(*val.node_data.clone())
+                    } else {
+                        ResolveError::invalid_argument(
+                            data.line_char, &format!("Operation: {:?}, index: {}", data.node_data.operation, i),
+                        )
+                    }
+                }).collect::<Result<Vec<Value>, ResolveError>>()?;
+
+                let (made_change, return_val) = match ValuePrecedence::primitive_operation_return_coercion(&expr_values) {
+                    Ok(val) => val,
+                    Err(err) => return ResolveError::invalid_argument(
+                        data.line_char, &format!("Operation: {:?}, {}", data.node_data.operation, err).to_string(),
+                    ),
+                };
+
+                if made_change { self.warnings.push(Warning::return_coercion(data.line_char, return_val)) }
+
+                let (typ, type_id) = return_val.get_type_info_if_primitive().unwrap();
+                let res_data = self.env.get_resolve_data(typ, type_id);
+                data.resolve_state = ResolveState::Resolved(res_data);
+                Ok(true)
+            } else { return Ok(false); }
+        } else { Err(ResolveError::InvalidArgument("Operation expression requires arguments".to_string())) }
+    }
+
+
+    fn resolve_block_expression(&mut self, data: &mut AstData<Vec<AstNode>>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+        if data.node_data.is_empty() {
+            self.warnings.push(Warning::empty_block(data.line_char));
+            data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve());
+            return Ok(true);
+        }
+
+        let block_resolved = data.node_data.iter_mut().try_fold(true, |acc, node| {
+            let result = self.resolve_top_node(node)?;
+            Ok(acc && result)
+        })?;
+
+        if block_resolved {
+            match data.node_data.last() {
+                Some(AstNode::Statement(_)) => data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve()),
+                Some(AstNode::Expression(expr)) => {
+                    let last_expr = expr.get_resolve_state();
+                    let res_data = self.env.get_resolve_data(
+                        last_expr.get_type().clone(), last_expr.get_type_id().unwrap(),
+                    );
+                    data.resolve_state = ResolveState::Resolved(res_data);
                 }
+                None => panic!("Fatal<internal>: Branch should not be reach due to pre-validation")
             }
-        } else { return Err(format!("Failed to find symbol for assignment {:?}", SCACHE.resolve(lit.name))); }
-    }
-
-    let resolved_type = resolve(&mut data.value, env)?;
-    if resolved_type == Type::Unresolved { return Ok(None); }
-
-
-    if let Some(d_type) = &data.d_type {
-        if resolved_type != *d_type {
-            return Err(format!("Resolved type: {:?} does not equal declared type: {:?}", resolved_type, d_type));
-        }
-    }
-
-    let res_data = env.add_var_symbol(data.name, resolved_type.clone(), data.modifiers.clone())?;
-    Ok(Some(res_data.clone()))
-}
-
-
-pub fn resolve_def_lambda(data: &mut DefLambdaData, name: IString, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let resolved_type = resolve(&mut data.body, env)?;
-    if resolved_type == Type::Unresolved { return Ok(None); }
-
-    let func_type = if let Some(Type::Lambda(func_type)) = &data.d_type {
-        func_type
-    } else { return Err(format!("Invalid type for function definition: {:?}", &data)); };
-
-
-    if resolved_type != *func_type.rtn_type {
-        println!("Here ....\n\n");
-        return Err("Declared type {:?} does not match actual type {:?} for lambda".to_string());
+            Ok(true)
+        } else { Ok(false) }
     }
 
 
-    let res_data = env.add_func_symbol(name, data, func_type)?.clone();
-    //env.pop_func();
-    Ok(Some(res_data))
-}
+    fn resolve_predicate_expression(&mut self, data: &mut AstData<PredicateData>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); }
 
+        let pred_resolve = self.resolve_expression(&mut data.node_data.pred_expr)?;
 
-pub fn resolve_def_func(data: &mut DefFuncData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let func_type = if let Some(Type::Lambda(func_type)) = &data.d_type {
-        func_type
-    } else { return Err(format!("Invalid type for function definition: {:?}", &data)); };
-
-    // let d_type = env.meta_space.types.get_type_by_name(data.d_type)
-    //     .ok_or_else(|| "Failed to resolve declared return type".to_string())?.clone();
-
-    let res_data = env.add_func_symbol(data.name, &data.lambda, func_type)?.clone();
-    let resolved_type = resolve(&mut data.lambda.body, env)?;
-    //env.pop_func();
-
-    if *func_type.rtn_type != resolved_type {
-        println!("\n\nname:{:?} \n\n", SCACHE.resolve(data.name));
-        return Err(format!("Declared type: {:?} does not match resolved type: {:?} for function",
-            func_type.rtn_type,
-            resolved_type).to_string()
-        );
-    }
-
-    Ok(Some(res_data))
-}
-
-
-pub fn resolve_def_struct(data: &mut DefStructData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    todo!()
-}
-
-
-pub fn resolve_def_class(data: &mut DefClassData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    todo!()
-}
-
-
-pub fn resolve_expr_assign(data: &mut AssignData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let resolved_type = resolve(&mut data.value, env)?;
-
-    if resolved_type == Type::Unresolved {
-        return Ok(None);
-    } else if resolved_type == Type::Void {
-        return Err("Assign data must have non void type".to_string());
-    }
-
-    let type_id = env.meta_space.types.get_or_define_type(&resolved_type);
-    let ctx = env.get_symbol_ctx(data.identifier);
-
-    if let Some(target_res) = ctx {
-        println!("target ctx: {:?}", target_res);
-        let res_data = SymbolContext {
-            target_ctx: Some(target_res.self_ctx.clone()),
-            self_ctx: Context::Expr(env.get_env_ctx()),
-            type_data: TypeData::from_type(&resolved_type, &mut env.meta_space.types),
-        };
-        Ok(Some(res_data))
-    } else {
-        Err(format!("Failed to resolve assign target symbol: {}", SCACHE.resolve(data.identifier)))
-    }
-}
-
-
-pub fn resolve_expr_multi(data: &mut MultiExprData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    env.push_scope();
-
-    let mut resolved_type = Type::Unresolved;
-    let mut is_resolved = true;
-    for expr in data.expressions.iter_mut() {
-        resolved_type = resolve(expr, env)?;
-        if resolved_type == Type::Unresolved {
-            is_resolved = false;
-        }
-    }
-
-    env.pop_scope();
-
-    if resolved_type == Type::Unresolved || !is_resolved {
-        Ok(None)
-    } else {
-        let ctx = env.get_env_ctx();
-        let type_id = env.meta_space.types.get_or_define_type(&resolved_type);
-        let type_data = TypeData::from_type(&resolved_type, &mut env.meta_space.types);
-        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-        Ok(Some(res_data))
-    }
-}
-
-
-pub fn resolve_expr_print(data: &mut AstData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let resolved_type = resolve(data, env)?;
-    if resolved_type == Type::Unresolved {
-        Ok(None)
-    } else {
-        let ctx = env.get_env_ctx();
-        let type_id = env.meta_space.types.void;
-        let type_data = TypeData::from_type(&resolved_type, &mut env.meta_space.types);
-        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-        Ok(Some(res_data))
-    }
-}
-
-
-pub fn resolve_expr_if(data: &mut IfData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    env.push_scope();
-    let cond_type = resolve(&mut data.if_branch.cond_node, env)?;
-    env.pop_scope();
-
-    if cond_type == Type::Unresolved {
-        return Ok(None);
-    }
-    if cond_type != Type::Boolean {
-        return Err(format!("If condition resolved to: {:?}, instead of boolean", cond_type).to_string());
-    }
-
-
-    env.push_scope();
-    let then_type = resolve(&mut data.if_branch.then_node, env)?;
-    env.pop_scope();
-
-    if then_type == Type::Unresolved { return Ok(None); }
-
-    let expr_type = if let Some(ref mut els) = data.else_branch {
-        env.push_scope();
-        let else_type = resolve(els, env)?;
-        env.pop_scope();
-
-        if else_type == Type::Unresolved {
-            return Ok(None);
-        } else if else_type != then_type {
-            Type::Void
-        } else {
-            else_type
-        }
-    } else { then_type };
-
-    let ctx = env.get_env_ctx();
-    let type_id = env.meta_space.types.get_or_define_type(&expr_type);
-    let type_data = TypeData::from_type(&expr_type, &mut env.meta_space.types);
-    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-    Ok(Some(res_data))
-}
-
-// FixMe, Some of these calls to resolve could result in useless scopes being pushed if the nodes are
-//  already resolved, this won't affect resolution, but increase memory usage some. resolve_type()
-//  could be called first to see if they are resolved and avoid duplicate resolve calls and scopes
-//  being pushed. This happens in several of these resolution functions.
-
-pub fn resolve_expr_cond(data: &mut CondData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let mut unresolved = false;
-    let mut types = Vec::<Type>::with_capacity(data.cond_branches.len() + 1);
-
-    for branch in data.cond_branches.iter_mut() {
-        env.push_scope();
-        let cond_type = resolve(&mut branch.cond_node, env)?;
-        env.pop_scope();
-
-        if cond_type == Type::Unresolved { unresolved = true }
-        if cond_type != Type::Boolean {
-            return Err("Condition did not resolve to boolean".to_string());
+        if pred_resolve && !matches!(data.node_data.pred_expr.get_resolve_state().get_type(), Type::Boolean) {
+            return ResolveError::invalid_operation(
+                data.line_char, "Non-boolean expression as predicate condition", None,
+            );
         }
 
-        env.push_scope();
-        let branch_type = resolve(&mut branch.then_node, env)?;
-        env.pop_scope();
-
-        if branch_type == Type::Unresolved { unresolved = true; }
-        types.push(branch_type);
-
-        if let Some(ref mut els) = data.else_branch {
-            env.push_scope();
-            let else_type = resolve(els, env)?;
-            env.pop_scope();
-            if else_type == Type::Unresolved { unresolved = true }
-        }
-    }
-
-    if unresolved { return Ok(None); }
-
-    // Will always have at least 1 element, so unwrap is safe
-    let base_type = types.get(0).unwrap();
-    let all_match = types.iter().all(|t| t == base_type);
+        let then_resolve = if let Some(then) = &mut data.node_data.then_expr {
+            Some(self.resolve_expression(then)?).clone()
+        } else { None };
 
 
-    let ctx = env.get_env_ctx();
-    if all_match {
-        let type_id = env.meta_space.types.get_or_define_type(&base_type);
-        let type_data = TypeData::from_type(base_type, &mut env.meta_space.types);
-        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-        Ok(Some(res_data))
-    } else {
-        let type_id = env.meta_space.types.get_or_define_type(&Type::Void);
-        let type_data = TypeData::from_type(base_type, &mut env.meta_space.types);
-        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-        Ok(Some(res_data))
-    }
-}
+        let else_resolve = if let Some(els) = &mut data.node_data.else_expr {
+            Some(self.resolve_expression(els)?)
+        } else { None };
 
+        if let (Some(then_resolve), Some(else_resolve)) = (then_resolve, else_resolve) {
+            if !(then_resolve && else_resolve) { return Ok(false); }
 
-pub fn resolve_expr_while(data: &mut WhileData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    env.push_scope();
-    let cond_type = resolve(&mut data.condition, env)?;
-    env.pop_scope();
+            if let (Some(then_state), Some(else_state)) = (&data.node_data.then_expr, &data.node_data.else_expr)
+            {
+                let (then_type, then_id) = then_state.get_resolve_state().get_type_and_id();
+                let else_type = else_state.get_resolve_state().get_type();
 
-    if cond_type == Type::Unresolved { return Ok(None); }
-    if cond_type != Type::Boolean {
-        return Err("While condition did not resolve to boolean".to_string());
-    }
+                if else_type.compatible_with(then_type) {
+                    let res_data = self.env.get_resolve_data(then_type.clone(), then_id.unwrap());
+                    data.resolve_state = ResolveState::Resolved(res_data);
+                    Ok(true)
+                } else {
+                    data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve());
+                    Ok(true)
+                }
+            } else { Ok(false) }
+        } else if let Some(then_resolve) = then_resolve {
+            if !then_resolve { return Ok(false); }
 
-    // No need to push scope, as while bodies are parsed with an implicit multi-expr
-    let body_type = resolve(&mut data.body, env)?;
-    if body_type == Type::Unresolved {
-        Ok(None)
-    } else {
-        let ctx = env.get_env_ctx();
-        let type_id = env.meta_space.types.get_or_define_type(&body_type);
-        let type_data = TypeData::from_type(&body_type, &mut env.meta_space.types);
-        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-        Ok(Some(res_data))
-    }
-}
+            if let Some(then_state) = &data.node_data.then_expr {
+                let (typ, typ_id) = then_state.get_resolve_state().get_type_and_id();
+                let res_data = self.env.get_resolve_data(typ.clone(), typ_id.unwrap());
+                data.resolve_state = ResolveState::Resolved(res_data);
+                Ok(true)
+            } else { panic!("Fatal<internal>: Failed to match expected branch, shouldn't happen") }
+        } else if let Some(else_resolve) = else_resolve {
+            if !else_resolve { return Ok(false); }
 
-
-// TODO annotate pair data and runtime representation with member type info?
-pub fn resolve_expr_cons(data: &mut ConsData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let ctx = env.get_env_ctx();
-    let type_data = TypeData::from_type(&Type::Tuple, &mut env.meta_space.types);
-    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-    Ok(Some(res_data))
-}
-
-
-pub fn resolve_expr_pair_list(data: &mut OpCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let ctx = env.get_env_ctx();
-    let type_data = TypeData::from_type(&Type::Tuple, &mut env.meta_space.types);
-    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-    Ok(Some(res_data))
-}
-
-
-pub fn resolve_expr_array(data: &mut OpCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let mut resolved = true;
-    let mut types = Vec::<Type>::with_capacity(data.operands.len());
-
-    for op in data.operands.iter_mut() {
-        let resolved_type = resolve(op, env)?;
-        if resolved_type == Type::Unresolved { resolved = false; }
-        types.push(resolved_type);
-    }
-    if !resolved { return Ok(None); }
-
-
-    let base_type = types.get(0).unwrap();
-    let all_match = types.iter().all(|t| t == base_type);
-
-    let ctx = env.get_env_ctx();
-    if !all_match {
-        Err("Non-homogeneous array types".to_string())
-    } else {
-        let type_id = env.meta_space.types.get_or_define_type(&base_type);
-        let type_data = TypeData::from_type(base_type, &mut env.meta_space.types);
-        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-        Ok(Some(res_data))
-    }
-}
-
-
-// Fixme Need to either makes cons list only contain the same type, or add sometime of runtime inference
-pub fn resolve_expr_list_acc(data: &mut ListAccData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let index_type = if let Some(expr) = &mut data.index_expr {
-        resolve(expr, env)?
-    } else {
-        return Err("No access pattern/index specified".to_string());
-    };
-
-    if index_type == Type::Unresolved { return Ok(None); }
-
-    let list_type = resolve(&mut data.list, env)?;
-    if list_type == Type::Unresolved {
-        return Ok(None);
-    } else if matches!(list_type,  Type::Tuple | Type::Array(_)) {
-        return Err("Attempted access on non list/pair item".to_string());
+            if let Some(else_state) = &data.node_data.else_expr {
+                let (typ, typ_id) = else_state.get_resolve_state().get_type_and_id();
+                let res_data = self.env.get_resolve_data(typ.clone(), typ_id.unwrap());
+                data.resolve_state = ResolveState::Resolved(res_data);
+                Ok(true)
+            } else { panic!("Fatal<internal>: Failed to match expected branch, shouldn't happen") }
+        } else { ResolveError::invalid_operation(data.line_char, "Predicate with no branches", None) }
     }
 
 
-    let ctx = env.get_env_ctx();
-    let type_data = TypeData::from_type(&Type::Void, &mut env.meta_space.types);
-    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-    Ok(Some(res_data))
-}
+    fn resolve_lambda_expression(&mut self, data: &mut AstData<LambdaData>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+        let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;
+
+        let params_resolved = if let Some(params) = &mut data.node_data.parameters {
+            if params.is_empty() {
+                true
+            } else {
+                let mut resolved_types = Vec::with_capacity(params.len());
+                let mut fully_resolved = true;
+                // FIXME, currently no type inference is support so just check for types
+                for p in params.iter() {
+                    if let Some(typ) = &p.typ {
+                        if let Some(id) = self.env.get_id_for_type(typ) {
+                            resolved_types.push(id)
+                        } else {
+                            fully_resolved = false
+                        }
+                    } else {
+                        return ResolveError::invalid_parameter(data.line_char, "Parameters must be typed");
+                    }
+                }
+
+                if fully_resolved {
+                    for (param, id) in params.iter().zip(resolved_types.into_iter()) {
+                        if let Err(err) = self.env.add_symbol(
+                            param.identifier,
+                            id, // FIXME need to keep from cloning this
+                            ModifierFlags::from_mods(&param.modifiers.clone().unwrap_or(vec![])),
+                            None,
+                        ) {
+                            return ResolveError::invalid_parameter(
+                                data.line_char, format!("Error in lambda parameters: {:?}", err).as_str(),
+                            );
+                        };
+                    }
+                    true
+                } else { false }
+            }
+        } else { true };
 
 
-// TODO need to type check args = param here
+        if params_resolved && body_resolved {
+            let params = if let Some(params) = &data.node_data.parameters {
+                Some(params.iter().map(|p| {
+                    let (typ, type_id) = self.env.get_type_and_id_by_name(p.identifier).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
 
-pub fn resolve_func_call(data: &mut FCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    if let Some(args) = &mut data.arguments {
-        args.iter_mut().for_each(|arg| {
-            let _ = resolve(&mut arg.value, env);
-        });
+                    FuncParam {
+                        name: p.identifier, // FIXME clone, this all could be cleaned up really
+                        modifier_flags: ModifierFlags::from_mods(&p.modifiers.clone().unwrap_or(vec![])),
+                        typ,
+                        type_id,
+                    }
+                }).collect::<Vec<FuncParam>>())
+            } else { None };
+
+            let body_type_and_id = data.node_data.body_expr.get_resolve_state().get_type_and_id();
+            let mut res_data = self.env.get_resolve_data(body_type_and_id.0.clone(), body_type_and_id.1.unwrap());
+            res_data.meta_data = Some(MetaData::Function(params));
+            data.resolve_state = ResolveState::Resolved(res_data);
+            Ok(true)
+        } else { Ok(false) }
     }
-
-    if let Some(target_ctx) = env.get_symbol_ctx(data.name) {
-        let ctx = env.get_env_ctx();
-
-        // let type_data = if let Type::Lambda(func_type) = &target_ctx.type_data.typ {
-        //     *func_type.return_type.clone()
-        // } else {
-        //     return Err(format!("Resolved function call identifier: {:?} not a function", SCACHE.resolve(data.name)));
-        // };
-
-        let type_data = target_ctx.type_data.clone();
-        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
-        println!("\n\n{:?}", res_data);
-        Ok(Some(res_data))
-    } else {
-        Err(format!("Failed to resolve func call symbol: {}", SCACHE.resolve(data.name)))
-    }
-}
-
-
-pub fn resolve_func_call_inner(data: &mut InnerFuncCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let ctx = env.get_env_ctx();
-    let typ = resolve(&mut data.expr, env)?;
-    let type_id = env.meta_space.types.get_type_id(&typ);
-    let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
-    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-    Ok(Some(res_data))
-}
-
-
-pub fn resolve_obj_call(data: &mut ObjectCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    todo!()
-}
-
-
-pub fn resolve_literal_call(data: &mut LiteralCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    if let Some(target_ctx) = env.get_symbol_ctx(data.name) {
-        let ctx = env.get_env_ctx();
-        let type_data = target_ctx.type_data.clone();
-
-        let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: Some(target_ctx.self_ctx.clone()), type_data };
-        Ok(Some(res_data))
-    } else {
-        return Err(format!("Failed to resolve literal symbol: {}", SCACHE.resolve(data.name)));
-    }
-}
-
-
-pub fn resolve_obj_assign(data: &mut ObjectAssignData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    todo!()
-}
-
-
-pub fn resolve_gen_rand(data: &mut GenRandData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let ctx = env.get_env_ctx();
-    let typ = if data.is_float { Type::Float } else { Type::Integer };
-    let type_id = if data.is_float { env.meta_space.types.float } else { env.meta_space.types.int };
-    let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
-    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-    Ok(Some(res_data))
-}
-
-
-pub fn resolve_direct_inst(data: &mut DirectInst, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    todo!()
-}
-
-
-pub fn resolve_init_inst(data: &mut FCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    todo!()
-}
-
-
-pub fn resolve_operation(data: &mut OpCallData, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let mut resolved = true;
-    let mut op_infer = Type::Integer;
-
-    for op in data.operands.iter_mut() {
-        let op_typ = resolve(op, env)?;
-        match op_typ {
-            Type::Float => op_infer = Type::Float,
-            Type::Integer | Type::Boolean => continue,
-            Type::Unresolved => resolved = false,
-            _ => {}
-        }
-        if op_typ == Type::Unresolved {
-            resolved = false;
-        }
-    }
-
-    let typ = match data.operation {
-        Op::List => Type::Tuple,
-        Op::And | Op::Or | Op::Nor | Op::Xor | Op::Xnor | Op::Nand | Op::Negate | Op::Greater
-        | Op::Less | Op::GreaterEqual | Op::LessEqual | Op::Equals | Op::BangEqual | Op::EqualEqual => {
-            Type::Boolean
-        }
-        Op::Plus | Op::Minus | Op::Asterisk | Op::Slash | Op::Caret
-        | Op::Percent | Op::PlusPlus | Op::MinusMinus => {
-            op_infer
-        }
-    };
-
-    let ctx = env.get_env_ctx();
-    let type_id = env.meta_space.types.get_type_id(&typ);
-    let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
-    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-
-    Ok(Some(res_data))
-}
-
-
-pub fn resolve_primitive(typ: Type, env: &mut Environment) -> Result<Option<SymbolContext>, String> {
-    let ctx = env.get_env_ctx();
-    let type_id = env.meta_space.types.get_type_id(&typ);
-    let type_data = TypeData::from_type(&typ, &mut env.meta_space.types);
-    let res_data = SymbolContext { self_ctx: Context::Expr(ctx), target_ctx: None, type_data };
-    Ok(Some(res_data))
 }

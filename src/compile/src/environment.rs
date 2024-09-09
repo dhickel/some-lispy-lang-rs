@@ -1,590 +1,221 @@
 use std::cmp::Ordering;
+use std::string::{ToString};
+use std::sync::{Arc, RwLock};
+use std::sync::atomic::AtomicUsize;
 use intmap::IntMap;
 use lang::{ModifierFlags, ValueType};
-use lang::util::IString;
+use lang::ast::{FuncMeta, MetaData, ResolveData};
+use lang::types::{Type, TypeId, TypeTable};
+use lang::util::{IString, SCACHE};
 
 
 #[derive(Debug)]
-pub struct MetaSpace {
-    pub namespaces: Vec<NameSpace>,
-    ns_map: IntMap<u16>,
-    pub types: TypeTable,
+pub enum EnvError {
+    DupeSymbol(String),
+    InvalidAccess(String),
 }
 
 
-impl Default for MetaSpace {
-    fn default() -> Self {
-        let mut namespaces = Vec::<NameSpace>::with_capacity(10);
-        let mut ns_map = IntMap::<u16>::with_capacity(10);
-        let i_main = SCACHE.intern("main".to_string());
-        let main_ns = NameSpace::new(i_main);
-
-        ns_map.insert(i_main.value, 0);
-        namespaces.push(main_ns);
-
-        MetaSpace {
-            namespaces,
-            ns_map,
-            types: TypeTable::default(),
-        }
-    }
-}
-
-
-impl MetaSpace {
-    pub fn get_ns(&mut self, ns_name: IString) -> &NameSpace {
-        if let Some(ns) = self.ns_map.get(ns_name.value) {
-            self.namespaces.get(*ns as usize).expect("Fatal: Namespace failed to resolve")
-        } else {
-            let id = self.namespaces.len();
-            if id > u16::MAX as usize { panic!("Exceeded 65,535 namespace definitions") }
-            let ns = NameSpace::new(ns_name);
-            self.ns_map.insert(ns_name.value, id as u16);
-            self.namespaces.push(ns);
-            &self.namespaces[id]
-        }
-    }
-
-    pub fn get_ns_by_id(&mut self, id: u16) -> &mut NameSpace {
-        self.namespaces.get_mut(id as usize).expect("Fatal: Namespace failed to resolve")
-    }
-
-    pub fn get_ns_id(&mut self, name: IString) -> u16 {
-        *self.ns_map.get(name.value).expect("Fatal: Namespace failed to resolve")
-    }
-
-    pub fn get_func(&mut self, env_ctx: &SymbolCtx) -> &mut FuncMeta {
-        let ns = self.get_ns_by_id(env_ctx.ns);
-
-
-        if let Some(class_id) = env_ctx.class {
-            if let ObjectMeta::Class(ref mut class) = ns.obj_metadata[class_id as usize] {
-                return class.functions
-                    .get_mut(env_ctx.func.expect("Expected function index") as usize)
-                    .expect("Fatal: Failed to resolve function definition");
-            } else {
-                panic!("Fatal: Definition is not class");
-            }
-        } else {
-            println!("Getting Func: {:?}", env_ctx);
-            println!("{:?}", ns.functions);
-            return ns.functions
-                .get_mut(env_ctx.func.expect("Expected function index") as usize)
-                .expect("Fatal: Failed to resolve function definition");
-        }
-    }
-
-
-    pub fn add_symbol(&mut self, ns_id: u16, scope_id: u32, name: IString, data: SymbolContext) -> &SymbolContext {
-        let mut ns = self.namespaces.get_mut(ns_id as usize)
-            .expect("Fatal: Failed to resolve namespace");
-
-        if ns.symbol_table.contains_key(scope_id as u64) {
-            ns.symbol_table.get_mut(scope_id as u64).unwrap().insert_checked(name.value, data);
-            ns.symbol_table.get(scope_id as u64).unwrap().get(name.value).unwrap()
-        } else {
-            let mut scope_map = IntMap::<SymbolContext>::with_capacity(5);
-            scope_map.insert(name.value, data);
-            ns.symbol_table.insert(scope_id as u64, scope_map);
-            ns.symbol_table.get(scope_id as u64).unwrap().get(name.value).unwrap()
-        }
-    }
-
-    pub fn print_symbol_table(&self) {
-        println!("{:?}", self.namespaces[0].symbol_table)
-    }
-
-
-    pub fn get_symbol(&self, ns_id: u16, scope_id: u32, name_val: u64) -> Option<&SymbolContext> {
-        let mut ns = self.namespaces.get(ns_id as usize)
-            .expect("Fatal: Failed to resolve namespace");
-
-        if let Some(locals) = ns.symbol_table.get(scope_id as u64) {
-            locals.get(name_val)
-        } else { None }
-    }
-
-
-    fn add_var_def(&mut self, ns_id: u16, var_def: VarMeta) -> u16 {
-        let mut ns = self.namespaces.get_mut(ns_id as usize)
-            .expect("Fatal: Failed to resolve namespace");
-
-        let idx = ns.variables.len();
-        if idx == u16::MAX as usize {
-            panic!("Exceeded namespace definition limit (65,535)")
-        } else {
-            ns.variables.push(var_def);
-            idx as u16
-        }
-    }
-
-    fn add_func_def(&mut self, ns_id: u16, func_def: FuncMeta) -> u16 {
-        let mut ns = self.namespaces.get_mut(ns_id as usize)
-            .expect("Fatal: Failed to resolve namespace");
-
-        let index = ns.functions.len();
-        if index > u16::MAX as usize {
-            panic!("Fatal: Invalid function index in environment construction")
-        }
-
-        ns.functions.push(func_def);
-        index as u16
-    }
-
-    pub fn add_constant<T>(&mut self, value: &T, env_ctx: &ExprContext) -> u16 {
-        unsafe {
-            let mut ns = self.namespaces.get_mut(env_ctx.ns as usize)
-                .expect("Fatal: Failed to resolve namespace");
-
-
-            let size = std::mem::size_of::<T>();
-            if size != 8 {
-                let msg = format!("Attempted to add constant of more than 8 bytes: {:?}", size);
-                panic!("{}", msg);
-            }
-
-            let value_ptr = value as *const T as *const u8;
-            let bytes = std::ptr::read(value_ptr as *const [u8; 8]);
-
-            let hash = u64::from_ne_bytes(bytes);
-            if let Some(&index) = ns.existing_consts.get(hash) {
-                return index;
-            }
-
-            let curr_index = ns.constants.len();
-            if curr_index >= u16::MAX as usize {
-                panic!("Exceeded size of constant pool");
-            }
-
-            ns.existing_consts.insert(hash, (curr_index / 8) as u16); // index by word
-            ns.constants.extend_from_slice(&bytes);
-            (curr_index / 8) as u16 // index by word
-        }
-    }
-
-    pub fn add_object_meta(&mut self, ns_id: u16, obj_meta: ObjectMeta) -> u16 {
-        let mut ns = self.namespaces.get_mut(ns_id as usize)
-            .expect("Fatal: Failed to resolve namespace");
-
-        let idx = ns.obj_metadata.len();
-        if idx == u16::MAX as usize {
-            panic!("Exceeded max object definitions (65,535")
-        }
-        ns.obj_metadata.push(obj_meta);
-        idx as u16
-    }
-
-    pub fn push_func_code(&mut self, env_ctx: &SymbolCtx, code: &mut Vec<u8>) {
-        let ns = self.namespaces.get_mut(env_ctx.ns as usize)
-            .expect("Failed ro resolve namespace");
-
-        if let Some(class_id) = env_ctx.class {
-            let class = if let Some(ObjectMeta::Class(class)
-            ) = ns.obj_metadata.get_mut(class_id as usize) {
-                class
-            } else { panic!("Fatal: Failed to resolve class") };
-        } else {
-            ns.functions.get_mut(env_ctx.index as usize)
-                .expect("Fatal: Failed to resolve func for code push")
-                .code.append(code);
-        }
-    }
-}
-
-// TODO, REPL and dynamicism is WIP, namespace should store index/count for var/func/constants
-//  then data can get added to the RunTimeSpace, and the actual namespace data reset, then
-//  when adding new data via the repl dynamically the indices persists for code gen to match
-//  with the run time structure updates. This way data is copied but only in one structure at a time.
-//  Pointers are used for efficient copy operations, which is fine as long as code is single thread
-//  since the dynamic structures can re allocate, but this wont happen mid copy in a ST environment
-// The more I think about it only the const vector needs to be drained, and the bytecode for the
-// functions zeroed after being copied, this way metadata can persist at runtime.
-
-#[derive(Debug)]
-pub struct NameSpace {
+#[derive(Debug, Clone)]
+pub struct SymbolContext {
     pub name: IString,
-    pub symbol_table: IntMap<IntMap<SymbolContext>>,
-    pub variables: Vec<VarMeta>,
-    pub functions: Vec<FuncMeta>,
-    pub obj_metadata: Vec<ObjectMeta>,
-    pub constants: Vec<u8>,
-    pub existing_consts: IntMap<u16>,
-    pub code: Vec<u8>,
+    pub value_type: ValueType,
+    pub mod_flags: ModifierFlags,
+    pub ns_idx: u16,
+    pub scope: u32,
+    pub depth: u32,
+    pub type_id: TypeId,
+    pub meta_data: Option<MetaData>,
 }
-
-
-#[derive(Debug)]
-pub struct StackFrame {
-    pub arity: u16,
-    pub local_count: u16,
-    pub code_ptr: *const u8,
-    pub constant_ptr: *const u8,
-    pub m_space_ptr: *const (u32, u16, u16),
-    pub v_space_ptr: *const u8,
-}
-
-
-#[derive(Debug)]
-pub struct PermNameSpace {
-    pub func_data: Vec<u8>,
-    pub func_table: Vec<(u32, u16, u16)>,
-    // start, params, locals count
-    pub var_data: Vec<u8>,
-    pub constants: Vec<u8>,
-}
-
-
-#[derive(Debug)]
-pub struct PermSpace {
-    pub namespaces: Vec<PermNameSpace>,
-    pub init_code: Vec<u8>,
-}
-
-
-impl PermSpace {
-    pub fn new(meta_space: &mut MetaSpace) -> PermSpace {
-        let mut init_code = Vec::<u8>::with_capacity(meta_space.namespaces.len() * 30);
-        let mut namespaces = Vec::<PermNameSpace>::with_capacity(meta_space.namespaces.len());
-        for ns in meta_space.namespaces.iter_mut() {
-            namespaces.push(PermNameSpace::new(ns));
-            init_code.append(&mut ns.code);
-        }
-        init_code.push(OpCode::Exit as u8);
-        PermSpace { namespaces, init_code }
-    }
-
-    pub fn init_frame(&self) -> StackFrame {
-        StackFrame {
-            arity: 0,
-            local_count: 0,
-            code_ptr: self.init_code.as_ptr(),
-            constant_ptr: self.namespaces[0].constants.as_ptr(),
-            m_space_ptr: self.namespaces[0].func_table.as_ptr(),
-            v_space_ptr: self.namespaces[0].var_data.as_ptr(),
-        }
-    }
-}
-
-
-impl PermNameSpace {
-    pub fn get_func(&self, index: u16) -> StackFrame {
-        unsafe {
-            let meta = *self.func_table.get_unchecked(index as usize);
-            // println!("Loading Func Code: {:?}", decode(&self.func_data.as_slice()));
-            println!("Meta: {:?}", meta);
-            StackFrame {
-                arity: meta.1,
-                local_count: meta.2,
-                code_ptr: self.func_data.as_ptr().add(meta.0 as usize),
-                constant_ptr: self.constants.as_ptr(),
-                m_space_ptr: self.func_table.as_ptr(),
-                v_space_ptr: self.var_data.as_ptr(),
-            }
-        }
-    }
-
-    pub unsafe fn set_var_data(&mut self, index: u16, copy_from: *const u8) {
-        unsafe {
-            let copy_to = self.var_data.as_mut_ptr().add(index as usize * 8);
-            std::ptr::copy_nonoverlapping(copy_from, copy_to, 8)
-        }
-    }
-
-    pub fn get_var_data(&mut self, index: u16) -> *const u8 {
-        unsafe {
-            self.var_data.as_ptr().add(index as usize * 8)
-        }
-    }
-
-    pub fn get_constants(&self, index: u16) -> *const u8 {
-        unsafe {
-            self.constants.as_ptr().add(index as usize * 8) // expand to word length
-        }
-    }
-
-    pub fn new(ns: &mut NameSpace) -> PermNameSpace {
-        let mut func_data = Vec::<u8>::with_capacity(ns.functions.len() * 32);
-        let mut func_table = Vec::<(u32, u16, u16)>::with_capacity(ns.functions.len());
-        for func in ns.functions.iter_mut() {
-            func_table.push((func_data.len() as u32, func.param_types.len() as u16, func.local_count));
-            func_data.append(&mut func.code);
-        }
-
-        let var_data = vec![0u8; ns.variables.len() * 8];
-        let mut constants = Vec::<u8>::with_capacity(ns.constants.len());
-        constants.append(&mut ns.constants);
-
-        PermNameSpace {
-            func_data,
-            func_table,
-            var_data,
-            constants,
-        }
-    }
-}
-
-
-impl NameSpace {
-    pub fn new(name: IString) -> Self {
-        NameSpace {
-            name,
-            symbol_table: IntMap::<IntMap::<SymbolContext>>::with_capacity(35),
-            variables: Vec::<VarMeta>::with_capacity(20),
-            functions: Vec::<FuncMeta>::with_capacity(20),
-            obj_metadata: Vec::<ObjectMeta>::new(),
-            constants: Vec::<u8>::with_capacity(50 * 8),
-            existing_consts: IntMap::<u16>::with_capacity(50),
-            code: Vec::<u8>::with_capacity(100),
-        }
-    }
-}
-
-
-#[derive(Debug)]
-pub enum Definition {
-    Variable(VarMeta),
-    Function(FuncMeta),
-}
-
-
-#[derive(Debug)]
-pub struct VarMeta {
-    pub name: IString,
-}
-
-
-#[derive(Debug)]
-pub struct FuncMeta {
-    pub name: IString,
-    pub local_count: u16,
-    pub arity: u16,
-    pub param_types: Vec<u16>,
-    pub rtn_type: u16,
-    pub code: Vec<u8>,
-}
-
-
-// FIXME, locals are not tracked atm, var/func defs need to track these locals
-impl FuncMeta {
-    pub fn next_local(&mut self) -> u16 {
-        let idx = self.local_count;
-        self.local_count += 1;
-        idx - 1
-    }
-
-    pub fn set_param_local_count(&mut self, count: u16) {
-        self.local_count += count;
-    }
-
-    pub fn new(name: IString, arg_types: Vec<u16>, rtn_type: u16) -> Self {
-        if arg_types.len() >= u16::MAX as usize {
-            panic!("Function can not have more than 255 parameters")
-        }
-        FuncMeta {
-            name,
-            local_count: 0,
-            arity: arg_types.len() as u16,
-            param_types: arg_types,
-            rtn_type,
-            code: Vec::<u8>::new(),
-        }
-    }
-}
-
-
-#[derive(Debug)]
-pub enum ObjectMeta {
-    Class(ClassMeta),
-    Record(RecordMeta),
-    Interface(InterfaceMeta),
-}
-
-
-#[derive(Debug)]
-pub struct ClassMeta {
-    pub name: IString,
-    pub global_symbols: IntMap<SymbolContext>,
-    pub local_symbols: IntMap<IntMap<SymbolContext>>,
-    pub variables: Vec<VarMeta>,
-    pub functions: Vec<FuncMeta>,
-    pub obj_metadata: Vec<ObjectMeta>,
-    pub code: Vec<u8>,
-}
-
-
-impl ClassMeta {
-    pub fn new(name: IString) -> Self {
-        ClassMeta {
-            name,
-            global_symbols: IntMap::<SymbolContext>::with_capacity(20),
-            local_symbols: IntMap::<IntMap::<SymbolContext>>::with_capacity(35),
-            variables: Vec::<VarMeta>::with_capacity(20),
-            functions: Vec::<FuncMeta>::with_capacity(20),
-            obj_metadata: Vec::<ObjectMeta>::new(),
-            code: Vec::<u8>::with_capacity(50),
-        }
-    }
-}
-
-
-#[derive(Debug)]
-pub struct RecordMeta {}
-
-
-#[derive(Debug)]
-pub struct InterfaceMeta {}
-
 
 
 impl PartialEq for SymbolContext { fn eq(&self, other: &Self) -> bool { self.name == other.name } }
 
 
 impl PartialOrd for SymbolContext {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { self.name.partial_cmp(other) }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { self.name.partial_cmp(&other.name) }
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Context {
-    Symbol(SymbolContext),
-    Expr(ExprContext),
+#[derive(Default)]
+struct SymbolTable {
+    table: IntMap<Vec<SymbolContext>>,
+}
+
+// TODO make sure namespace symbols and symboltable symbols dont class
+
+impl SymbolTable {
+    fn gen_key(ns_id: u16, scope_id: u32) -> u64 { ((ns_id as u64) << 32) | (scope_id as u64) }
+
+    fn sorted_insert(&self, existing: &[SymbolContext], symbol_context: SymbolContext) -> Result<usize, EnvError> {
+        match existing.binary_search_by(
+            |s| s.partial_cmp(&symbol_context).unwrap_or(Ordering::Less)
+        ) {
+            Ok(_) => {
+                let symbol_name = SCACHE.resolve(symbol_context.name);
+                Err(EnvError::DupeSymbol(format!("Duplicate symbol declared: {:?}", symbol_name)))
+            }
+            Err(index) => Ok(index)
+        }
+    }
+
+    pub fn insert_symbol(&mut self, ns_id: u16, scope_id: u32, symbol_context: SymbolContext) -> Result<(), EnvError> {
+        let key = Self::gen_key(ns_id, scope_id);
+
+        if let Some(existing) = self.table.get_mut(key) {
+            match existing.binary_search_by(|s| s.partial_cmp(&symbol_context).unwrap_or(Ordering::Less)) {
+                Ok(_) => {
+                    let symbol_name = SCACHE.resolve(symbol_context.name);
+                    return Err(EnvError::DupeSymbol(format!("Duplicate symbol declared: {:?}", symbol_name)));
+                }
+                Err(index) => existing.insert(index, symbol_context)
+            }
+        } else { self.table.insert(key, vec![symbol_context]); }
+        Ok(())
+    }
+
+
+    pub fn get_symbol(&self, ns_id: u16, scope_id: u32, name: IString) -> Option<SymbolContext> {
+        let key = Self::gen_key(ns_id, scope_id);
+
+        if let Some(existing) = self.table.get(key) {
+            if let Ok(found) = existing.binary_search_by(
+                |s| s.name.partial_cmp(&name).unwrap_or(Ordering::Less)
+            ) {
+                existing.get(found).map(|s| s.clone())
+            } else { None }
+        } else { None }
+    }
+
+    pub fn find_symbol(&self, ns_id: u16, active_scopes: &[u32], name: IString) -> Option<SymbolContext> {
+        active_scopes.iter().find_map(|s_id| { self.get_symbol(ns_id, *s_id, name) })
+    }
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct SymbolCtx {
-    pub scope: u32,
-    pub depth: u32,
-    pub ns: u16,
-    pub class: Option<u16>,
-    pub func: Option<u16>,
-    pub index: u16,
-    pub nullable: bool,
-    pub mutable: bool,
-    pub public: bool,
-    pub rtn_val: bool,
+#[derive(Default)]
+pub struct Environment {
+    namespace_map: RwLock<Vec<IString>>,
+    symbol_table: Arc<RwLock<SymbolTable>>,
+    ns_export_table: Arc<RwLock<IntMap<SymbolContext>>>, // ns_id key
+    type_table: Arc<RwLock<TypeTable>>,
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ExprContext {
-    pub scope: u32,
-    pub depth: u32,
-    pub namespace: u16,
-    pub class: Option<u16>,
-    pub func: Option<u16>,
-}
+impl Environment {
+    pub fn register_namespace(&mut self, name: IString) -> u16 {
+        if let Ok(mut vec) = self.namespace_map.write() {
+            let vec_len = vec.len();
+            if vec_len > u16::MAX as usize { panic!("Fatal<internal>: Namespace indices exceeded 2 bytes") }
+            vec.push(name);
+            vec_len as u16
+        } else { panic!("Fatal<internal>: Lock Poisoned") }
+    }
 
-
-#[derive(Debug, Clone, PartialEq, Copy)]
-pub struct TypeData {
-    pub full_type_id: u16,
-    pub rtn_type_id: u16,
-    pub full_type: Type,
-    pub rtn_type: Type,
-}
-
-
-impl TypeData {
-    pub fn from_type(typ: &Type, type_table: &mut TypeTable) -> Self {
-        let full_type_id = type_table.get_or_define_type(typ);
-        let full_type = typ.clone();
-        let (rtn_type, rtn_type_id) = if let Type::Lambda(func_type) = &typ {
-            let rtn_type = *func_type.rtn_type.clone();
-            let rtn_type_id = type_table.get_or_define_type(&rtn_type);
-            (rtn_type, rtn_type_id)
-        } else { (full_type.clone(), full_type_id) };
-
-        TypeData {
-            full_type_id,
-            rtn_type_id,
-            full_type,
-            rtn_type,
+    pub fn new_sub_env(&self, ns_id: u16) -> SubEnvironment {
+        SubEnvironment {
+            curr_ns: ns_id,
+            curr_scope: 0,
+            curr_depth: 0,
+            active_scopes: vec![0],
+            curr_imports: Default::default(),
+            symbol_table_ref: self.symbol_table.clone(),
+            ns_export_table_ref: self.ns_export_table.clone(),
+            type_table_ref: self.type_table.clone(),
+            curr_context: vec![EnvContext::Namespace(NameSpaceCtx::default())],
         }
     }
 }
 
 
-impl SymbolCtx {
-    pub fn new(ctx: ExprContext, index: u16, modifiers: Option<Vec<Mod>>, rtn_val: bool) -> SymbolCtx {
-        let mut nullable = false;
-        let mut mutable = false;
-        let mut public = false;
-        if let Some(mods) = modifiers {
-            nullable = mods.contains(&Mod::Nullable);
-            mutable = mods.contains(&Mod::Mutable);
-            public = mods.contains(&Mod::Public);
-        }
+#[derive(Debug)]
+pub struct ImportCtx {
+    ns_chain: Vec<u16>,
+    identifier: IString,
+    context: SymbolContext,
+}
 
-        SymbolCtx {
-            scope: ctx.scope,
-            depth: ctx.depth,
-            ns: ctx.ns,
-            class: ctx.class,
-            func: ctx.func,
-            index,
-            nullable,
-            mutable,
-            public,
-            rtn_val,
+
+#[derive(Default, Debug)]
+pub struct NameSpaceCtx {
+    pub functions: Vec<SymbolContext>,
+    pub constants: Vec<SymbolContext>,
+    pub declarations: Vec<SymbolContext>,
+    pub imports: Vec<ImportCtx>,
+    pub constant_pool: ConstantPool,
+}
+
+
+#[derive(Default, Debug)]
+pub struct ObjCtx {
+    pub functions: Vec<FunctionCtx>,
+    pub variables: Vec<TypeId>,
+    pub constant_pool: ConstantPool,
+}
+
+
+#[derive(Default, Debug)]
+pub struct FunctionCtx {
+    pub functions: Vec<FuncMeta>,
+    pub variables: Vec<TypeId>,
+    pub locals: u32,
+}
+
+
+#[derive(Debug)]
+pub enum EnvContext {
+    Namespace(NameSpaceCtx),
+    Object(ObjCtx),
+    Function(FunctionCtx),
+}
+
+
+#[derive(Default, Debug)]
+pub struct ConstantPool {
+    pool: Vec<u8>,
+    curr_index: usize,
+}
+
+
+impl ConstantPool {
+    pub fn push_constant(&mut self, data: [u8; 8]) -> u16 {
+        if self.curr_index + 1 > u16::MAX as usize {
+            panic!("Fatal<internal>: Exceeded max constant pool size: {:?}", u16::MAX)
         }
+        let idx = self.curr_index as u16;
+        self.pool.extend(data);
+        self.curr_index += 1;
+        idx
     }
 }
 
 
-pub struct Environment<'a> {
+pub struct SubEnvironment {
+    curr_ns: u16,
     curr_scope: u32,
     curr_depth: u32,
     active_scopes: Vec<u32>,
-    pub meta_space: &'a mut MetaSpace,
-    pub curr_ns: u16,
-    pub curr_func: Vec<u16>,
-    pub curr_class: Vec<u16>,
-    unresolved: Type,
+    pub curr_imports: IntMap<SymbolContext>, // IString key
+    symbol_table_ref: Arc<RwLock<SymbolTable>>,
+    ns_export_table_ref: Arc<RwLock<IntMap<SymbolContext>>>, // ns_id key
+    type_table_ref: Arc<RwLock<TypeTable>>,
+    curr_context: Vec<EnvContext>,
 }
 
 
-impl<'a> Environment<'a> {
-    pub fn new(meta_space: &'a mut MetaSpace) -> Self {
-        let mut env = Environment {
-            curr_scope: 0,
-            curr_depth: 0,
-            active_scopes: Vec::<u32>::with_capacity(10),
-            meta_space,
-            unresolved: Type::Unresolved,
-            curr_func: Vec::<u16>::with_capacity(4),
-            curr_class: Vec::<u16>::with_capacity(2),
-            curr_ns: 0,
-        };
-        env.active_scopes.push(0);
-        env
-    }
-
-    pub fn in_class_scope(&self) -> bool {
-        !self.curr_class.is_empty()
-    }
-
-    pub fn in_func_scope(&self) -> bool {
-        !self.curr_func.is_empty()
+impl SubEnvironment {
+    pub fn get_parent_scope(&self) -> Result<u32, EnvError> {
+        self.active_scopes.get(self.active_scopes.len() - 2).copied().ok_or(EnvError::InvalidAccess("Scope index out of bounds".to_string()))
     }
 
     pub fn get_curr_scope(&self) -> u32 {
-        *self.active_scopes.last().unwrap()
+        *self.active_scopes.last().expect("Fatal<internal>: No scope in focus")
     }
 
-    pub fn get_parent_scope(&self) -> u32 {
-        *self.active_scopes.get(self.active_scopes.len() - 2).unwrap()
+    pub fn get_curr_depth(&self) -> u32 {
+        self.curr_depth
     }
 
-
-    /*
-    Scope popping and pushing takes a slightly abstract approach. The current scope and all scopes
-    "in-scope" are held in a vec. When a scope is entered the current scope and the current depth
-    are incremented. When a scope is exited only the depth is decremented. This is done to ensure
-    that each scope is unique, as then on the next scope entrance the depth will be incremented back
-    the same value it was before the last scope popped. Depth relates to how many scopes there are
-    currently stacked, while the current scope is always incremented to a higher un-seen value
-     */
     pub fn push_scope(&mut self) {
         self.curr_scope += 1;
         self.curr_depth += 1;
@@ -593,163 +224,78 @@ impl<'a> Environment<'a> {
 
     pub fn pop_scope(&mut self) {
         self.curr_depth -= 1;
-        self.active_scopes.pop().expect("Fatal: Popped global scope");
+        self.active_scopes.pop().expect("Fatal<internal>: Popped global scope");
     }
 
 
-    pub fn pop_func(&mut self) {
-        self.curr_func.pop();
-        self.pop_scope();
+    pub fn push_func_context(&mut self) {
+        self.curr_context.push(EnvContext::Function(FunctionCtx::default()))
     }
 
-    pub fn add_func_symbol(&mut self, name: IString, lambda: &DefLambdaData, typ: &FuncType) -> Result<&SymbolContext, String> {
-        self.push_scope();
-
-        println!("Added func def: {:?}:{:?}", SCACHE.resolve(name), name.value);
-        println!("{:?}", self.get_env_ctx());
-        println!("At Scope: {:?}", self.get_parent_scope());
-
-
-        let mut locals_count = 0;
-        let param_types = if let Some(params) = &lambda.parameters {
-            locals_count = params.len();
-            let mut param_types = Vec::<Type>::with_capacity(params.len());
-            for param in params {
-                // let typ = if let Some(typ) = self.meta_space.types.get_type_by_name(param.d_type) {
-                //     typ
-                // } else {
-                //     self.pop_scope();
-                //     panic!("Non defined type encountered in parameter")
-                // }; // FIXME multiple type resolution, maybe make a method that returns (id,type)
-                param_types.push(param.d_type.clone().unwrap());
-            }
-            for (param, typ) in params.into_iter().zip(param_types.iter()) {
-                let _ = self.add_var_symbol(param.name, typ.clone(), param.modifiers.clone());
-            }
-            param_types.iter().map(|t| self.meta_space.types.get_type_id(t)).collect()
-        } else { vec![] };
+    pub fn push_obj_context(&mut self) {
+        self.curr_context.push(EnvContext::Object(ObjCtx::default()))
+    }
+    
+    
 
 
-        let rtn_type_id = self.meta_space.types.get_or_define_type(&typ.rtn_type);
-        let mut def = FuncMeta::new(name, param_types, rtn_type_id);
-        def.set_param_local_count(locals_count as u16);
-
-
-        if self.in_class_scope() {
-            // add method to classes methods and get index into it
-            todo!("Classes not implemented")
-        }
-
-        // If not inside a class, function will be added to the namespaces methods
-        // adding to Local or global symbols for scoping constraints
-
-        let index = self.meta_space.add_func_def(self.curr_ns, def);
-        self.curr_func.push(index);
-
-        let mut self_ctx = self.get_env_ctx();
-        self_ctx.scope -= 1; // Adjust to outer scope where symbol is defined
-
-        let symbol_data = SymbolCtx::new(
-            self_ctx,
-            index,
-            None,
-            if *typ.rtn_type == Type::Void { false } else { true },
-        );
-
-        let res_data = SymbolContext {
-            self_ctx: Context::Symbol(symbol_data),
-            target_ctx: None,
-            type_data: TypeData::from_type(&Type::Lambda(typ.clone()), &mut self.meta_space.types),
-        };
-
-        // curr_scope - 1 is used to get the outer scope where the symbol is declared, as the curr
-        // scope is the inner scope of the function
-
-        self.pop_func();
-        let data = self.meta_space.add_symbol(self.curr_ns, self.get_parent_scope() + 1, name, res_data);
-        Ok(data)
+    // FIXME clone here
+    pub fn get_type_by_id(&self, type_id: TypeId) -> Type {
+        self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone()
     }
 
-
-    // For symbol defs, depth 0 will always be top level of the current namespace, TODO depth check redundant?
-    // If function and class == None, then symbol def is inside  a lexical scope, but still top level to ns
-    // If not top level, check for existing functions first as it may be nested in a class.
-    // If not currently resolve a function body, and not a top level ns def, symbol must be
-    // a top level class definition
-    pub fn add_var_symbol(&mut self, name: IString, typ: Type, mods: Option<Vec<Mod>>) -> Result<&SymbolContext, String> {
-        let type_id = self.meta_space.types.get_or_define_type(&typ);
-        let def = VarMeta { name };
-
-        if self.in_class_scope() {
-            todo!("Classes not implemented")
-        } else {
-            let index = self.meta_space.add_var_def(self.curr_ns, def);
-            let symbol_data = SymbolCtx::new(self.get_env_ctx(), index, mods, false);
-            let res_data = SymbolContext {
-                self_ctx: Context::Symbol(symbol_data),
-                target_ctx: None,
-                type_data: TypeData::from_type(&typ, &mut self.meta_space.types),
-            };
-            Ok(self.meta_space.add_symbol(self.curr_ns, self.get_curr_scope(), name, res_data))
-        }
+    pub fn get_type_by_name(&self, name: IString) -> Option<Type> {
+        self.type_table_ref.read().unwrap().get_type_by_name(name).map_or_else(|| None, |t| Some(t.clone()))
+    }
+    pub fn get_type_and_id_by_name(&self, name: IString) -> Option<(Type, TypeId)> {
+        self.type_table_ref.read().unwrap().get_type_and_id_by_name(name).map_or_else(|| None, |t| Some((t.0.clone(), t.1)))
     }
 
-
-    pub fn get_symbol_type(&mut self, name: IString) -> &Type {
-        for &scope_id in self.active_scopes.iter().rev() {
-            if let Some(symbol) = self.meta_space.get_symbol(self.curr_ns, scope_id, name.value) {
-                return &symbol.type_data.rtn_type;
-            }
-        }
-        &self.unresolved
+    pub fn get_id_for_type(&self, typ: &Type) -> Option<TypeId> {
+        self.type_table_ref.read().unwrap().get_type_id(typ)
     }
 
-
-    pub fn get_symbol_ctx(&self, name: IString) -> Option<&SymbolContext> {
-        for &scope_id in self.active_scopes.iter().rev() {
-            if let Some(data) = self.meta_space.get_symbol(self.curr_ns, scope_id, name.value) {
-                return Some(data);
-            }
-        }
-        println!("Failed to find symbol{:?}: {:?}", SCACHE.resolve(name), name.value);
-        println!("{:?}", self.active_scopes);
-        println!("Ns: {:?}", self.curr_ns);
-        println!("Symbol Table");
-        self.meta_space.print_symbol_table();
-        None
+    pub fn are_types_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
+        self.type_table_ref.read().unwrap().type_id_compatible(src_type, dst_type)
     }
 
-
-    // Used to validate user type annotations with resolved types
-    pub fn validate_type(&self, intern_str: IString) -> &Type {
-        let found = self.meta_space.types.get_type_by_name(intern_str);
-        if found.is_none() { return &self.unresolved; }
-
-        match found.unwrap() {
-            Type::Unresolved | Type::Integer | Type::Float | Type::String | Type::Boolean |
-            Type::Array(_) | Type::Nil | Type::Tuple | Type::Void => found.unwrap(),
-            Type::Quote => todo!(),
-            Type::Object(obj) => {
-                for typ in &obj.super_types {
-                    if let Type::Object(obj_type) = typ {
-                        if obj_type.name == intern_str { return typ; }
-                    }
-                } // Object will always have a u64 value
-                &self.unresolved
-            }
-            Type::Lambda(_) => todo!(),
-        }
-    }
-
-
-    pub fn get_env_ctx(&self) -> ExprContext {
-        ExprContext {
-            scope: self.get_curr_scope(),
+    pub fn add_symbol(
+        &mut self,
+        name: IString,
+        type_id: TypeId,
+        mod_flags: ModifierFlags,
+        meta_data: Option<MetaData>,
+    ) -> Result<(), EnvError> {
+        let typ = self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone();
+        let value_type: ValueType = ValueType::from(&typ);
+        let symbol = SymbolContext {
+            name,
+            value_type,
+            mod_flags,
+            meta_data,
+            type_id,
+            ns_idx: self.curr_ns,
+            scope: self.curr_scope,
             depth: self.curr_depth,
-            ns: self.curr_ns,
-            class: self.curr_class.last().copied(),
-            func: self.curr_func.last().copied(),
-        }
+        };
+        self.symbol_table_ref.write().unwrap().insert_symbol(self.curr_ns, self.get_curr_scope(), symbol)
+    }
+
+    pub fn get_resolve_data(&self, typ: Type, type_id: TypeId) -> ResolveData {
+        ResolveData::new(self.curr_ns, self.curr_scope, type_id, typ)
+    }
+
+    pub fn get_nil_resolve(&self) -> ResolveData {
+        ResolveData::new(self.curr_ns, self.curr_scope, TypeTable::NIL, Type::Nil)
+    }
+
+    // TODO add ability to look up other namespaces via name?
+    pub fn get_symbol(&self, ns: u16, scope_id: u32, name: IString) -> Option<SymbolContext> {
+        self.symbol_table_ref.read().unwrap().get_symbol(ns, scope_id, name)
+    }
+
+    // FIXME  Need to traverse global and import spaces as well
+    pub fn find_symbol_in_scope(&self, name: IString) -> Option<SymbolContext> {
+        self.symbol_table_ref.read().unwrap().find_symbol(self.curr_ns, &self.active_scopes, name)
     }
 }
-

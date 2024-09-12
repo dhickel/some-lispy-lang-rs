@@ -12,42 +12,43 @@ pub enum LoadOp {
 // for common sizes with an offset field behind
 
 
-
 /* 16 kb stack size limit | Loacal Load and stores can be pre calculated for offsets into arrays
     LoadLocalN <local_offset> <size>
     StoreLocalN <local_offset> <size>
     LoadMember <const_index> *requires ref on top stack
     LoadMemberS <const_index> *uses self ref at param 0
-    LoadStatic <const_index>.
+    LoadStatic <const_index>.// can resolve to direct ptr
     StoreMember <const_index>
     InvokeMember <const_index> *arguments on stack, compiler should self ref
-    InvokeStatic <Const index>
+    InvokeStatic <Const index> // can resolve to direct ptr
     InvokeInterface <something>
 
  */
 
 pub enum IROp {
-    Store(IRStore),
-    Load(IRLoad),
-    Invoke(IRInvoke)
+    Store(Box<IRStore>),
+    Load(Box<IRLoad>),
+    Invoke(Box<IRInvoke>),
 }
+
 
 pub enum IRStore {
-    StoreMember{ data_op: IROp},
-    StoreLocal{ data_op: IROp},
+    StoreMember { data_op: IROp },
+    StoreLocal { data_op: IROp },
 }
 
+
 pub enum IRLoad {
-    LoadLocal{offset: u16, size: u16},
-    LoadMember{c_pool_index: u16},
-    LoadStatic{c_pool_index: u16}
+    LoadLocal { offset: u16, size: u16 },
+    LoadMember { c_pool_index: u16 },
+    LoadStatic { c_pool_index: u16 },
 }
 
 
 pub enum IRInvoke {
     Member,
     Interface,
-    Static
+    Static,
 }
 
 

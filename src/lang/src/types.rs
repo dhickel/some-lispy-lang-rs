@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Add, Deref};
 use ahash::AHashMap;
 use intmap::IntMap;
 use crate::util::{IString, SCACHE};
@@ -132,6 +132,22 @@ impl Type {
             Type::Float => TypeTable::FLOAT,
             Type::Boolean => TypeTable::BOOL,
             _ => panic!("Fatal<internal>: Attempted to call primitive type_id of non-primitive")
+        }
+    }
+
+    pub fn size(&self) -> u64 {
+        match self {
+            Type::Unresolved(_) => { panic!("Fatal<internal>: Size called on unresolved type") }
+            Type::Integer => 8,
+            Type::Float => 8,
+            Type::Boolean => 1,
+            Type::Array(_) => { todo!("Array size not implemented") }
+            Type::String => 8,
+            Type::Tuple(vals) => vals.iter().fold(0, |prior, val| prior.add(val.size())),
+            Type::Nil => 0, // FIXME should this be 1 byte?
+            Type::Quote => {todo!("Quote not implemented")}
+            Type::Object(obj) => {todo!("Object not implemented")}
+            Type::Lambda(func) => {todo!("Lambda not implemented")}
         }
     }
 }

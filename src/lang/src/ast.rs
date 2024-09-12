@@ -1,3 +1,4 @@
+use crate::ast::Value::U32;
 use crate::ModifierFlags;
 use crate::util::IString;
 use crate::token::{Mod, Op};

@@ -135,7 +135,7 @@ impl Type {
         }
     }
 
-    pub fn size(&self) -> u64 {
+    pub fn size(&self) -> usize {
         match self {
             Type::Unresolved(_) => { panic!("Fatal<internal>: Size called on unresolved type") }
             Type::Integer => 8,

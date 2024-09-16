@@ -1,5 +1,4 @@
-use lang::ast::{AstData, AstNode, ExprVariant, LetData, StmntVariant};
-use lang::token::Op;
+use lang::ast::{AstData, AstNode, ExprVariant, LetData, SCallData, StmntVariant};
 use lang::types::TypeId;
 use crate::environment::{ConstantPool, SubEnvironment};
 
@@ -33,8 +32,8 @@ pub enum IROp {
 
 
 pub enum IRStore {
-    StoreMember { data_op: IROp },
-    StoreLocal { data_op: IROp },
+    StoreMember { data_expr: IROp },
+    StoreLocal { data_expr: IROp },
 }
 
 
@@ -46,9 +45,13 @@ pub enum IRLoad {
 
 
 pub enum IRInvoke {
-    Member,
+    // cpool holds index of class/method, will be resolved to pointer, self ref loads reference to call method on
+    Member { cpool_idx: u16, self_ref: IRLoad, args: Vec<IROp> },
+    // cpool holds pointer to method, no ref needed for static
+    Static { cpool_idx: u16, args: Vec<IROp> },
+    // TODO interfaces
     Interface,
-    Static,
+
 }
 
 
@@ -138,22 +141,52 @@ impl IRLower {
         }
     }
 
-    pub fn lower_expression(&mut self, expr: &mut ExprVariant) -> Result<(), LoweringError> {}
 
-    pub fn lower_let_statement(&mut self, let_data: &mut AstData<LetData>) -> Result<(), LoweringError> {
+    pub fn lower_let_statement(&mut self, let_data: &mut AstData<LetData>) -> Result<IROp, LoweringError> {
         match self.l_state {
             LState::NamespaceFunc | LState::ObjectFunc => {
                 if let Some(curr_func) = &mut self.curr_func {
                     let store_idx = curr_func.add_local(let_data.resolve_state.get_type_id().unwrap())?;
                     let assign_expr = self.lower_expression(&mut let_data.node_data.assignment)?;
-
-
-                    Ok(())
+                    Ok(IROp::Store(Box::new(IRStore::StoreLocal { data_expr: assign_expr })))
                 } else { panic!("Fatal<internal>: Expected function in focus") }
             }
             LState::Object | LState::Namespace => panic!(
                 "Fatal<internal>: Let statement in wrong position, should be validation error."
             )
         }
+    }
+
+    pub fn lower_expression(&mut self, expr: &mut ExprVariant) -> Result<IROp, LoweringError> {
+        match expr {
+            ExprVariant::SCall(s_call) => self.lower_s_call(s_call),
+            ExprVariant::FCall(f_call) => {}
+            ExprVariant::Value(val) => {}
+            ExprVariant::OpCall(op_call) => {}
+            ExprVariant::Block(block_data) => {}
+            ExprVariant::Predicate(pred_data) => {}
+            ExprVariant::Lambda(func_data) => {}
+        }
+    }
+
+    pub fn lower_s_call(&mut self, expr: &mut AstData<SCallData>) -> Result<IROp, LoweringError> {
+
+
+        match expr.node_data.operation_expr {
+            ExprVariant::SCall(_) => {}
+            ExprVariant::FCall(_) => {}
+            ExprVariant::Value(_) => {}
+            ExprVariant::OpCall(_) => {}
+            ExprVariant::Block(_) => {}
+            ExprVariant::Predicate(_) => {}
+            ExprVariant::Lambda(_) => {}
+        }
+        let op_expr = self.lower_expression(&mut expr.node_data.operation_expr)?;
+        let operands = expr.node_data.operand_exprs
+            .unwrap_or(vec![])
+            .iter_mut()
+            .map(|e| Ok(self.lower_expression(e)?))
+            .collect::<Result<Vec<IROp>, LoweringError>>()?;
+        todo!()
     }
 }

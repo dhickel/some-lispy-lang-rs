@@ -171,14 +171,20 @@ impl IRLower {
 
     pub fn lower_s_call(&mut self, expr: &mut AstData<SCallData>) -> Result<IROp, LoweringError> {
 
-
-        // let op_expr = self.lower_expression(&mut expr.node_data.operation_expr)?;
+        // should be pointer to constant poll
+        let op_expr = self.lower_expression(&mut expr.node_data.operation_expr)?;
         let operand_exprs: Vec<IROp> = expr.node_data.operand_exprs.and_then(|mut operands| {
             Some(operands.iter_mut()
                 .map(|mut e| Ok(self.lower_expression(&mut e)?))
                 .collect())
         }).unwrap_or(vec![]);
 
+        // need to identify when parsing whether is static or dynamic when resolving or from load value op
+        let invoke_data = IRInvoke {
+
+        }
+
+        IROp::Invoke()
         todo!()
     }
 

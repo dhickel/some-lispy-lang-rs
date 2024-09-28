@@ -1,4 +1,4 @@
-use lang::ast::{AstData, AstNode, ExprVariant, LetData, SCallData, StmntVariant};
+use lang::ast::{AstData, AstNode, ExprVariant, LetData, SCallData, StmntVariant, Value};
 use lang::types::TypeId;
 use crate::environment::{ConstantPool, SubEnvironment};
 
@@ -172,21 +172,18 @@ impl IRLower {
     pub fn lower_s_call(&mut self, expr: &mut AstData<SCallData>) -> Result<IROp, LoweringError> {
 
 
-        match expr.node_data.operation_expr {
-            ExprVariant::SCall(_) => {}
-            ExprVariant::FCall(_) => {}
-            ExprVariant::Value(_) => {}
-            ExprVariant::OpCall(_) => {}
-            ExprVariant::Block(_) => {}
-            ExprVariant::Predicate(_) => {}
-            ExprVariant::Lambda(_) => {}
-        }
-        let op_expr = self.lower_expression(&mut expr.node_data.operation_expr)?;
-        let operands = expr.node_data.operand_exprs
-            .unwrap_or(vec![])
-            .iter_mut()
-            .map(|e| Ok(self.lower_expression(e)?))
-            .collect::<Result<Vec<IROp>, LoweringError>>()?;
+        // let op_expr = self.lower_expression(&mut expr.node_data.operation_expr)?;
+        let operand_exprs: Vec<IROp> = expr.node_data.operand_exprs.and_then(|mut operands| {
+            Some(operands.iter_mut()
+                .map(|mut e| Ok(self.lower_expression(&mut e)?))
+                .collect())
+        }).unwrap_or(vec![]);
+
         todo!()
     }
+
+
+
+    todo!()
+}
 }

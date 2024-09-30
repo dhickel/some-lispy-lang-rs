@@ -1,5 +1,6 @@
 use std::alloc::{alloc, Layout};
 use std::cmp::Ordering;
+use std::fmt::{Debug, Formatter};
 use std::sync::{Mutex};
 
 use ahash::AHashMap;
@@ -12,9 +13,15 @@ pub struct Interner {
 }
 
 
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd)]
 pub struct IString {
     pub value: u32,
+}
+
+impl Debug for IString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(SCACHE.resolve(*self))
+    }
 }
 
 

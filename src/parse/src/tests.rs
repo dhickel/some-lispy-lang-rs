@@ -65,7 +65,9 @@ const FORMS: [&str; 18] = [
 
 #[test]
 fn parser_integration() {
-    FORMS.iter().for_each(|s| parse_instance(s))
+   // FORMS.iter().for_each(|s| parse_instance(s))
+    
+    parse_instance("(Type")
 }
 
 

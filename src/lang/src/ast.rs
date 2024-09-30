@@ -161,7 +161,7 @@ impl LetData {
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ExprVariant {
+pub enum                    ExprVariant {
     SCall(AstData<SCallData>),
     FCall(AstData<Vec<FExprData>>),
     Value(AstData<Value>),

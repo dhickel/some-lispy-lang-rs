@@ -184,12 +184,12 @@ impl IRLower {
 
         }
 
-        IROp::Invoke()
+       // IROp::Invoke()
         todo!()
     }
-
-
-
-    todo!()
-}
+    
+    pub fn lower_value(&mut self, value: &mut AstData<Value>) -> Result<IROp, LoweringError> {
+        
+        todo!()
+    }
 }

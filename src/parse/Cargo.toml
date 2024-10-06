@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 ahash = "0.8.11"
+sha2 = "0.10.8"
 rand = "0.8.5"
 intmap = "2.0.0"
 lang = {path = "../lang"}

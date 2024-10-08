@@ -184,6 +184,7 @@ dependencies = [
  "bitflags 2.6.0",
  "intmap",
  "lazy_static",
+ "sha2",
 ]
 
 [[package]]

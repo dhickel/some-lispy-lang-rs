@@ -1,11 +1,16 @@
 use std::alloc::{alloc, Layout};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
+use std::fs::File;
+use std::io::{BufReader, Error, Read};
+use std::path::PathBuf;
 use std::sync::{Mutex};
 
 use ahash::AHashMap;
 use lazy_static::lazy_static;
-
+use sha2::{Digest, Sha256};
+use sha2::digest::Update;
+use crate::Sha256Hash;
 
 pub struct Interner {
     map: AHashMap<String, u32>,
@@ -211,4 +216,23 @@ pub fn get_byte_array(size: usize) -> *mut u8 {
     ($loc:expr, $err:expr) => {
         format!("ERROR | Line: {}, Char: {} | {}", $loc.0, $loc.1, $err)
     };
+}
+
+
+pub fn get_sha256(path: &PathBuf) -> std::io::Result<Sha256Hash> {
+    let mut file = File::open(path)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+
+    let hash = Sha256::digest(&buffer);
+    Ok(Sha256Hash::new(hash.into()))
+}
+
+
+
+pub fn read_file(path: &PathBuf) -> std::io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut file_str = String::with_capacity(512);
+    file.read_to_string(&mut file_str)?;
+    Ok(file_str.into())
 }

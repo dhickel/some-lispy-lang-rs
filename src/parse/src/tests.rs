@@ -1,4 +1,6 @@
-use crate::lexer;
+use std::path::Path;
+use lang::util::{IString, SCACHE};
+use crate::{lexer, load_project};
 use crate::parser::ParserState;
 
 
@@ -67,7 +69,12 @@ const FORMS: [&str; 18] = [
 fn parser_integration() {
    // FORMS.iter().for_each(|s| parse_instance(s))
     
-    parse_instance("(Type")
+    // parse_instance("(:.member obj 10 20 30)");
+    // parse_instance("(NS->member obj 10 20 30)");
+    // parse_instance("(member obj 10 20 30)");
+
+    let path = Path::new("/home/hickelpickle/Documents/TestFolder");
+    load_project(SCACHE.const_string, &path)
 }
 
 

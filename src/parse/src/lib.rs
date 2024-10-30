@@ -57,10 +57,10 @@ pub struct SourceFile {
 impl SourceFile {
     pub fn parse(&mut self) -> Result<(), ParseError> {
         let source_str = read_file(&self.path)
-            .map_err(|err| ParseError::IO(err))?;
+            .map_err(ParseError::IO)?;
 
         let source_tokens = lexer::process(&source_str)
-            .map_err(|err| ParseError::Lex(err))?;
+            .map_err(ParseError::Lex)?;
 
         let mut parser_state = ParserState::new(source_tokens);
         let ast = parser_state.process().map(|r| r.root_expressions)?;

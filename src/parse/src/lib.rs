@@ -150,6 +150,6 @@ pub fn map_project_dir(dir: &Path) -> ModuleData {
 pub fn load_project(org_name: IString, path: &Path) {
     let mut project_data = map_project_dir(path);
     project_data.parse_module().unwrap();
-    println!("Project: {:#?}", project_data)
+    println!("Project: {:?}", project_data)
 }
 

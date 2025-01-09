@@ -64,7 +64,7 @@ const FORMS: [&str; 18] = [
     FUNC_LET
 ];
 
-const TEST_PROJECT: &str = "/home/mindspice/code/rust/some-lispy-lang-rs/test_project";
+const TEST_PROJECT: &str = "../../test_project";
 
 
 #[test]
@@ -75,7 +75,7 @@ fn parser_integration() {
     // parse_instance("(NS->member obj 10 20 30)");
     // parse_instance("(member obj 10 20 30)");
 
-    let path = Path::new("/home/hickelpickle/Documents/TestFolder");
+    let path = Path::new("../TestFolder");
     load_project(SCACHE.const_string, Path::new(TEST_PROJECT))
 }
 

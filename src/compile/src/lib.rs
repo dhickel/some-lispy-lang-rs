@@ -6,8 +6,9 @@ pub mod code_gen;
 pub mod resolution;
 pub mod environment;
 mod ir;
+mod tests;
 
-
+#[derive(Debug, Clone)]
 pub enum Warning {
     Arithmetic(String),
     Empty(String),

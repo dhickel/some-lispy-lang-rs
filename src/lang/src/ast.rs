@@ -29,7 +29,7 @@ pub enum ResolveState {
 
 
 impl ResolveState {
-    pub fn is_resolved(&self) -> bool { matches!(self, Self::Unresolved(_)) }
+    pub fn is_resolved(&self) -> bool { !matches!(self, Self::Unresolved(_)) }
 
     pub fn get_type(&self) -> &Type {
         match self {
@@ -161,7 +161,7 @@ impl LetData {
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum                    ExprVariant {
+pub enum ExprVariant {
     SCall(AstData<SCallData>),
     FCall(AstData<Vec<FExprData>>),
     Value(AstData<Value>),

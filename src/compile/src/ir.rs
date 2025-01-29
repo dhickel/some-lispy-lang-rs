@@ -86,7 +86,7 @@ pub struct FunctionIR {
 
 impl FunctionIR {
     pub fn add_local(&mut self, typ: TypeId) -> Result<usize, LoweringError> {
-        if self.param_count < u16::MAX as usize {
+        if self.param_count < u16::MAX as usize && self.locals.len() >= u16::MAX as usize {
             let index = self.locals.len();
             self.locals.push(typ);
             Ok(index)
@@ -114,6 +114,8 @@ pub enum LState {
 }
 
 
+// LState represents the scope state for lower, as in if we are inside a namespace,object or nested?
+
 pub struct IRLower {
     env: SubEnvironment,
     ast_nodes: Vec<AstNode>,
@@ -136,8 +138,8 @@ impl IRLower {
 
     pub fn lower_statement(&mut self, stmnt: &mut StmntVariant) -> Result<(), LoweringError> {
         match stmnt {
-            StmntVariant::Let(let_data) => {}
-            StmntVariant::Assign(assign_data) => {}
+            StmntVariant::Let(let_data) => {todo!()}
+            StmntVariant::Assign(assign_data) => {todo!()}
         }
     }
 
@@ -160,29 +162,25 @@ impl IRLower {
     pub fn lower_expression(&mut self, expr: &mut ExprVariant) -> Result<IROp, LoweringError> {
         match expr {
             ExprVariant::SCall(s_call) => self.lower_s_call(s_call),
-            ExprVariant::FCall(f_call) => {}
-            ExprVariant::Value(val) => {}
-            ExprVariant::OpCall(op_call) => {}
-            ExprVariant::Block(block_data) => {}
-            ExprVariant::Predicate(pred_data) => {}
-            ExprVariant::Lambda(func_data) => {}
+            ExprVariant::FCall(f_call) => {todo!()}
+            ExprVariant::Value(val) => {todo!()}
+            ExprVariant::OpCall(op_call) => {todo!()}
+            ExprVariant::Block(block_data) => {todo!()}
+            ExprVariant::Predicate(pred_data) => {todo!()}
+            ExprVariant::Lambda(func_data) => {todo!()}
         }
     }
 
     pub fn lower_s_call(&mut self, expr: &mut AstData<SCallData>) -> Result<IROp, LoweringError> {
-
         // should be pointer to constant poll
         let op_expr = self.lower_expression(&mut expr.node_data.operation_expr)?;
-        let operand_exprs: Vec<IROp> = expr.node_data.operand_exprs.and_then(|mut operands| {
-            Some(operands.iter_mut()
-                .map(|mut e| Ok(self.lower_expression(&mut e)?))
-                .collect())
-        }).unwrap_or(vec![]);
+        // let operand_exprs: Vec<IROp> = expr.node_data.operand_exprs.and_then(|mut operands| {
+        //     Some(operands.iter_mut()
+        //         .map(|mut e| Ok(self.lower_expression(&mut e)?))
+        //         .collect())
+        // }).unwrap_or(vec![]);
 
         // need to identify when parsing whether is static or dynamic when resolving or from load value op
-        let invoke_data = IRInvoke {
-
-        }
 
        // IROp::Invoke()
         todo!()

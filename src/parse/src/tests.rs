@@ -69,14 +69,14 @@ const TEST_PROJECT: &str = "../../test_project";
 
 #[test]
 fn parser_integration() {
-   // FORMS.iter().for_each(|s| parse_instance(s))
+    FORMS.iter().for_each(|s| parse_instance(s))
     
     // parse_instance("(:.member obj 10 20 30)");
     // parse_instance("(NS->member obj 10 20 30)");
     // parse_instance("(member obj 10 20 30)");
-
-    let path = Path::new("../TestFolder");
-    load_project(SCACHE.const_string, Path::new(TEST_PROJECT))
+    // 
+    // let path = Path::new("../TestFolder");
+    // load_project(SCACHE.const_string, Path::new(TEST_PROJECT))
 }
 
 
@@ -86,6 +86,8 @@ fn parse_instance(input: &str) {
     tokens.iter().for_each(|t| println!("{:?}", t));
     let mut parser = ParserState::new(tokens);
     let ast = parser.process().unwrap();
-    println!("Ast: {:?}\n\n", ast)
+    println!("Ast: {:#?}\n\n", ast)
+
+
 }
 

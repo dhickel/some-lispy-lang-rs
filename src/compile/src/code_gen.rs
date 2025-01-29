@@ -8,7 +8,7 @@ pub struct CodeGenError {}
 
 pub struct CompUnit {
     pub code: Vec<u8>,
-    pub const_pool:
+   // pub const_pool:
 }
 
 
@@ -84,12 +84,12 @@ pub fn gen_node(node: &AstNode, comp_unit: &mut CompUnit) -> Result<GenData, Gen
     todo!()
 }
 
-
-pub fn gen_let_statement(
-    data: &AstData<LetData>,
-    comp_unit: &mut CompUnit
-) -> Result<GenData, String> {
-    
-    
-}
+// 
+// pub fn gen_let_statement(
+//     data: &AstData<LetData>,
+//     comp_unit: &mut CompUnit
+// ) -> Result<GenData, String> {
+//     
+//     
+// }
 

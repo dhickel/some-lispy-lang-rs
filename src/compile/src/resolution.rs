@@ -1,5 +1,4 @@
-use std::any::Any;
-use std::fmt::format;
+use std::io::stdout;
 use lang::ast::{Argument, AssignData, AstData, AstNode, ExprVariant, FExprData, FuncMeta, FuncParam, LambdaData, LetData, MetaData, MType, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, Value};
 use lang::ModifierFlags;
 use lang::types::{Type, TypeId, TypeTable, UnresolvedType};
@@ -66,6 +65,7 @@ impl ResolveError {
 pub enum ResolutionResult {}
 
 
+#[derive(Debug)]
 pub struct Resolver<'a> {
     fully_resolved: bool,
     ast_nodes: Vec<AstNode>,
@@ -79,18 +79,25 @@ impl<'a> Resolver<'a> {
         Self { fully_resolved: false, ast_nodes, env, warnings: vec![] }
     }
 
-    pub fn resolve(&mut self, attempts: u32) -> Result<bool, ResolveError> { 
+    pub fn resolve(&mut self, attempts: u32) -> Result<bool, ResolveError> {
         for _ in 0..attempts {
             let mut cloned_ast = self.ast_nodes.clone(); // FIXME, working around BC
             let resolved = cloned_ast.iter_mut().try_fold(true, |acc, node| {
                 let result = self.resolve_top_node(node)?;
+                println!("Resolved Top Node: {:?}", result);
                 Ok(acc && result)
             })?;
             self.ast_nodes = cloned_ast; // FIXME, working around BC
-            if resolved { return Ok(true); }
+
+            if resolved {
+                self.fully_resolved = true;
+                return Ok(true);
+            }
         }
-        return Ok(false);
+        Ok(false)
     }
+
+    pub fn is_resolved(&self) -> bool { self.fully_resolved }
 
 
     fn resolve_top_node(&mut self, node: &mut AstNode) -> Result<bool, ResolveError> {
@@ -131,9 +138,15 @@ impl<'a> Resolver<'a> {
     fn resolve_let_stmnt(&mut self, data: &mut AstData<LetData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
 
+        println!("Here");
         let assign_type = if self.resolve_expression(&mut data.node_data.assignment)? {
             data.resolve_state.get_type()
-        } else { return Ok(false); };
+        } else {
+            println!("Returning false");
+            return Ok(false);
+        };
+
+        println!("Here2");
 
         let symbol_state = &data.resolve_state;
 
@@ -152,12 +165,13 @@ impl<'a> Resolver<'a> {
             } else { ModifierFlags::NONE };
 
             // Handle different types of assignments (functions need special handling)
-            let meta_data = if let ResolveState::Resolved(res) = &data.node_data.assignment.get_resolve_state() {
+            let meta_data = if let ResolveState::Resolved(res)
+                = &data.node_data.assignment.get_resolve_state() {
                 res.meta_data.clone()
             } else { panic!("Fatal<internal>: Assignment expected to be resolved") };
 
             if let Err(err) = self.env.add_symbol(name, symbol_state.get_type_id().unwrap(), modifiers, meta_data) {
-                return ResolveError::env_error(data.line_char, err)?;
+                ResolveError::env_error(data.line_char, err)?
             } else { Ok(true) }
         } else { ResolveError::invalid_assignment(data.line_char, assign_type, &symbol_state.get_type()) }
     }
@@ -191,7 +205,8 @@ impl<'a> Resolver<'a> {
     fn resolve_s_expr(&mut self, data: &mut AstData<SCallData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
 
-        let (op_resolved, op_type, op_type_id) = if self.resolve_expression(&mut data.node_data.operation_expr)? {
+        let (op_resolved, op_type, op_type_id)
+            = if self.resolve_expression(&mut data.node_data.operation_expr)? {
             (true, data.resolve_state.get_type(), Some(data.resolve_state.get_type_id().unwrap()))
         } else { (false, &Type::Unresolved(Unknown), None) };
 
@@ -243,9 +258,29 @@ impl<'a> Resolver<'a> {
     }
 
 
+    // FIXME, need a more detailed representation for numerical types in type system, currently
+    //  simplfied to focus on bootstrapping the language.
     fn resolve_value(&mut self, data: &mut AstData<Value>) -> Result<bool, ResolveError> {
-        if data.resolve_state.is_resolved() { return Ok(true); } else {
-            panic!("Currently every this should be resolved at run time (primitives")
+        if data.resolve_state.is_resolved() { Ok(true) } else {
+            match *data.node_data {
+                Value::I32(_) | Value::I64(_) | Value::U8(_) | Value::U16(_) 
+                | Value::U32(_) | Value::U64(_) => {
+                    data.resolve_state = self.env.get_resolve_data(Type::Integer, TypeId)
+                    Ok(())
+                    
+                }
+                
+                Value::F32(_) => {}
+                Value::F64(_) => {}
+                Value::Boolean(_) => {}
+                Value::Quote(_) => {}
+                Value::Object => {}
+                Value::Nil(_) => {}
+                Value::Array => {}
+                Value::String => {}
+                Value::Tuple => {}
+                Value::Identifier(_) => {}
+            }
         }
 
         // TODO: non-primitive types will need resolved here, but we need to object system for that

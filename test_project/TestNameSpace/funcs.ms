@@ -1,1 +1,1 @@
-let add_func: Fn<Int, Int; Int> = (=> :Int |x: Int, y: Int| (+ x y))
+let add_func: Fn<Int, Int; Int> = (=>  |x, y| (+ x y))

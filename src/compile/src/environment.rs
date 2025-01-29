@@ -37,12 +37,12 @@ impl PartialOrd for SymbolContext {
 }
 
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct SymbolTable {
     table: IntMap<Vec<SymbolContext>>,
 }
 
-// TODO make sure namespace symbols and symboltable symbols dont class
+// TODO make sure namespace symbols and symboltable symbols dont clash
 
 impl SymbolTable {
     fn gen_key(ns_id: u16, scope_id: u32) -> u64 { ((ns_id as u64) << 32) | (scope_id as u64) }
@@ -189,7 +189,7 @@ impl ConstantPool {
     }
 }
 
-
+#[derive(Debug)]
 pub struct SubEnvironment {
     curr_ns: u16,
     curr_scope: u32,
@@ -235,7 +235,6 @@ impl SubEnvironment {
     pub fn push_obj_context(&mut self) {
         self.curr_context.push(EnvContext::Object(ObjCtx::default()))
     }
-    
     
 
 

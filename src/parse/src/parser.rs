@@ -59,7 +59,7 @@ impl ParserState {
                 grammar::find_next_match(&mut sub_parser)?
             };
 
-            println!("\nParse Match: {:?}\n", grammar_match);
+            // println!("\nParse Match: {:?}\n", grammar_match);
             let parsed_data = self.parse_grammar_pattern(grammar_match)?;
             root_expressions.push(parsed_data)
         }

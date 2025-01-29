@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::io::stdout;
 use lang::ast::{Argument, AssignData, AstData, AstNode, ExprVariant, FExprData, FuncMeta, FuncParam, LambdaData, LetData, MetaData, MType, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, Value};
 use lang::ModifierFlags;
@@ -146,14 +147,16 @@ impl<'a> Resolver<'a> {
             return Ok(false);
         };
 
-        println!("Here2");
+   
 
         let symbol_state = &data.resolve_state;
 
+        println!("Curr assign_type: {:?}", assign_type);
         if assign_type.compatible_with(symbol_state.get_type()) {
             let symbol_state = ResolveState::Resolved(
-                self.env.get_resolve_data(symbol_state.get_type().clone(), symbol_state.get_type_id().unwrap())
+                self.env.get_resolve_data_by_type_id(symbol_state.get_type_id().unwrap())
             );
+            println!("Here3");
 
             // Update the resolve state, and then borrow it back to make borrow checker happy.
             data.resolve_state = symbol_state;
@@ -217,7 +220,7 @@ impl<'a> Resolver<'a> {
             })?;
 
             if op_resolved && operands_resolved {
-                let res_data = self.env.get_resolve_data(op_type.clone(), op_type_id.unwrap());
+                let res_data = self.env.get_resolve_data_by_type_id(op_type_id.unwrap());
                 data.resolve_state = ResolveState::Resolved(res_data);
                 Ok(true)
             } else { Ok(false) }
@@ -232,8 +235,8 @@ impl<'a> Resolver<'a> {
             match expr_data {
                 FExprData::FCall { method, arguments } => {
                     if let Some(method) = method {
-                        // this is a local call 
-                        // TODO local calls should be callable as both ::<func> and <func>, currently only ::<func> works 
+                        // this is a local call
+                        // TODO local calls should be callable as both ::<func> and <func>, currently only ::<func> works
                         if first {
                             self.env.find_symbol_in_scope(*method).is_some();
                         }
@@ -263,23 +266,37 @@ impl<'a> Resolver<'a> {
     fn resolve_value(&mut self, data: &mut AstData<Value>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { Ok(true) } else {
             match *data.node_data {
-                Value::I32(_) | Value::I64(_) | Value::U8(_) | Value::U16(_) 
-                | Value::U32(_) | Value::U64(_) => {
-                    data.resolve_state = self.env.get_resolve_data(Type::Integer, TypeId)
-                    Ok(())
-                    
+                Value::I32(_) | Value::I64(_) | Value::U8(_)
+                | Value::U16(_) | Value::U32(_) | Value::U64(_) => {
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Integer));
+                    Ok(true)
                 }
-                
-                Value::F32(_) => {}
-                Value::F64(_) => {}
-                Value::Boolean(_) => {}
-                Value::Quote(_) => {}
-                Value::Object => {}
-                Value::Nil(_) => {}
-                Value::Array => {}
-                Value::String => {}
-                Value::Tuple => {}
-                Value::Identifier(_) => {}
+                Value::F32(_) | Value::F64(_) => {
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Float));
+                    Ok(true)
+                }
+                Value::Boolean(_) => {
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Boolean));
+                    Ok(true)
+                }
+                Value::Quote(_) => {
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Quote));
+                    Ok(true)
+                }
+                Value::Object => todo!("Objects type resolution WIP"),
+                Value::Nil(_) => {
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Nil));
+                    Ok(true)
+                }
+                Value::Array => todo!("Array type resolution WIP"),
+                Value::String => todo!("String type resolution WIP"),
+                Value::Tuple => todo!("Tuple Type Resolution WIP"),
+                Value::Identifier(ident) => {
+                    if let Some(symbol_context) = self.env.find_symbol_in_scope(ident) {
+                        data.resolve_state = ResolveState::Resolved(symbol_context.into());
+                        Ok(true)
+                    } else { Ok(false) }
+                }
             }
         }
 
@@ -318,7 +335,7 @@ impl<'a> Resolver<'a> {
                 if made_change { self.warnings.push(Warning::return_coercion(data.line_char, return_val)) }
 
                 let (typ, type_id) = return_val.get_type_info_if_primitive().unwrap();
-                let res_data = self.env.get_resolve_data(typ, type_id);
+                let res_data = self.env.get_resolve_data_by_type_id(type_id);
                 data.resolve_state = ResolveState::Resolved(res_data);
                 Ok(true)
             } else { return Ok(false); }
@@ -345,9 +362,7 @@ impl<'a> Resolver<'a> {
                 Some(AstNode::Statement(_)) => data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve()),
                 Some(AstNode::Expression(expr)) => {
                     let last_expr = expr.get_resolve_state();
-                    let res_data = self.env.get_resolve_data(
-                        last_expr.get_type().clone(), last_expr.get_type_id().unwrap(),
-                    );
+                    let res_data = self.env.get_resolve_data_by_type_id(last_expr.get_type_id().unwrap());
                     data.resolve_state = ResolveState::Resolved(res_data);
                 }
                 None => panic!("Fatal<internal>: Branch should not be reach due to pre-validation")
@@ -386,7 +401,7 @@ impl<'a> Resolver<'a> {
                 let else_type = else_state.get_resolve_state().get_type();
 
                 if else_type.compatible_with(then_type) {
-                    let res_data = self.env.get_resolve_data(then_type.clone(), then_id.unwrap());
+                    let res_data = self.env.get_resolve_data_by_type_id(then_id.unwrap());
                     data.resolve_state = ResolveState::Resolved(res_data);
                     Ok(true)
                 } else {
@@ -399,7 +414,7 @@ impl<'a> Resolver<'a> {
 
             if let Some(then_state) = &data.node_data.then_expr {
                 let (typ, typ_id) = then_state.get_resolve_state().get_type_and_id();
-                let res_data = self.env.get_resolve_data(typ.clone(), typ_id.unwrap());
+                let res_data = self.env.get_resolve_data_by_type_id(typ_id.unwrap());
                 data.resolve_state = ResolveState::Resolved(res_data);
                 Ok(true)
             } else { panic!("Fatal<internal>: Failed to match expected branch, shouldn't happen") }
@@ -408,7 +423,7 @@ impl<'a> Resolver<'a> {
 
             if let Some(else_state) = &data.node_data.else_expr {
                 let (typ, typ_id) = else_state.get_resolve_state().get_type_and_id();
-                let res_data = self.env.get_resolve_data(typ.clone(), typ_id.unwrap());
+                let res_data = self.env.get_resolve_data_by_type_id(typ_id.unwrap());
                 data.resolve_state = ResolveState::Resolved(res_data);
                 Ok(true)
             } else { panic!("Fatal<internal>: Failed to match expected branch, shouldn't happen") }
@@ -460,21 +475,19 @@ impl<'a> Resolver<'a> {
 
 
         if params_resolved && body_resolved {
-            let params = if let Some(params) = &data.node_data.parameters {
-                Some(params.iter().map(|p| {
+            let params = data.node_data.parameters.as_ref().map(|params| params.iter().map(|p| {
                     let (typ, type_id) = self.env.get_type_and_id_by_name(p.identifier).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
 
                     FuncParam {
                         name: p.identifier, // FIXME clone, this all could be cleaned up really
-                        modifier_flags: ModifierFlags::from_mods(&p.modifiers.clone().unwrap_or(vec![])),
+                        modifier_flags: ModifierFlags::from_mods(&p.modifiers.clone().unwrap_or_default()),
                         typ,
                         type_id,
                     }
-                }).collect::<Vec<FuncParam>>())
-            } else { None };
+                }).collect::<Vec<FuncParam>>());
 
             let body_type_and_id = data.node_data.body_expr.get_resolve_state().get_type_and_id();
-            let mut res_data = self.env.get_resolve_data(body_type_and_id.0.clone(), body_type_and_id.1.unwrap());
+            let mut res_data = self.env.get_resolve_data_by_type(body_type_and_id.0);
             res_data.meta_data = Some(MetaData::Function(params));
             data.resolve_state = ResolveState::Resolved(res_data);
             Ok(true)

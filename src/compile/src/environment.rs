@@ -21,10 +21,11 @@ pub struct SymbolContext {
     pub name: IString,
     pub value_type: ValueType,
     pub mod_flags: ModifierFlags,
-    pub ns_idx: u16,
-    pub scope: u32,
+    pub ns_id: u16,
+    pub scope_id: u32,
     pub depth: u32,
     pub type_id: TypeId,
+    pub typ: Type,
     pub meta_data: Option<MetaData>,
 }
 
@@ -34,6 +35,19 @@ impl PartialEq for SymbolContext { fn eq(&self, other: &Self) -> bool { self.nam
 
 impl PartialOrd for SymbolContext {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> { self.name.partial_cmp(&other.name) }
+}
+
+
+impl From<SymbolContext> for ResolveData {
+    fn from(sc: SymbolContext) -> Self {
+        ResolveData {
+            type_id: sc.type_id,
+            ns_id: sc.ns_id,
+            scope_id: sc.scope_id,
+            typ: sc.typ.clone(),
+            meta_data: sc.meta_data.clone(),
+        }
+    }
 }
 
 
@@ -235,7 +249,6 @@ impl SubEnvironment {
     pub fn push_obj_context(&mut self) {
         self.curr_context.push(EnvContext::Object(ObjCtx::default()))
     }
-    
 
 
     // FIXME clone here
@@ -273,15 +286,24 @@ impl SubEnvironment {
             mod_flags,
             meta_data,
             type_id,
-            ns_idx: self.curr_ns,
-            scope: self.curr_scope,
+            typ,
+            ns_id: self.curr_ns,
+            scope_id: self.curr_scope,
             depth: self.curr_depth,
         };
         self.symbol_table_ref.write().unwrap().insert_symbol(self.curr_ns, self.get_curr_scope(), symbol)
     }
 
-    pub fn get_resolve_data(&self, typ: Type, type_id: TypeId) -> ResolveData {
-        ResolveData::new(self.curr_ns, self.curr_scope, type_id, typ)
+    pub fn get_resolve_data_by_type(&self, typ: &Type) -> ResolveData {
+        let id = self.type_table_ref.read().unwrap().get_type_id(&typ)
+            .expect("Fatal<Internal>: Look-up of non-existent type");
+
+        ResolveData::new(self.curr_ns, self.curr_scope, id, typ.clone())
+    }
+
+    pub fn get_resolve_data_by_type_id(&self, id: TypeId) -> ResolveData {
+        let typ = self.type_table_ref.read().unwrap().get_type_by_id(id).clone();
+        ResolveData::new(self.curr_ns, self.curr_scope, id, typ)
     }
 
     pub fn get_nil_resolve(&self) -> ResolveData {

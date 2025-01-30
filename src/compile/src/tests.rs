@@ -12,7 +12,6 @@ const BLOCK_EXPR2: &str = "\
 let x :Int = {
     let x: Int =  10
     x := (+ x 10)
-    (test 20 (* x 10 30))
 }";
 
 

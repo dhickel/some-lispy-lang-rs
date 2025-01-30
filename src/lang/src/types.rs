@@ -25,16 +25,6 @@ impl From<usize> for TypeId {
     }
 }
 
-//
-// impl Deref for TypeId {
-//     type Target = u16;
-//
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
-
-
 #[derive(Debug)]
 pub enum TypeError {
     CheckError(String),
@@ -43,15 +33,14 @@ pub enum TypeError {
     TypeOverflow,
 }
 
-
-impl Into<String> for TypeError {
-    fn into(self) -> String {
-        match self {
-            TypeError::CheckError(str) | TypeError::Resolution(str) | TypeError::InvalidOperation(str) => str,
-            TypeError::TypeOverflow => format!("{:?}", self).to_string()
-        }
-    }
-}
+// impl Into<String> for TypeError {
+//     fn into(self) -> String {
+//         match self {
+//             TypeError::CheckError(str) | TypeError::Resolution(str) | TypeError::InvalidOperation(str) => str,
+//             TypeError::TypeOverflow => format!("{:?}", self).to_string()
+//         }
+//     }
+// }
 
 
 pub enum TypeState {
@@ -126,15 +115,6 @@ impl Type {
         }
     }
 
-    pub fn primitive_to_type_id(&self) -> TypeId {
-        match self {
-            Type::Integer => TypeTable::INT,
-            Type::Float => TypeTable::FLOAT,
-            Type::Boolean => TypeTable::BOOL,
-            _ => panic!("Fatal<internal>: Attempted to call primitive type_id of non-primitive")
-        }
-    }
-
     pub fn size(&self) -> usize {
         match self {
             Type::Unresolved(_) => { panic!("Fatal<internal>: Size called on unresolved type") }
@@ -145,9 +125,9 @@ impl Type {
             Type::String => 8,
             Type::Tuple(vals) => vals.iter().fold(0, |prior, val| prior.add(val.size())),
             Type::Nil => 0, // FIXME should this be 1 byte?
-            Type::Quote => {todo!("Quote not implemented")}
-            Type::Object(obj) => {todo!("Object not implemented")}
-            Type::Lambda(func) => {todo!("Lambda not implemented")}
+            Type::Quote => { todo!("Quote not implemented") }
+            Type::Object(obj) => { todo!("Object not implemented") }
+            Type::Lambda(func) => { todo!("Lambda not implemented") }
         }
     }
 }
@@ -211,7 +191,7 @@ impl TypeCheck for Type {
         match self {
             Type::Unresolved(_) => TypeState::Unresolved,
             Type::Lambda(func_type) => {
-                match func_type.match_returns(&Type::Unresolved(UnresolvedType::Unknown)) { // FIXME? idk tf is going on with all of this
+                match func_type.does_return_match(&Type::Unresolved(UnresolvedType::Unknown)) { // FIXME? idk tf is going on with all of this
                     Ok(is_unresolved) if is_unresolved => return TypeState::Invalid,
                     Err(err) => return TypeState::from(err),
                     _ => {}
@@ -231,7 +211,7 @@ impl TypeCheck for Type {
         match self {
             Type::Lambda(self_type) => {
                 if let Type::Lambda(test_type) = typ {
-                    Ok(self_type.match_returns(&test_type.rtn_type)? && self_type.match_parameters(&test_type.param_types)?)
+                    Ok(self_type.does_return_match(&test_type.rtn_type)? && self_type.does_params_match(&test_type.param_types)?)
                 } else {
                     Ok(false)
                 }
@@ -243,7 +223,7 @@ impl TypeCheck for Type {
                     Ok(false)
                 }
             }
-            other => Ok(*other == *typ)
+            other => Ok(other.compatible_with(typ))
         }
     }
 }
@@ -303,7 +283,7 @@ impl FuncType {
         if index >= self.param_types.len() {
             Err(TypeError::CheckError(
                 format!("Invalid parameter index: {}, params length: {}",
-                    index, self.param_types.len()))
+                        index, self.param_types.len()))
             )
         } else if {
             let p_type = &self.param_types[index];
@@ -311,7 +291,7 @@ impl FuncType {
         } {
             Err(TypeError::CheckError(
                 format!("Attempted to reassign parameter type, Existing: {:?}, New: {:?}",
-                    self.param_types[index], typ))
+                        self.param_types[index], typ))
             )
         } else {
             self.param_types[index] = typ;
@@ -328,7 +308,7 @@ impl FuncType {
         } else {
             Err(TypeError::CheckError(
                 format!("Attempted to reassign return type, Existing: {:?}, New: {:?}",
-                    self.rtn_type, rtn_type))
+                        self.rtn_type, rtn_type))
             )
         }
     }
@@ -336,65 +316,67 @@ impl FuncType {
 
     // FIXME we may not want to use these matches here and use to type compatibility call to check these
 
-    fn match_parameters(&self, params: &[Type]) -> Result<bool, TypeError> {
+    fn does_params_match(&self, params: &[Type]) -> Result<bool, TypeError> {
         if params.len() != self.param_types.len() { return Ok(false); }
 
         for (self_param, test_param) in self.param_types.iter().zip(params.iter()) {
             if matches!(*self_param, Type::Unresolved(_)) || matches!(*test_param, Type::Unresolved(_)) {
                 return Err(TypeError::CheckError(
                     format!("Unresolved parameter detected in type comparison, Type Param: {:?}, Test Param: {:?}",
-                        self_param, test_param))
+                            self_param, test_param))
                 );
             }
-            if self_param != test_param { return Ok(false); }
+
+            if !self_param.compatible_with(test_param) { return Ok(false); }
         }
         Ok(true)
     }
 
 
-    fn match_returns(&self, rtn_type: &Type) -> Result<bool, TypeError> {
+    fn does_return_match(&self, rtn_type: &Type) -> Result<bool, TypeError> {
         if matches!(*self.rtn_type,  Type::Unresolved(_)) || matches!(*rtn_type, Type::Unresolved(_)) {
             return Err(TypeError::CheckError(
                 format!("Unresolved parameter detected in type comparison, Type Param: {:?}, Test Param: {:?}",
-                    self.rtn_type, rtn_type))
+                        self.rtn_type, rtn_type))
             );
         }
-        Ok(&*self.rtn_type == rtn_type)
+
+        Ok(self.rtn_type.compatible_with(rtn_type))
     }
 
 
     pub fn is_predicate(&self) -> Result<bool, TypeError> {
-        self.match_returns(&Type::Boolean)
+        self.does_return_match(&Type::Boolean)
     }
 
 
     pub fn is_nil(&self) -> Result<bool, TypeError> {
-        self.match_returns(&Type::Nil)
+        self.does_return_match(&Type::Nil)
     }
 
 
     pub fn is_predicate_of(&self, params: &[Type]) -> Result<bool, TypeError> {
-        if !self.match_returns(&Type::Boolean)? {
+        if !self.does_return_match(&Type::Boolean)? {
             Ok(false)
-        } else { self.match_parameters(params) }
+        } else { self.does_params_match(params) }
     }
 
 
     // TODO should something with no params still be a consumer?
     pub fn is_consumer_of(&self, params: &[Type]) -> Result<bool, TypeError> {
         if !self.is_nil()? {
-            return Ok(false);
-        } else { self.match_parameters(params) }
+            Ok(false)
+        } else { self.does_params_match(params) }
     }
 
 
     pub fn is_supplier_of(&self, rtn_type: &Type) -> Result<bool, TypeError> {
-        Ok(self.param_types.is_empty() && self.match_returns(rtn_type)?)
+        Ok(self.param_types.is_empty() && self.does_return_match(rtn_type)?)
     }
 
 
     pub fn is_function_of(&self, params: &[Type], rtn_type: &Type) -> Result<bool, TypeError> {
-        Ok(self.match_parameters(params)? && self.match_returns(rtn_type)?)
+        Ok(self.does_params_match(params)? && self.does_return_match(rtn_type)?)
     }
 }
 
@@ -575,13 +557,11 @@ impl TypeTable {
 
 
     pub fn get_type_by_name(&self, i_string: IString) -> Option<&Type> {
-        return if let Some(id) = self.type_string_id_map.get(i_string.into()) {
-            Some(self.get_type_by_id(*id))
-        } else { None };
+        self.type_string_id_map.get(i_string.into()).map(|id| self.get_type_by_id(*id))
     }
 
 
     pub fn get_type_and_id_by_name(&self, i_string: IString) -> Option<(&Type, TypeId)> {
-        return self.type_string_id_map.get(i_string.into()).map(|id| (self.get_type_by_id(*id), *id));
+        self.type_string_id_map.get(i_string.into()).map(|id| (self.get_type_by_id(*id), *id))
     }
 }

@@ -260,7 +260,8 @@ impl SubEnvironment {
         self.type_table_ref.read().unwrap().get_type_by_name(name).map_or_else(|| None, |t| Some(t.clone()))
     }
     pub fn get_type_and_id_by_name(&self, name: IString) -> Option<(Type, TypeId)> {
-        self.type_table_ref.read().unwrap().get_type_and_id_by_name(name).map_or_else(|| None, |t| Some((t.0.clone(), t.1)))
+        self.type_table_ref.read().unwrap().get_type_and_id_by_name(name)
+            .map_or_else(|| None, |t| Some((t.0.clone(), t.1)))
     }
 
     pub fn get_id_for_type(&self, typ: &Type) -> Option<TypeId> {
@@ -294,11 +295,9 @@ impl SubEnvironment {
         self.symbol_table_ref.write().unwrap().insert_symbol(self.curr_ns, self.get_curr_scope(), symbol)
     }
 
-    pub fn get_resolve_data_by_type(&self, typ: &Type) -> ResolveData {
-        let id = self.type_table_ref.read().unwrap().get_type_id(&typ)
-            .expect("Fatal<Internal>: Look-up of non-existent type");
-
-        ResolveData::new(self.curr_ns, self.curr_scope, id, typ.clone())
+    pub fn get_resolve_data_by_type(&self, typ: &Type) -> Option<ResolveData> {
+        self.type_table_ref.read().unwrap().get_type_id(&typ)
+            .map(|id| ResolveData::new(self.curr_ns, self.curr_scope, id, typ.clone()))
     }
 
     pub fn get_resolve_data_by_type_id(&self, id: TypeId) -> ResolveData {

@@ -139,6 +139,15 @@ impl<'a> Resolver<'a> {
     fn resolve_let_stmnt(&mut self, data: &mut AstData<LetData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
 
+        let symbol_state = if data.resolve_state.is_resolved() {
+            data.resolve_state.clone()
+        } else if let Some(resolved_data) = self.env.get_resolve_data_by_type(data.resolve_state.get_type()) {
+            ResolveState::Resolved(resolved_data)
+        } else { 
+            // Can return now as if the symbol is let to resolvable the assignment type is not as well
+            return Ok(false)
+        };
+
         println!("Here");
         let assign_type = if self.resolve_expression(&mut data.node_data.assignment)? {
             data.resolve_state.get_type()
@@ -146,12 +155,11 @@ impl<'a> Resolver<'a> {
             println!("Returning false");
             return Ok(false);
         };
-
-   
-
-        let symbol_state = &data.resolve_state;
+        
+ 
 
         println!("Curr assign_type: {:?}", assign_type);
+        println!("Symbol State: {:?}", symbol_state);
         if assign_type.compatible_with(symbol_state.get_type()) {
             let symbol_state = ResolveState::Resolved(
                 self.env.get_resolve_data_by_type_id(symbol_state.get_type_id().unwrap())
@@ -268,24 +276,24 @@ impl<'a> Resolver<'a> {
             match *data.node_data {
                 Value::I32(_) | Value::I64(_) | Value::U8(_)
                 | Value::U16(_) | Value::U32(_) | Value::U64(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Integer));
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Integer).unwrap());
                     Ok(true)
                 }
                 Value::F32(_) | Value::F64(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Float));
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Float).unwrap());
                     Ok(true)
                 }
                 Value::Boolean(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Boolean));
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Boolean).unwrap());
                     Ok(true)
                 }
                 Value::Quote(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Quote));
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Quote).unwrap());
                     Ok(true)
                 }
                 Value::Object => todo!("Objects type resolution WIP"),
                 Value::Nil(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Nil));
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Nil).unwrap());
                     Ok(true)
                 }
                 Value::Array => todo!("Array type resolution WIP"),
@@ -476,18 +484,18 @@ impl<'a> Resolver<'a> {
 
         if params_resolved && body_resolved {
             let params = data.node_data.parameters.as_ref().map(|params| params.iter().map(|p| {
-                    let (typ, type_id) = self.env.get_type_and_id_by_name(p.identifier).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
+                let (typ, type_id) = self.env.get_type_and_id_by_name(p.identifier).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
 
-                    FuncParam {
-                        name: p.identifier, // FIXME clone, this all could be cleaned up really
-                        modifier_flags: ModifierFlags::from_mods(&p.modifiers.clone().unwrap_or_default()),
-                        typ,
-                        type_id,
-                    }
-                }).collect::<Vec<FuncParam>>());
+                FuncParam {
+                    name: p.identifier, // FIXME clone, this all could be cleaned up really
+                    modifier_flags: ModifierFlags::from_mods(&p.modifiers.clone().unwrap_or_default()),
+                    typ,
+                    type_id,
+                }
+            }).collect::<Vec<FuncParam>>());
 
             let body_type_and_id = data.node_data.body_expr.get_resolve_state().get_type_and_id();
-            let mut res_data = self.env.get_resolve_data_by_type(body_type_and_id.0);
+            let mut res_data = self.env.get_resolve_data_by_type(body_type_and_id.0).unwrap();
             res_data.meta_data = Some(MetaData::Function(params));
             data.resolve_state = ResolveState::Resolved(res_data);
             Ok(true)

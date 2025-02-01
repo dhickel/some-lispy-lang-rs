@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::cmp::Ordering;
 use std::string::{ToString};
 use std::sync::{Arc, RwLock};
@@ -295,9 +296,19 @@ impl SubEnvironment {
         self.symbol_table_ref.write().unwrap().insert_symbol(self.curr_ns, self.get_curr_scope(), symbol)
     }
 
-    pub fn get_resolve_data_by_type(&self, typ: &Type) -> Option<ResolveData> {
-        self.type_table_ref.read().unwrap().get_type_id(&typ)
-            .map(|id| ResolveData::new(self.curr_ns, self.curr_scope, id, typ.clone()))
+    pub fn get_resolve_data_by_type(&mut self, typ: &Type) -> Option<ResolveData> {
+        let existing = self.type_table_ref.read().unwrap().get_type_id(&typ);
+
+        if let Some(existing) = existing {
+            Some(ResolveData::new(self.curr_ns, self.curr_scope, existing, typ.clone()))
+        } else {
+            let resolve_result = self.type_table_ref.write().unwrap()
+                .resolve_type(typ).unwrap_or((false, None));
+            
+            if let Some(type_entry) = resolve_result.1 {
+                Some(ResolveData::new(self.curr_ns, self.curr_scope, type_entry.id()?, type_entry.typ().clone()))
+            } else { None }
+        }
     }
 
     pub fn get_resolve_data_by_type_id(&self, id: TypeId) -> ResolveData {

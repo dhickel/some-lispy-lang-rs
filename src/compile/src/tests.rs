@@ -10,17 +10,28 @@ const PRED_ELSE_ONLY: &str = "\
 
 const BLOCK_EXPR2: &str = "\
 let x :Int = {
-    let x: Int =  10
+    let x : Int =  10
     x := (+ x 10)
 }";
+
+const S_EXPR_OP: &str = "\
+let y: Int  = 11 \
+let x : Int = (- 10 20 30 (* (+ 10  y) (+ 20 -20)))\
+";
+
+const LAMBDA_BLOCK : &str = "
+let x : Fn<Int;Int> = (=> |y : Int| {
+    let x: Int =  10
+    (* x y 10 30)
+})";
 
 
 #[test]
 fn test_compile() {
-    let tokens = lexer::process(BLOCK_EXPR2).unwrap();
+    let tokens = lexer::process(LAMBDA_BLOCK).unwrap();
     let mut parser = ParserState::new(tokens);
     let ast = parser.process().unwrap();
-    
+
     println!("Ast: {:?}", ast);
 
     let env = Environment::default();

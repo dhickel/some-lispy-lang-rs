@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::io::stdout;
 use lang::ast::{Argument, AssignData, AstData, AstNode, ExprVariant, FExprData, FuncMeta, FuncParam, LambdaData, LetData, MetaData, MType, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, Value};
-use lang::ModifierFlags;
+use lang::{ModifierFlags, ValueType};
 use lang::types::{Type, TypeId, TypeTable, UnresolvedType};
 use lang::types::UnresolvedType::Unknown;
 use lang::util::{IString, SCACHE};
@@ -118,6 +118,7 @@ impl<'a> Resolver<'a> {
 
 
     fn resolve_expression(&mut self, expr: &mut ExprVariant) -> Result<bool, ResolveError> {
+        if expr.get_resolve_state().is_resolved() { return Ok(true); }
         match expr {
             ExprVariant::SCall(s_call_data) => self.resolve_s_expr(s_call_data),
             ExprVariant::FCall(f_call_data) => self.resolve_f_expr(f_call_data),
@@ -139,27 +140,31 @@ impl<'a> Resolver<'a> {
     fn resolve_let_stmnt(&mut self, data: &mut AstData<LetData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
 
+        println!("Data Resolve State: {:?}", data.resolve_state);
         let symbol_state = if data.resolve_state.is_resolved() {
             data.resolve_state.clone()
         } else if let Some(resolved_data) = self.env.get_resolve_data_by_type(data.resolve_state.get_type()) {
-            ResolveState::Resolved(resolved_data)
-        } else { 
-            // Can return now as if the symbol is let to resolvable the assignment type is not as well
-            return Ok(false)
-        };
-
-        println!("Here");
-        let assign_type = if self.resolve_expression(&mut data.node_data.assignment)? {
-            data.resolve_state.get_type()
+            let r_state = ResolveState::Resolved(resolved_data);
+            println!("Resolved data: {:?}", r_state);;
+            data.resolve_state = r_state.clone();
+            r_state
         } else {
+            // Can return now as if the symbol is let to resolvable the assignment type is not as well
             println!("Returning false");
             return Ok(false);
         };
-        
- 
 
+        let assign_type = if data.node_data.assignment.get_resolve_state().is_resolved() {
+            data.node_data.assignment.get_resolve_state().get_type()
+        } else if self.resolve_expression(&mut data.node_data.assignment)? {
+            data.node_data.assignment.get_resolve_state().get_type()
+        } else { return Ok(false); };
+
+        
         println!("Curr assign_type: {:?}", assign_type);
+        println!("Assign Node: {:?}", data.node_data.assignment);
         println!("Symbol State: {:?}", symbol_state);
+        
         if assign_type.compatible_with(symbol_state.get_type()) {
             let symbol_state = ResolveState::Resolved(
                 self.env.get_resolve_data_by_type_id(symbol_state.get_type_id().unwrap())
@@ -179,7 +184,9 @@ impl<'a> Resolver<'a> {
             let meta_data = if let ResolveState::Resolved(res)
                 = &data.node_data.assignment.get_resolve_state() {
                 res.meta_data.clone()
-            } else { panic!("Fatal<internal>: Assignment expected to be resolved") };
+            } else {
+                panic!("Fatal<internal>: Assignment expected to be resolved")
+            };
 
             if let Err(err) = self.env.add_symbol(name, symbol_state.get_type_id().unwrap(), modifiers, meta_data) {
                 ResolveError::env_error(data.line_char, err)?
@@ -321,38 +328,30 @@ impl<'a> Resolver<'a> {
                 Ok(acc && result)
             })?;
 
+            if !operands_resolved { return Ok(false); }
 
-            if operands_resolved {
-                let expr_values = exprs.iter().enumerate().map(|(i, expr)| {
-                    if let ExprVariant::Value(val) = expr {
-                        Ok(*val.node_data.clone())
-                    } else {
-                        ResolveError::invalid_argument(
-                            data.line_char, &format!("Operation: {:?}, index: {}", data.node_data.operation, i),
-                        )
-                    }
-                }).collect::<Result<Vec<Value>, ResolveError>>()?;
+            let expr_types = exprs.iter().map(|expr| {
+                expr.get_resolve_state().get_type().clone()
+            }).collect::<Vec<Type>>();
 
-                let (made_change, return_val) = match ValuePrecedence::primitive_operation_return_coercion(&expr_values) {
-                    Ok(val) => val,
-                    Err(err) => return ResolveError::invalid_argument(
-                        data.line_char, &format!("Operation: {:?}, {}", data.node_data.operation, err).to_string(),
-                    ),
-                };
+            if !expr_types.iter().all(|t| matches!(t.into(), ValueType::Primitive(_))) {
+                return ResolveError::invalid_argument(data.line_char, "Non-primitive value(s) in operation arguments");
+            }
 
-                if made_change { self.warnings.push(Warning::return_coercion(data.line_char, return_val)) }
+            let (made_change, rtn_type) = ValuePrecedence::return_value_coercion(&expr_types);
+            if made_change { self.warnings.push(Warning::return_coercion(data.line_char, rtn_type)) }
 
-                let (typ, type_id) = return_val.get_type_info_if_primitive().unwrap();
-                let res_data = self.env.get_resolve_data_by_type_id(type_id);
-                data.resolve_state = ResolveState::Resolved(res_data);
-                Ok(true)
-            } else { return Ok(false); }
-        } else { Err(ResolveError::InvalidArgument("Operation expression requires arguments".to_string())) }
+            let res_data = self.env.get_resolve_data_by_type(rtn_type).unwrap();
+            data.resolve_state = ResolveState::Resolved(res_data);
+            Ok(true)
+        } else { ResolveError::invalid_argument(data.line_char, "Operation requires arguments") }
     }
 
 
     fn resolve_block_expression(&mut self, data: &mut AstData<Vec<AstNode>>) -> Result<bool, ResolveError> {
+        println!("Resolving Block Expression");
         if data.resolve_state.is_resolved() { return Ok(true); }
+        
 
         if data.node_data.is_empty() {
             self.warnings.push(Warning::empty_block(data.line_char));
@@ -440,7 +439,10 @@ impl<'a> Resolver<'a> {
 
 
     fn resolve_lambda_expression(&mut self, data: &mut AstData<LambdaData>) -> Result<bool, ResolveError> {
+        
+        println!("Resolving lambda expression");
         if data.resolve_state.is_resolved() { return Ok(true); }
+
 
         let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;
 

@@ -14,15 +14,19 @@ pub mod module;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
+
+// TODO identify between mutable and immutable objects
 pub enum ValueType {
     Primitive(PrimType),
     Array,
     Tuple,
     Object,
+    String,
     Function,
     Type,
     Quote,
     Definition(DefType),
+    Nil,
 }
 
 
@@ -52,7 +56,6 @@ pub enum PrimType {
     F32,
     F64,
     Bool,
-    String,
 }
 
 
@@ -64,11 +67,14 @@ impl From<&Type> for ValueType {
             Type::Float => ValueType::Primitive(PrimType::F64),
             Type::Boolean => ValueType::Primitive(PrimType::Bool),
             Type::Array(_) => ValueType::Array,
-            Type::String => ValueType::Primitive(PrimType::String),
+            Type::String => ValueType::String,
             Type::Tuple(_) => ValueType::Tuple,
+            // FIXME there is a nil value type, but I would like to avoid acknowledging
+            //  nil values this deep internally
             Type::Nil => panic!("Fatal<internal>: Attempted to cover Nil to ValueType"),
             Type::Quote => ValueType::Quote,
-            Type::Object(_) => ValueType::Definition(DefType::Class), // FIXME, this need to map the type of object
+            // FIXME, this need to map to the class definition, symbols should also be values?
+            Type::Object(_) => ValueType::Object,
             Type::Lambda(_) => ValueType::Function
         }
     }

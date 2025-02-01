@@ -2,7 +2,7 @@ use std::ops::{Add, Deref};
 use ahash::AHashMap;
 use intmap::IntMap;
 use crate::util::{IString, SCACHE};
-
+use crate::{PrimType, ValueType};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct TypeId(u16);
@@ -94,7 +94,7 @@ impl Type {
         match self {
             Type::Unresolved(_) => {
                 panic!(
-                    "Fatal<internal>: Type compatability check on called with unresolved types, \
+                    "Fatal<Internal>: Type compatability check on called with unresolved types, \
                     this state should not be reached"
                 )
             }
@@ -130,6 +130,8 @@ impl Type {
             Type::Lambda(func) => { todo!("Lambda not implemented") }
         }
     }
+    
+    
 }
 
 
@@ -421,13 +423,13 @@ impl Default for TypeTable {
 
 
 pub struct TypeEntry {
-    type_id: Option<TypeId>,
+    id: Option<TypeId>,
     typ: Type,
 }
 
 
 impl TypeEntry {
-    pub fn typ_id(&self) -> Option<TypeId> { self.type_id }
+    pub fn id(&self) -> Option<TypeId> { self.id }
     pub fn typ(&self) -> &Type { &self.typ }
 }
 
@@ -443,7 +445,7 @@ impl TypeTable {
     pub const STRING: TypeId = TypeId(4);
 
     fn get_entry(&self, type_id: TypeId) -> TypeEntry {
-        TypeEntry { type_id: Some(type_id), typ: self.type_map[type_id.as_usize()].clone() }
+        TypeEntry { id: Some(type_id), typ: self.type_map[type_id.as_usize()].clone() }
     }
 
     fn resolve_type_name(&self, name: IString) -> Option<TypeId> {
@@ -473,14 +475,11 @@ impl TypeTable {
 
         self.type_map.push(typ.clone());
 
-        Ok(TypeEntry { type_id: Some(idx), typ: self.type_map[idx.as_usize()].clone() })
+        Ok(TypeEntry { id: Some(idx), typ: self.type_map[idx.as_usize()].clone() })
     }
 
     pub fn resolve_type(&mut self, typ: &Type) -> Result<(bool, Option<TypeEntry>), TypeError> {
-        if typ.is_resolved() {
-            return Ok((true, Some(self.get_entry(*self.type_enum_id_map.get(typ).unwrap()))));
-        }
-
+ 
 
         // Insert new types should only happen on functions and arrays. As these are variations
         //  of built-in types. All other definitions must occur via definition statements;
@@ -489,7 +488,7 @@ impl TypeTable {
                 if let (true, Some(type_entry)) = self.resolve_type(inner)? {
                     let resolved_type = Type::Array(Box::new(type_entry.typ));
                     if let Some(existing) = self.type_enum_id_map.get(&resolved_type) {
-                        Ok((true, Some(TypeEntry { type_id: Some(*existing), typ: typ.clone() })))
+                        Ok((true, Some(TypeEntry { id: Some(*existing), typ: typ.clone() })))
                     } else { Ok((true, Some(self.define_new_type(typ)?))) }
                 } else { Ok((false, None)) }
             }
@@ -516,16 +515,16 @@ impl TypeTable {
 
                 if resolved_type.is_resolved() {
                     if let Some(existing) = self.type_enum_id_map.get(&resolved_type) {
-                        Ok((true, Some(TypeEntry { type_id: Some(*existing), typ: resolved_type })))
+                        Ok((true, Some(TypeEntry { id: Some(*existing), typ: resolved_type })))
                     } else { Ok((true, Some(self.define_new_type(&resolved_type)?))) }
-                } else { Ok((false, Some(TypeEntry { type_id: None, typ: resolved_type }))) }
+                } else { Ok((false, Some(TypeEntry { id: None, typ: resolved_type }))) }
             }
 
             Type::Unresolved(unresolved) => {
                 match unresolved {
                     UnresolvedType::Identifier(i_str) => {
                         if let Some(type_id) = self.type_string_id_map.get(i_str.value.into()) {
-                            Ok((true, Some(TypeEntry { type_id: Some(*type_id), typ: typ.clone() })))
+                            Ok((true, Some(TypeEntry { id: Some(*type_id), typ: typ.clone() })))
                         } else { Ok((false, None)) }
                     }
                     _ => panic!("Fatal<Internal>: Unknown types should not be resolved directly")

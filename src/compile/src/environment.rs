@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicUsize;
 use intmap::IntMap;
 use lang::{ModifierFlags, ValueType};
-use lang::ast::{FuncMeta, MetaData, ResolveData};
+use lang::ast::{FuncMeta, MetaData, ResolveData, Symbol};
 use lang::types::{Type, TypeId, TypeTable};
 use lang::util::{IString, SCACHE};
 
@@ -97,7 +97,7 @@ impl SymbolTable {
             if let Ok(found) = existing.binary_search_by(
                 |s| s.name.partial_cmp(&name).unwrap_or(Ordering::Less)
             ) {
-                existing.get(found).map(|s| s.clone())
+                existing.get(found).cloned()
             } else { None }
         } else { None }
     }
@@ -219,12 +219,20 @@ pub struct SubEnvironment {
 
 
 impl SubEnvironment {
+    pub fn reset_scope_for_next_iter(&mut self) {
+        println!("Reset Scopes with active scopes: {:?}", self.active_scopes);
+        if self.curr_depth != 0 { panic!("Fatal<Internal>: Reset scope at non-zero depth") }
+        match self.active_scopes.first() {
+            Some(id) if *id == 0 && self.active_scopes.len() == 1 => self.curr_scope = 0,
+            _ => panic!("Fatal<Internal>: Reset scope with non-global active scope(s)"),
+        }
+    }
     pub fn get_parent_scope(&self) -> Result<u32, EnvError> {
         self.active_scopes.get(self.active_scopes.len() - 2).copied().ok_or(EnvError::InvalidAccess("Scope index out of bounds".to_string()))
     }
 
     pub fn get_curr_scope(&self) -> u32 {
-        *self.active_scopes.last().expect("Fatal<internal>: No scope in focus")
+        *self.active_scopes.last().expect("Fatal<Internal>: No scope in focus")
     }
 
     pub fn get_curr_depth(&self) -> u32 {
@@ -232,14 +240,16 @@ impl SubEnvironment {
     }
 
     pub fn push_scope(&mut self) {
+        println!("Pushed Scope #{}", self.curr_scope);
         self.curr_scope += 1;
         self.curr_depth += 1;
         self.active_scopes.push(self.curr_scope)
     }
 
     pub fn pop_scope(&mut self) {
+        println!("Popped Scope #{}", self.curr_scope);
         self.curr_depth -= 1;
-        self.active_scopes.pop().expect("Fatal<internal>: Popped global scope");
+        self.active_scopes.pop().expect("Fatal<Internal>: Popped global scope");
     }
 
 
@@ -249,6 +259,10 @@ impl SubEnvironment {
 
     pub fn push_obj_context(&mut self) {
         self.curr_context.push(EnvContext::Object(ObjCtx::default()))
+    }
+
+    pub fn pop_context(&mut self) {
+        self.curr_context.pop().expect("Fatal<Internal>: Popped non-existent context");
     }
 
 
@@ -275,15 +289,17 @@ impl SubEnvironment {
 
     pub fn add_symbol(
         &mut self,
-        name: IString,
+        symbol: Symbol,
         type_id: TypeId,
         mod_flags: ModifierFlags,
         meta_data: Option<MetaData>,
     ) -> Result<(), EnvError> {
+        println!("Adding Symbol({:?}) In Scope: ns={:?}, curr_scope={:?}, active scopes:={:?}",
+                 SCACHE.resolve(symbol.name()), self.curr_ns, self.curr_scope, self.active_scopes);
         let typ = self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone();
         let value_type: ValueType = ValueType::from(&typ);
         let symbol = SymbolContext {
-            name,
+            name: symbol.name(),
             value_type,
             mod_flags,
             meta_data,
@@ -293,6 +309,7 @@ impl SubEnvironment {
             scope_id: self.curr_scope,
             depth: self.curr_depth,
         };
+        println!("Resolved Symbol: {:?}", symbol);
         self.symbol_table_ref.write().unwrap().insert_symbol(self.curr_ns, self.get_curr_scope(), symbol)
     }
 
@@ -304,7 +321,7 @@ impl SubEnvironment {
         } else {
             let resolve_result = self.type_table_ref.write().unwrap()
                 .resolve_type(typ).unwrap_or((false, None));
-            
+
             if let Some(type_entry) = resolve_result.1 {
                 Some(ResolveData::new(self.curr_ns, self.curr_scope, type_entry.id()?, type_entry.typ().clone()))
             } else { None }
@@ -327,6 +344,8 @@ impl SubEnvironment {
 
     // FIXME  Need to traverse global and import spaces as well
     pub fn find_symbol_in_scope(&self, name: IString) -> Option<SymbolContext> {
+        println!("Finding Symbol({:?}) In Scope: ns={:?}, curr_scope={:?}, active scopes:={:?}",
+                 SCACHE.resolve(name), self.curr_ns, self.curr_scope, self.active_scopes);
         self.symbol_table_ref.read().unwrap().find_symbol(self.curr_ns, &self.active_scopes, name)
     }
 }

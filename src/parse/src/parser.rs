@@ -3,8 +3,8 @@ use lang::util::{IString, SCACHE};
 
 use lang::ast::*;
 use crate::grammar::{Arg, AssignStmntPattern, BlockExprPattern, CondExprPattern, ExprPattern,
-    FExprPattern, LambdaExprPattern, LambdaFormPattern, LetStmntPattern, MemberAccess, Operation,
-    Param, ParseMatch, PredicateForm, SExprPattern, StmntPattern, SubParser};
+                     FExprPattern, LambdaExprPattern, LambdaFormPattern, LetStmntPattern, MemberAccess, Operation,
+                     Param, ParseMatch, PredicateForm, SExprPattern, StmntPattern, SubParser};
 use crate::{grammar, ParseError};
 use lang::token::*;
 use lang::token::TokenType::*;
@@ -59,7 +59,7 @@ impl ParserState {
                 grammar::find_next_match(&mut sub_parser)?
             };
 
-            // println!("\nParse Match: {:?}\n", grammar_match);
+            println!("\nParse Match: {:?}\n", grammar_match);
             let parsed_data = self.parse_grammar_pattern(grammar_match)?;
             root_expressions.push(parsed_data)
         }
@@ -216,6 +216,7 @@ impl ParserState {
     ///////////////
 
     pub fn parse_grammar_pattern(&mut self, pattern: ParseMatch) -> Result<AstNode, ParseError> {
+        print!("Parsing grammar pattern: {:?}", pattern);
         match pattern {
             ParseMatch::Expression(expr) => {
                 let expr = self.parse_expression(expr)?;
@@ -229,6 +230,7 @@ impl ParserState {
     }
 
     pub fn parse_statement(&mut self, stmnt: StmntPattern) -> Result<StmntVariant, ParseError> {
+        println!("Parsing Statement: {:?}", stmnt);
         match stmnt {
             StmntPattern::Let(let_pat) => self.parse_let_statement(let_pat),
             StmntPattern::Assign(assign_pat) => self.parse_assignment_statement(assign_pat)
@@ -236,6 +238,7 @@ impl ParserState {
     }
 
     pub fn parse_expression(&mut self, expr: ExprPattern) -> Result<ExprVariant, ParseError> {
+        println!("Parsing Expression: {:?}", expr);
         match expr {
             ExprPattern::SExpr(pat) => self.parse_s_expression(pat),
             ExprPattern::VExpr => self.parse_v_expression(),
@@ -302,13 +305,13 @@ impl ParserState {
 
         // ::= '<'
         self.consume(TOperation(Op::Less))?;
-        
+
         // ::= { Identifier }
         while matches!(self.peek()?.token_type, TokenType::IDENTIFIER) {
             let typ = self.parse_type(false)?;
             func_type.add_param_type(typ);
         }
-        
+
         // ::= ';'
         self.consume(TSyntactic(Syn::SemiColon))?;
 
@@ -339,13 +342,13 @@ impl ParserState {
         self.consume(TDefinition(Def::DefineLet))?;
 
         // ::= Identifier
-        let identifier = self.parse_identifier()?;
+        let identifier = Symbol::new_definition(self.parse_identifier()?);
 
         // ::= [ ':' Type ]
         let typ = if pattern.has_type {
             self.parse_type(true)?
         } else { UnresolvedType::Unknown.into() };
-        
+
         // ::= { Modifier }
         let modifiers = self.parse_modifiers(pattern.modifier_count)?;
 
@@ -354,7 +357,9 @@ impl ParserState {
 
         // ::= Expr
         let assignment = self.parse_expression(pattern.expr)?;
-        
+
+        println!("Parsed Assignment: {:?}", assignment);
+
         let let_data = LetData { identifier, modifiers, assignment };
         Ok(StmntVariant::Let(AstData::new(let_data, line_char, Some(typ))))
     }
@@ -364,7 +369,7 @@ impl ParserState {
         let line_char = self.line_char()?;
 
         // ::= Identifier
-        let identifier = self.parse_identifier()?;
+        let identifier = Symbol::new_reference(self.parse_identifier()?);
 
         // ::= ':='
         self.consume(TSyntactic(Syn::ColonEqual))?;
@@ -416,12 +421,12 @@ impl ParserState {
 
         // ::= [ NamespaceAccess ]
         if let Some(mut ns) = self.parse_namespace(pattern.namespace_count)? {
-            sub_exprs.append(&mut ns) 
+            sub_exprs.append(&mut ns)
         };
 
         // ::= Identifier
         if pattern.has_identifier {
-            let identifier = self.parse_identifier()?;
+            let identifier = Symbol::new_reference(self.parse_identifier()?);
             sub_exprs.push(FExprData::FAccess { identifier, m_type: MType::Identifier })
         }
 
@@ -454,7 +459,7 @@ impl ParserState {
                 }
                 Lit::Identifier => {
                     if let Some(TokenData::String(val)) = token.data {
-                        (Some(UnresolvedType::Unknown.into()), Value::Identifier(val))
+                        (Some(UnresolvedType::Unknown.into()), Value::Identifier(Symbol::Reference(val)))
                     } else { ParseError::parsing_error(self.peek()?, "Expected Identifier")? }
                 }
                 Lit::Nil => (Some(Type::Nil), Value::Nil(())),
@@ -486,6 +491,9 @@ impl ParserState {
     pub fn parse_lambda_expression(&mut self, pattern: LambdaExprPattern) -> Result<ExprVariant, ParseError> {
         let line_char = self.line_char()?;
 
+        // ::= '('
+        self.consume_left_paren()?;
+
         // ::=  '=>'
         self.consume(TokenType::LAMBDA_ARROW)?;
 
@@ -496,6 +504,9 @@ impl ParserState {
 
         // ::= '|' { Parameter } '|' Expr
         let lambda = self.parse_lambda(pattern.form)?;
+
+        // ::= ')'
+        self.consume_right_paren()?;
 
         Ok(ExprVariant::Lambda(AstData::new(lambda, line_char, typ)))
     }
@@ -508,6 +519,7 @@ impl ParserState {
 
     // ::= '|' { Parameter } '|' Expr
     pub fn parse_lambda(&mut self, pattern: LambdaFormPattern) -> Result<LambdaData, ParseError> {
+
         // ::= '|'
         self.consume(TokenType::BAR)?;
         // ::= { Parameter }
@@ -515,7 +527,9 @@ impl ParserState {
         // ::= '|'
         self.consume(TokenType::BAR)?;
 
+        // ::= Expr
         let expr = self.parse_expression(*pattern.expr)?;
+
 
         Ok(LambdaData { parameters, body_expr: expr })
     }
@@ -566,7 +580,7 @@ impl ParserState {
         let mut namespaces = Vec::<FExprData>::with_capacity(count as usize);
         for _ in 0..count {
             if let Some(TokenData::String(str)) = self.advance()?.data {
-                namespaces.push(FExprData::FAccess { identifier: str, m_type: MType::Namespace });
+                namespaces.push(FExprData::FAccess { identifier: Symbol::Reference(str), m_type: MType::Namespace });
                 self.consume(TokenType::RIGHT_ARROW)?;
             } else { ParseError::parsing_error(self.peek()?, "Namespace(s)")? }
         }
@@ -583,7 +597,7 @@ impl ParserState {
                     MemberAccess::Field => {
                         // ::= ':.'
                         self.consume(TokenType::FIELD_SPACE_ACCESS)?;
-                        let identifier = self.parse_identifier()?;
+                        let identifier = Symbol::new_reference(self.parse_identifier()?);
                         Ok(FExprData::FAccess { identifier, m_type: MType::Field })
                     }
                     MemberAccess::MethodCall { arguments } => {
@@ -593,7 +607,7 @@ impl ParserState {
                         let identifier = if matches!(self.peek()?. token_type, TokenType::IDENTIFIER) {
                             Some(self.parse_identifier()?)
                         } else { None };
-                        
+
                         // ::= '['
                         self.consume_left_bracket()?;
                         // ::= { Argument }
@@ -605,7 +619,7 @@ impl ParserState {
                     MemberAccess::MethodAccess => {
                         // ::=  '::'
                         self.consume(TokenType::METHOD_SPACE_ACCESS)?;
-                        let identifier = self.parse_identifier()?;
+                        let identifier = Symbol::new_reference(self.parse_identifier()?);
                         Ok(FExprData::FAccess { identifier, m_type: MType::Identifier })
                     }
                 }
@@ -632,7 +646,7 @@ impl ParserState {
             let parameters = params.into_iter()
                 .map(|param| {
                     let modifiers = self.parse_modifiers(param.modifier_count)?;
-                    let identifier = self.parse_identifier()?;
+                    let identifier = Symbol::new_definition(self.parse_identifier()?);
                     let typ = if param.has_type {
                         Some(self.parse_type(true)?)
                     } else { None };

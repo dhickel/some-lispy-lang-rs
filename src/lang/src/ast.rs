@@ -105,6 +105,28 @@ impl<T> AstData<T> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Symbol {
+    Definition { name: IString, is_defined: bool},
+    Reference(IString),
+}
+
+impl Symbol {
+    pub fn new_definition(name: IString) -> Self {
+        Symbol::Definition { name, is_defined: false }
+    }
+    
+    pub fn new_reference(name: IString) -> Self {
+       Symbol::Reference(name) 
+    }
+    
+    pub fn name(&self) -> IString {
+        match self {
+            Symbol::Definition { name, .. } | Symbol::Reference(name) => *name
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
@@ -138,14 +160,14 @@ impl Into<AstNode> for StmntVariant {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignData {
     pub namespace: Option<IString>,
-    pub identifier: IString,
+    pub identifier: Symbol,
     pub value: ExprVariant,
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LetData {
-    pub identifier: IString,
+    pub identifier: Symbol,
     pub modifiers: Option<Vec<Mod>>,
     pub assignment: ExprVariant,
 }
@@ -216,7 +238,7 @@ pub struct LambdaData {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FExprData {
     FCall { method: Option<IString>, arguments: Option<Vec<Argument>> },
-    FAccess { identifier: IString, m_type: MType },
+    FAccess { identifier: Symbol, m_type: MType },
 }
 
 
@@ -230,7 +252,7 @@ pub struct Argument {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
     pub modifiers: Option<Vec<Mod>>,
-    pub identifier: IString,
+    pub identifier: Symbol,
     pub typ: Option<Type>,
 }
 
@@ -283,7 +305,7 @@ pub enum Value {
     Array,
     String,
     Tuple,
-    Identifier(IString),
+    Identifier(Symbol),
 }
 
 

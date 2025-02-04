@@ -67,7 +67,7 @@ where
     E: Debug,
 {
     ParseError::validation_error(
-        format!("Expected {:?} , Found: {:?}", expected_str, token.token_type),
+        format!("Expected: {:?} , Found: {:?}", expected_str, token.token_type),
         token.line,
         token.char,
     )?
@@ -238,6 +238,7 @@ pub enum ParseMatch {
 pub fn find_next_match(parser: &mut SubParser) -> Result<ParseMatch, ParseError> {
     if let Some(statement) = is_statement(parser)? { return Ok(ParseMatch::Statement(statement)); };
     if let Some(expr) = is_expression(parser)? { return Ok(ParseMatch::Expression(expr)); };
+    println!("Nex TOken: {:?}", parser.peek_n(1)?);
     validation_error(parser.peek_n(1)?, " Statement Or Expression: Parse Error")
 }
 
@@ -246,6 +247,7 @@ pub fn find_next_match(parser: &mut SubParser) -> Result<ParseMatch, ParseError>
 ///////////////////////
 
 pub fn is_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, ParseError> {
+    println!("Now at statement");
     if let Some(let_stmnt) = is_let_statement(parser)? { return Ok(Some(let_stmnt)); }
     if let Some(assign_stmnt) = is_assign_statement(parser)? { return Ok(Some(assign_stmnt)); }
     Ok(None)
@@ -258,6 +260,8 @@ pub fn is_let_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, 
 
     // ::= 'let'
     if !match_tokens(parser, &[MATCH_LET])? { return Ok(None); }
+
+    println!("At let statement");
 
     // ::= Identifier
     if !match_tokens(parser, &[MATCH_IDENTIFIER])? {
@@ -275,16 +279,18 @@ pub fn is_let_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, 
 
     // ::= { Modifier }
     let modifier_count = is_modifiers(parser)?;
-
+    
     // ::= '='
     if !match_tokens(parser, &[MATCH_EQUAL])? {
         validation_error(parser.peek_n(1)?, "=")?
     }
 
     // ::= Expr
+    println!("Next statement token: {:?}", parser.peek_n(1)?);
     if let Some(expr) = is_expression(parser)? {
+        println!("Exit let statement");       
         Ok(Some(StmntPattern::Let(LetStmntPattern { has_type, modifier_count, expr })))
-    } else { return validation_error(parser.peek_n(1)?, "Expr"); }
+    } else { validation_error(parser.peek_n(1)?, "Expr") }
 }
 
 
@@ -296,7 +302,7 @@ pub fn is_assign_statement(parser: &mut SubParser) -> Result<Option<StmntPattern
     // ::= Expr
     if let Ok(Some(expr)) = is_expression(parser) {
         Ok(Some(StmntPattern::Assign(AssignStmntPattern { expr })))
-    } else { return validation_error(parser.peek_n(1)?, "Expr"); }
+    } else {  validation_error(parser.peek_n(1)?, "Expr") }
 }
 
 
@@ -313,7 +319,9 @@ const EXPR_CHECKS: [fn(&mut SubParser) -> Result<Option<ExprPattern>, ParseError
 
 
 pub fn is_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
+    println!("Now at expression with token: {:?}", parser.peek_n(1)?);
     for expr_func in EXPR_CHECKS {
+        println!("Loop Token: {:?}", parser.peek_n(1)?);
         if let Some(expr) = expr_func(parser)? { return Ok(Some(expr)); }
     }
     Ok(None)
@@ -378,10 +386,15 @@ pub fn is_arguments(parser: &mut SubParser) -> Result<Option<Vec<Arg>>, ParseErr
 
 // ::=  '=>' [ (':' Type) ] '|' { Parameters } '|' Expr
 pub fn is_lambda_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
-    // ::= (  '=>' )
-    if !match_tokens(parser, &[MATCH_LAMBDA_ARROW])? {
+    println!("lambda test");
+
+    if !match_tokens(parser, &[MATCH_LEFT_PAREN, MATCH_LAMBDA_ARROW])? {
         return Ok(None);
     }
+   
+    
+ 
+    println!("At lambda Expr");
 
     // ::= (':' Type)
     let has_type = if match_tokens(parser, &[MATCH_COLON])? {
@@ -392,6 +405,11 @@ pub fn is_lambda_expression(parser: &mut SubParser) -> Result<Option<ExprPattern
 
     // ::= ('|' { Parameter } '|')
     if let Some(LambdaFormExpr(mut expr)) = is_lambda_form(parser)? {
+        // ::= ')'
+        if !match_tokens(parser, &[MATCH_RIGHT_PAREN])? {
+            validation_error(parser.peek_n(1)?, ")")?
+        }
+        
         Ok(Some(LambdaExpr(LambdaExprPattern {
             has_type,
             form: LambdaFormPattern {
@@ -405,31 +423,43 @@ pub fn is_lambda_expression(parser: &mut SubParser) -> Result<Option<ExprPattern
 
 // ::= ('|' { Parameter } '|')
 pub fn is_lambda_form(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
+    println!("lambda form test");
+
     if !match_tokens(parser, &[MATCH_BAR])? {
         return Ok(None);
     }
+
+    println!("At lambda Form");
+
 
     let parameters = is_parameters(parser)?;
     if !match_tokens(parser, &[MATCH_BAR])? {
         return validation_error(parser.peek_n(1)?, "|");
     }
-
-
+    println!("ext token: {:?}", parser.peek_n(1)?);
     if let Some(expr) = is_expression(parser)? {
+       
         Ok(Some(LambdaFormExpr(
             LambdaFormPattern {
                 parameters,
                 expr: Box::new(expr),
             }))
         )
-    } else { return validation_error(parser.peek_n(1)?, "Expr"); }
+    } else {  validation_error(parser.peek_n(1)?, "Expr") }
+    
+    
 }
 
 
 // : '(' Expr | Operation  { Expr } ')';
 pub fn is_s_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
     // ::= '('
-    if !match_tokens(parser, &[MATCH_LEFT_PAREN])? { return Ok(None); }
+    println!("test s Expr");
+    if !match_tokens(parser, &[MATCH_LEFT_PAREN])? { 
+        return Ok(None);
+    }
+    println!("At s Expr");
+
 
     // ::= Expr | Operation
     let operation = if is_operator(parser)? {
@@ -469,11 +499,15 @@ pub fn is_s_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, Pa
 
 // ::= {[ NamespaceChain ] [ Identifier ] [ MemberAccessChain ]}- 
 pub fn is_f_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
+    println!("FExpr test");
+
     let namespace_count = is_namespace_chain(parser)?;
     let has_identifier = match_tokens(parser, &[MATCH_IDENTIFIER])?;
     let access_chain = is_member_access_chain(parser)?;
 
     if namespace_count > 0 || access_chain.is_some() {
+        println!("At F Expr");
+
         Ok(Some(FExpr(FExprPattern { namespace_count, has_identifier, access_chain })))
     } else { Ok(None) }
 }
@@ -481,6 +515,8 @@ pub fn is_f_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, Pa
 
 // ::= Identifier | Value
 pub fn is_v_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
+    println!("Value test");
+
     let t1 = parser.peek_n(1)?.token_type;
     let t2 = parser.peek_n(2)?.token_type;
     if matches!(t1, TokenType::TLiteral(_)) && !matches!(t2,
@@ -488,6 +524,7 @@ pub fn is_v_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, Pa
         | TokenType::FIELD_SPACE_ACCESS | TokenType::LEFT_BRACKET)
     {
         parser.consume_n(1);
+        println!("At V Expr");
         Ok(Some(VExpr))
     } else { Ok(None) }
 }
@@ -495,16 +532,18 @@ pub fn is_v_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, Pa
 
 // ::= '{' { Expr | Stmnt } '}'
 pub fn is_block_expression(parser: &mut SubParser) -> Result<Option<ExprPattern>, ParseError> {
+    println!("Block test");
     if !match_tokens(parser, &[MATCH_LEFT_BRACE])? {
         return Ok(None);
     }
 
-
+    println!("At block expression");
     let mut block_members = Vec::<ParseMatch>::with_capacity(5);
 
     while !match_tokens(parser, &[MATCH_RIGHT_BRACE])? {
         block_members.push(find_next_match(parser)?)
     }
+    
 
     Ok(Some(ExprPattern::BlockExpr(BlockExprPattern {
         members: if block_members.is_empty() {

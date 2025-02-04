@@ -82,6 +82,7 @@ impl<'a> Resolver<'a> {
 
     pub fn resolve(&mut self, attempts: u32) -> Result<bool, ResolveError> {
         for _ in 0..attempts {
+            self.env.reset_scope_for_next_iter();
             let mut cloned_ast = self.ast_nodes.clone(); // FIXME, working around BC
             let resolved = cloned_ast.iter_mut().try_fold(true, |acc, node| {
                 let result = self.resolve_top_node(node)?;
@@ -140,12 +141,19 @@ impl<'a> Resolver<'a> {
     fn resolve_let_stmnt(&mut self, data: &mut AstData<LetData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
 
+        // We want to  abort if the assign type is no resolved, as we need it to validate the let resolution
+        // clippy warning is not identical blocks as the resolve_expression mutates and changes the data if true
+        let assign_type = if data.node_data.assignment.get_resolve_state().is_resolved()
+            || self.resolve_expression(&mut data.node_data.assignment)? {
+            data.node_data.assignment.get_resolve_state().get_type()
+        } else { return Ok(false); };
+
         println!("Data Resolve State: {:?}", data.resolve_state);
         let symbol_state = if data.resolve_state.is_resolved() {
             data.resolve_state.clone()
         } else if let Some(resolved_data) = self.env.get_resolve_data_by_type(data.resolve_state.get_type()) {
             let r_state = ResolveState::Resolved(resolved_data);
-            println!("Resolved data: {:?}", r_state);;
+            println!("Resolved data: {:?}", r_state);
             data.resolve_state = r_state.clone();
             r_state
         } else {
@@ -154,17 +162,11 @@ impl<'a> Resolver<'a> {
             return Ok(false);
         };
 
-        let assign_type = if data.node_data.assignment.get_resolve_state().is_resolved() {
-            data.node_data.assignment.get_resolve_state().get_type()
-        } else if self.resolve_expression(&mut data.node_data.assignment)? {
-            data.node_data.assignment.get_resolve_state().get_type()
-        } else { return Ok(false); };
 
-        
         println!("Curr assign_type: {:?}", assign_type);
         println!("Assign Node: {:?}", data.node_data.assignment);
         println!("Symbol State: {:?}", symbol_state);
-        
+
         if assign_type.compatible_with(symbol_state.get_type()) {
             let symbol_state = ResolveState::Resolved(
                 self.env.get_resolve_data_by_type_id(symbol_state.get_type_id().unwrap())
@@ -321,14 +323,20 @@ impl<'a> Resolver<'a> {
 
     fn resolve_op_expr(&mut self, data: &mut AstData<OpCallData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
+        
+        println!("Resolving Operand Expression");
 
         if let Some(exprs) = data.node_data.operands.as_mut() {
             let operands_resolved = exprs.iter_mut().try_fold(true, |acc, expr| {
                 let result = self.resolve_expression(expr)?;
+                println!("Resolving Operation Expr: {:?}, Resolved: {:?}", expr, result);
                 Ok(acc && result)
             })?;
 
-            if !operands_resolved { return Ok(false); }
+            if !operands_resolved { 
+                println!("Returning False Operands Unresolved");
+                return Ok(false); 
+            }
 
             let expr_types = exprs.iter().map(|expr| {
                 expr.get_resolve_state().get_type().clone()
@@ -351,7 +359,7 @@ impl<'a> Resolver<'a> {
     fn resolve_block_expression(&mut self, data: &mut AstData<Vec<AstNode>>) -> Result<bool, ResolveError> {
         println!("Resolving Block Expression");
         if data.resolve_state.is_resolved() { return Ok(true); }
-        
+
 
         if data.node_data.is_empty() {
             self.warnings.push(Warning::empty_block(data.line_char));
@@ -361,10 +369,12 @@ impl<'a> Resolver<'a> {
 
         let block_resolved = data.node_data.iter_mut().try_fold(true, |acc, node| {
             let result = self.resolve_top_node(node)?;
+            println!("BLock Node: {:?}, Resolved: {:?}", node, result);
             Ok(acc && result)
         })?;
 
         if block_resolved {
+            println!("\n\nResolved Block Expression");
             match data.node_data.last() {
                 Some(AstNode::Statement(_)) => data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve()),
                 Some(AstNode::Expression(expr)) => {
@@ -375,7 +385,10 @@ impl<'a> Resolver<'a> {
                 None => panic!("Fatal<internal>: Branch should not be reach due to pre-validation")
             }
             Ok(true)
-        } else { Ok(false) }
+        } else {
+            println!("\n\nDidn't Resolve Block Expression");
+            Ok(false)
+        }
     }
 
 
@@ -439,34 +452,39 @@ impl<'a> Resolver<'a> {
 
 
     fn resolve_lambda_expression(&mut self, data: &mut AstData<LambdaData>) -> Result<bool, ResolveError> {
-        
         println!("Resolving lambda expression");
         if data.resolve_state.is_resolved() { return Ok(true); }
 
 
         let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;
+        
+        println!("Lambda BOdy Expression: {:?}", data.node_data.body_expr);
+        println!("Lambda BOdy Resolved: {:?}",body_resolved);
 
         let params_resolved = if let Some(params) = &mut data.node_data.parameters {
             if params.is_empty() {
                 true
             } else {
                 let mut resolved_types = Vec::with_capacity(params.len());
-                let mut fully_resolved = true;
+                let mut params_resolved = true;
                 // FIXME, currently no type inference is support so just check for types
                 for p in params.iter() {
                     if let Some(typ) = &p.typ {
                         if let Some(id) = self.env.get_id_for_type(typ) {
                             resolved_types.push(id)
                         } else {
-                            fully_resolved = false
+                            params_resolved = false
                         }
                     } else {
                         return ResolveError::invalid_parameter(data.line_char, "Parameters must be typed");
                     }
                 }
+                // TODO RESUME make sure param symbols are properly added and able to be properly looked up,
+                //   need to track when if they have been added to the symbol table or not 
 
-                if fully_resolved {
+                if params_resolved {
                     for (param, id) in params.iter().zip(resolved_types.into_iter()) {
+                        println!("Adding Parama Symbol for: {:?}", param);
                         if let Err(err) = self.env.add_symbol(
                             param.identifier,
                             id, // FIXME need to keep from cloning this
@@ -485,6 +503,7 @@ impl<'a> Resolver<'a> {
 
 
         if params_resolved && body_resolved {
+            println!("\n\nResolved BOdy: {:?}", data.node_data.body_expr);
             let params = data.node_data.parameters.as_ref().map(|params| params.iter().map(|p| {
                 let (typ, type_id) = self.env.get_type_and_id_by_name(p.identifier).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
 

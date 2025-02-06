@@ -214,7 +214,7 @@ impl<'a> Resolver<'a> {
                     ResolveError::invalid_assignment(data.line_char, &data.resolve_state.get_type(), data.resolve_state.get_type())
                 }
             } else { Ok(false) }
-        } else { ResolveError::invalid_operation(data.line_char, "Symbol is immutable", Some(identifier)) }
+        } else { ResolveError::invalid_operation(data.line_char, "Symbol is immutable", Some(identifier.name())) }
     }
 
 
@@ -323,7 +323,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_op_expr(&mut self, data: &mut AstData<OpCallData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
-        
+
         println!("Resolving Operand Expression");
 
         if let Some(exprs) = data.node_data.operands.as_mut() {
@@ -333,9 +333,9 @@ impl<'a> Resolver<'a> {
                 Ok(acc && result)
             })?;
 
-            if !operands_resolved { 
+            if !operands_resolved {
                 println!("Returning False Operands Unresolved");
-                return Ok(false); 
+                return Ok(false);
             }
 
             let expr_types = exprs.iter().map(|expr| {
@@ -457,9 +457,9 @@ impl<'a> Resolver<'a> {
 
 
         let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;
-        
+
         println!("Lambda BOdy Expression: {:?}", data.node_data.body_expr);
-        println!("Lambda BOdy Resolved: {:?}",body_resolved);
+        println!("Lambda BOdy Resolved: {:?}", body_resolved);
 
         let params_resolved = if let Some(params) = &mut data.node_data.parameters {
             if params.is_empty() {
@@ -502,10 +502,14 @@ impl<'a> Resolver<'a> {
         } else { true };
 
 
+        // TODO: here and else where need to implement atleast some type inference where either the actual symbol can be typed
+        //  and or the parameters and the return value, this needs implemented ina few other places as well. No full inference 
+        //  atm but any place where it can be dual notated need handled.
+        
         if params_resolved && body_resolved {
             println!("\n\nResolved BOdy: {:?}", data.node_data.body_expr);
             let params = data.node_data.parameters.as_ref().map(|params| params.iter().map(|p| {
-                let (typ, type_id) = self.env.get_type_and_id_by_name(p.identifier).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
+                let (typ, type_id) = self.env.get_type_and_id_by_name(p.typ.unwrap()).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
 
                 FuncParam {
                     name: p.identifier, // FIXME clone, this all could be cleaned up really

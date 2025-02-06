@@ -294,23 +294,35 @@ impl SubEnvironment {
         mod_flags: ModifierFlags,
         meta_data: Option<MetaData>,
     ) -> Result<(), EnvError> {
-        println!("Adding Symbol({:?}) In Scope: ns={:?}, curr_scope={:?}, active scopes:={:?}",
-                 SCACHE.resolve(symbol.name()), self.curr_ns, self.curr_scope, self.active_scopes);
-        let typ = self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone();
-        let value_type: ValueType = ValueType::from(&typ);
-        let symbol = SymbolContext {
-            name: symbol.name(),
-            value_type,
-            mod_flags,
-            meta_data,
-            type_id,
-            typ,
-            ns_id: self.curr_ns,
-            scope_id: self.curr_scope,
-            depth: self.curr_depth,
-        };
-        println!("Resolved Symbol: {:?}", symbol);
-        self.symbol_table_ref.write().unwrap().insert_symbol(self.curr_ns, self.get_curr_scope(), symbol)
+        if let Symbol::Definition { mut is_defined, .. } = symbol {
+            if is_defined { return Ok(()); }
+
+            println!("Adding Symbol({:?}) In Scope: ns={:?}, curr_scope={:?}, active scopes:={:?}",
+                     SCACHE.resolve(symbol.name()), self.curr_ns, self.curr_scope, self.active_scopes);
+            let typ = self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone();
+            let value_type: ValueType = ValueType::from(&typ);
+            let symbol = SymbolContext {
+                name: symbol.name(),
+                value_type,
+                mod_flags,
+                meta_data,
+                type_id,
+                typ,
+                ns_id: self.curr_ns,
+                scope_id: self.curr_scope,
+                depth: self.curr_depth,
+            };
+
+            println!("Resolved Symbol: {:?}", symbol);
+            match self.symbol_table_ref.write().unwrap()
+                .insert_symbol(self.curr_ns, self.get_curr_scope(), symbol) {
+                Ok(_) => {
+                    is_defined = true;
+                    Ok(())
+                }
+                Err(err) => Err(err)
+            }
+        } else { panic!("Fatal<Internal>: Attempted to add symbol reference(non-definition) to symbol table") }
     }
 
     pub fn get_resolve_data_by_type(&mut self, typ: &Type) -> Option<ResolveData> {
@@ -338,14 +350,19 @@ impl SubEnvironment {
     }
 
     // TODO add ability to look up other namespaces via name?
-    pub fn get_symbol(&self, ns: u16, scope_id: u32, name: IString) -> Option<SymbolContext> {
-        self.symbol_table_ref.read().unwrap().get_symbol(ns, scope_id, name)
+    pub fn get_symbol(&self, ns: u16, scope_id: u32, symbol: Symbol) -> Option<SymbolContext> {
+        if let Symbol::Reference(name) = symbol {
+            self.symbol_table_ref.read().unwrap().get_symbol(ns, scope_id, name)
+        } else { panic!("Fatal<Internal>: Attempted to look up  symbol definition as reference") }
     }
 
     // FIXME  Need to traverse global and import spaces as well
-    pub fn find_symbol_in_scope(&self, name: IString) -> Option<SymbolContext> {
+    pub fn find_symbol_in_scope(&self, symbol: Symbol) -> Option<SymbolContext> {
         println!("Finding Symbol({:?}) In Scope: ns={:?}, curr_scope={:?}, active scopes:={:?}",
-                 SCACHE.resolve(name), self.curr_ns, self.curr_scope, self.active_scopes);
-        self.symbol_table_ref.read().unwrap().find_symbol(self.curr_ns, &self.active_scopes, name)
+                 SCACHE.resolve(symbol.name()), self.curr_ns, self.curr_scope, self.active_scopes);
+
+        if let Symbol::Reference(name) = symbol {
+            self.symbol_table_ref.read().unwrap().find_symbol(self.curr_ns, &self.active_scopes, name)
+        } else { panic!("Fatal<Internal>: Attempted to find symbol definition as reference") }
     }
 }

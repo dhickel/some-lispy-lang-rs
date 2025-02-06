@@ -88,7 +88,7 @@ pub struct FuncMeta {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncParam {
-    pub name: IString,
+    pub name: Symbol,
     pub modifier_flags: ModifierFlags,
     pub typ: Option<Type>,
     pub type_id: Option<TypeId>,
@@ -105,7 +105,7 @@ impl<T> AstData<T> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Symbol {
     Definition { name: IString, is_defined: bool},
     Reference(IString),
@@ -125,6 +125,7 @@ impl Symbol {
             Symbol::Definition { name, .. } | Symbol::Reference(name) => *name
         }
     }
+    
 }
 
 
@@ -237,7 +238,7 @@ pub struct LambdaData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FExprData {
-    FCall { method: Option<IString>, arguments: Option<Vec<Argument>> },
+    FCall { method: Option<Symbol>, arguments: Option<Vec<Argument>> },
     FAccess { identifier: Symbol, m_type: MType },
 }
 

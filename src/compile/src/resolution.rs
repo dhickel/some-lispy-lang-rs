@@ -1,9 +1,9 @@
 use std::any::Any;
 use std::io::stdout;
-use lang::ast::{Argument, AssignData, AstData, AstNode, ExprVariant, FExprData, FuncMeta, FuncParam, LambdaData, LetData, MetaData, MType, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, Value};
+use lang::ast::{Argument, AssignData, AstData, AstNode, ExprVariant, FExprData, FuncMeta, FuncParam, LambdaData, LetData, MetaData, MType, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, Value, Parameter};
 use lang::{ModifierFlags, ValueType};
-use lang::types::{Type, TypeId, TypeTable, UnresolvedType};
-use lang::types::UnresolvedType::Unknown;
+use lang::types::{LangType, TypeId, TypeTable, UnresolvedType};
+use lang::types::UnresolvedType::Undefined;
 use lang::util::{IString, SCACHE};
 use crate::environment::{EnvError, SubEnvironment};
 use crate::{ValuePrecedence, Warning};
@@ -30,7 +30,7 @@ pub enum ResolveError {
 // TODO dont allow statements inside any expression except a block expression
 
 impl ResolveError {
-    pub fn invalid_assignment<T>(line_char: (u32, u32), t1: &Type, t2: &Type) -> Result<T, ResolveError> {
+    pub fn invalid_assignment<T>(line_char: (u32, u32), t1: &LangType, t2: &LangType) -> Result<T, ResolveError> {
         Err(Self::InvalidAssignment(
             format!(
                 "Line: {}, Char: {}, Cannot assign type: {:?}, to symbol of type: {:?}",
@@ -228,7 +228,7 @@ impl<'a> Resolver<'a> {
         let (op_resolved, op_type, op_type_id)
             = if self.resolve_expression(&mut data.node_data.operation_expr)? {
             (true, data.resolve_state.get_type(), Some(data.resolve_state.get_type_id().unwrap()))
-        } else { (false, &Type::Unresolved(Unknown), None) };
+        } else { (false, &LangType::Unresolved(Undefined), None) };
 
         if let Some(exprs) = data.node_data.operand_exprs.as_mut() {
             let operands_resolved = exprs.iter_mut().try_fold(true, |acc, expr| {
@@ -285,24 +285,24 @@ impl<'a> Resolver<'a> {
             match *data.node_data {
                 Value::I32(_) | Value::I64(_) | Value::U8(_)
                 | Value::U16(_) | Value::U32(_) | Value::U64(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Integer).unwrap());
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&LangType::Integer).unwrap());
                     Ok(true)
                 }
                 Value::F32(_) | Value::F64(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Float).unwrap());
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&LangType::Float).unwrap());
                     Ok(true)
                 }
                 Value::Boolean(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Boolean).unwrap());
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&LangType::Boolean).unwrap());
                     Ok(true)
                 }
                 Value::Quote(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Quote).unwrap());
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&LangType::Quote).unwrap());
                     Ok(true)
                 }
                 Value::Object => todo!("Objects type resolution WIP"),
                 Value::Nil(_) => {
-                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&Type::Nil).unwrap());
+                    data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&LangType::Nil).unwrap());
                     Ok(true)
                 }
                 Value::Array => todo!("Array type resolution WIP"),
@@ -340,7 +340,7 @@ impl<'a> Resolver<'a> {
 
             let expr_types = exprs.iter().map(|expr| {
                 expr.get_resolve_state().get_type().clone()
-            }).collect::<Vec<Type>>();
+            }).collect::<Vec<LangType>>();
 
             if !expr_types.iter().all(|t| matches!(t.into(), ValueType::Primitive(_))) {
                 return ResolveError::invalid_argument(data.line_char, "Non-primitive value(s) in operation arguments");
@@ -397,7 +397,7 @@ impl<'a> Resolver<'a> {
 
         let pred_resolve = self.resolve_expression(&mut data.node_data.pred_expr)?;
 
-        if pred_resolve && !matches!(data.node_data.pred_expr.get_resolve_state().get_type(), Type::Boolean) {
+        if pred_resolve && !matches!(data.node_data.pred_expr.get_resolve_state().get_type(), LangType::Boolean) {
             return ResolveError::invalid_operation(
                 data.line_char, "Non-boolean expression as predicate condition", None,
             );
@@ -461,69 +461,82 @@ impl<'a> Resolver<'a> {
         println!("Lambda BOdy Expression: {:?}", data.node_data.body_expr);
         println!("Lambda BOdy Resolved: {:?}", body_resolved);
 
-        let params_resolved = if let Some(params) = &mut data.node_data.parameters {
+
+        // TODO we need to make sure to parse alternative type declarations, as types can be on symbol or
+        //  in the lambda signature or both.
+
+
+        let params_resolved = match &data.node_data.parameters {
+            None => true,
+            Some(params) => {
+                if !params.iter().all(|p| p.typ.is_some())
+                
+            }
+        }
+
+
+        if let Some(params) = &mut data.node_data.parameters {
             if params.is_empty() {
                 true
             } else {
-                let mut resolved_types = Vec::with_capacity(params.len());
                 let mut params_resolved = true;
                 // FIXME, currently no type inference is support so just check for types
-                for p in params.iter() {
+                for p in params.iter_mut() {
                     if let Some(typ) = &p.typ {
-                        if let Some(id) = self.env.get_id_for_type(typ) {
-                            resolved_types.push(id)
-                        } else {
-                            params_resolved = false
+                        if !typ.is_resolved() {
+                            params_resolved = false;
+                            break;
                         }
-                    } else {
-                        return ResolveError::invalid_parameter(data.line_char, "Parameters must be typed");
-                    }
+                    } else { return ResolveError::invalid_parameter(data.line_char, "Parameters must be typed"); }
                 }
-                // TODO RESUME make sure param symbols are properly added and able to be properly looked up,
-                //   need to track when if they have been added to the symbol table or not 
+                params_resolved
+            };
+        };
+        // TODO RESUME make sure param symbols are properly added and able to be properly looked up,
+        //   need to track when if they have been added to the symbol table or not 
 
-                if params_resolved {
-                    for (param, id) in params.iter().zip(resolved_types.into_iter()) {
-                        println!("Adding Parama Symbol for: {:?}", param);
-                        if let Err(err) = self.env.add_symbol(
-                            param.identifier,
-                            id, // FIXME need to keep from cloning this
-                            ModifierFlags::from_mods(&param.modifiers.clone().unwrap_or(vec![])),
-                            None,
-                        ) {
-                            return ResolveError::invalid_parameter(
-                                data.line_char, format!("Error in lambda parameters: {:?}", err).as_str(),
-                            );
-                        };
-                    }
-                    true
-                } else { false }
+        if params_resolved {
+            for (param, id) in params.iter().zip(resolved_types.into_iter()) {
+                println!("Adding Parama Symbol for: {:?}", param);
+                if let Err(err) = self.env.add_symbol(
+                    param.identifier,
+                    id, // FIXME need to keep from cloning this
+                    ModifierFlags::from_mods(&param.modifiers.clone().unwrap_or(vec![])),
+                    None,
+                ) {
+                    return ResolveError::invalid_parameter(
+                        data.line_char, format!("Error in lambda parameters: {:?}", err).as_str(),
+                    );
+                };
             }
-        } else { true };
-
-
-        // TODO: here and else where need to implement atleast some type inference where either the actual symbol can be typed
-        //  and or the parameters and the return value, this needs implemented ina few other places as well. No full inference 
-        //  atm but any place where it can be dual notated need handled.
-        
-        if params_resolved && body_resolved {
-            println!("\n\nResolved BOdy: {:?}", data.node_data.body_expr);
-            let params = data.node_data.parameters.as_ref().map(|params| params.iter().map(|p| {
-                let (typ, type_id) = self.env.get_type_and_id_by_name(p.typ.unwrap()).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
-
-                FuncParam {
-                    name: p.identifier, // FIXME clone, this all could be cleaned up really
-                    modifier_flags: ModifierFlags::from_mods(&p.modifiers.clone().unwrap_or_default()),
-                    typ,
-                    type_id,
-                }
-            }).collect::<Vec<FuncParam>>());
-
-            let body_type_and_id = data.node_data.body_expr.get_resolve_state().get_type_and_id();
-            let mut res_data = self.env.get_resolve_data_by_type(body_type_and_id.0).unwrap();
-            res_data.meta_data = Some(MetaData::Function(params));
-            data.resolve_state = ResolveState::Resolved(res_data);
-            Ok(true)
-        } else { Ok(false) }
+            true
+        } else { false }
     }
+} else { true };
+
+
+// TODO: here and else where need to implement atleast some type inference where either the actual symbol can be typed
+//  and or the parameters and the return value, this needs implemented ina few other places as well. No full inference 
+//  atm but any place where it can be dual notated need handled.
+
+if params_resolved & & body_resolved {
+println!("\n\nResolved BOdy: {:?}", data.node_data.body_expr);
+let params = data.node_data.parameters.as_ref().map( | params| params.iter().map( | p| {
+let (typ, type_id) = self.env.get_type_and_id_by_name(p.typ.unwrap()).map_or_else( | | (None, None), | t | (Some(t.0), Some(t.1)));
+
+FuncParam {
+name: p.identifier, // FIXME clone, this all could be cleaned up really
+modifier_flags: ModifierFlags::from_mods( & p.modifiers.clone().unwrap_or_default()),
+typ,
+type_id,
+}
+}).collect::<Vec<FuncParam> > ());
+
+let body_type_and_id = data.node_data.body_expr.get_resolve_state().get_type_and_id();
+let mut res_data = self .env.get_resolve_data_by_type(body_type_and_id.0).unwrap();
+res_data.meta_data = Some(MetaData::Function(params));
+data.resolve_state = ResolveState::Resolved(res_data);
+Ok(true)
+} else { Ok(false) }
+}
 }

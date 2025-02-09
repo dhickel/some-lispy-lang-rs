@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 use lang::ast::Value;
-use lang::types::Type;
+use lang::types::LangType;
 
 pub mod code_gen;
 pub mod resolution;
@@ -16,7 +16,7 @@ pub enum Warning {
 
 
 impl Warning {
-    pub fn return_coercion(line_char: (u32, u32), v1: &Type) -> Warning {
+    pub fn return_coercion(line_char: (u32, u32), v1: &LangType) -> Warning {
         Self::Arithmetic(format!("Line: {}, Char: {}, coercion of primitive type: {:?}", line_char.0, line_char.1, v1))
     }
 
@@ -41,19 +41,19 @@ enum ValuePrecedence {
 
 
 impl ValuePrecedence {
-    pub fn get_precedence_value(typ: &Type) -> ValuePrecedence {
+    pub fn get_precedence_value(typ: &LangType) -> ValuePrecedence {
         match typ {
-            Type::Unresolved(_) => panic!("Fatal<Internal>: Attempted to get precedence of unresolved value"),
-            Type::Integer => ValuePrecedence::I64,
-            Type::Float => ValuePrecedence::F64,
-            Type::Boolean => ValuePrecedence::Bool,
+            LangType::Unresolved(_) => panic!("Fatal<Internal>: Attempted to get precedence of unresolved value"),
+            LangType::Integer => ValuePrecedence::I64,
+            LangType::Float => ValuePrecedence::F64,
+            LangType::Boolean => ValuePrecedence::Bool,
             _ => panic!("Fatal<Internal>: Attempted to get precedence of non-primitive type [{:?}]", typ),
         }
     }
 
-    pub fn return_value_coercion(values: &[Type]) -> (bool, &Type) {
+    pub fn return_value_coercion(values: &[LangType]) -> (bool, &LangType) {
         assert!(!values.is_empty());
-        let mut max: (ValuePrecedence, &Type) = (Self::get_precedence_value(&values[0]), &values[0]);
+        let mut max: (ValuePrecedence, &LangType) = (Self::get_precedence_value(&values[0]), &values[0]);
         let mut made_change = false;
         
         for value in values.iter().skip(1) {

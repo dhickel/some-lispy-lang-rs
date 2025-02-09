@@ -1,4 +1,4 @@
-use lang::types::{FuncType, ObjType, Type, UnresolvedType};
+use lang::types::{FunctionType, ObjType, LangType, UnresolvedType};
 use lang::util::{IString, SCACHE};
 
 use lang::ast::*;
@@ -279,7 +279,7 @@ impl ParserState {
         Ok(Some(modifiers))
     }
 
-    pub fn parse_type(&mut self, consume_colon: bool) -> Result<Type, ParseError> {
+    pub fn parse_type(&mut self, consume_colon: bool) -> Result<LangType, ParseError> {
         if consume_colon {
             // ::= ':'
             self.consume(TSyntactic(Syn::Colon))?;
@@ -295,13 +295,13 @@ impl ParserState {
                 let typ = self.parse_type(false)?;
                 self.consume(TokenType::ANGLE_BRACKET_RIGHT)?;
                 Ok(typ)
-            } else { Ok(Type::parse_type_from_string(str)) }
+            } else { Ok(LangType::parse_type_from_string(str)) }
         } else { ParseError::parsing_error(self.peek()?, "Expected Identifier for type") }
     }
 
     // ::= '<' { Identifier } ';' Identifier } '>'
-    pub fn parse_func_type(&mut self) -> Result<Type, ParseError> {
-        let mut func_type = FuncType::default();
+    pub fn parse_func_type(&mut self) -> Result<LangType, ParseError> {
+        let mut func_type = FunctionType::default();
 
         // ::= '<'
         self.consume(TOperation(Op::Less))?;
@@ -322,12 +322,12 @@ impl ParserState {
 
         // ::= '>'
         self.consume(TOperation(Op::Greater))?;
-        Ok(Type::Lambda(func_type))
+        Ok(LangType::Lambda(func_type))
     }
 
-    pub fn parse_array_type(&mut self) -> Result<Type, ParseError> {
+    pub fn parse_array_type(&mut self) -> Result<LangType, ParseError> {
         let typ = self.parse_type(false)?;
-        Ok(Type::Array(Box::new(typ)))
+        Ok(LangType::Array(Box::new(typ)))
     }
 
     ////////////////
@@ -347,7 +347,7 @@ impl ParserState {
         // ::= [ ':' Type ]
         let typ = if pattern.has_type {
             self.parse_type(true)?
-        } else { UnresolvedType::Unknown.into() };
+        } else { UnresolvedType::Undefined.into() };
 
         // ::= { Modifier }
         let modifiers = self.parse_modifiers(pattern.modifier_count)?;
@@ -444,25 +444,25 @@ impl ParserState {
 
         if let TokenType::TLiteral(lit) = token.token_type {
             let (typ, value) = match lit {
-                Lit::True => (Some(Type::Boolean), Value::Boolean(true)),
-                Lit::False => (Some(Type::Boolean), Value::Boolean(false)),
-                Lit::String => (Some(Type::String), Value::String), // FIXME, need to actual implement strings
+                Lit::True => (Some(LangType::Boolean), Value::Boolean(true)),
+                Lit::False => (Some(LangType::Boolean), Value::Boolean(false)),
+                Lit::String => (Some(LangType::String), Value::String), // FIXME, need to actual implement strings
                 Lit::Int => {
                     if let Some(TokenData::Integer(val)) = token.data {
-                        (Some(Type::Integer), Value::I64(val))
+                        (Some(LangType::Integer), Value::I64(val))
                     } else { ParseError::parsing_error(self.peek()?, "Expected Integer Value")? }
                 }
                 Lit::Float => {
                     if let Some(TokenData::Float(val)) = token.data {
-                        (Some(Type::Float), Value::F64(val))
+                        (Some(LangType::Float), Value::F64(val))
                     } else { ParseError::parsing_error(self.peek()?, "Expected Float Value")? }
                 }
                 Lit::Identifier => {
                     if let Some(TokenData::String(val)) = token.data {
-                        (Some(UnresolvedType::Unknown.into()), Value::Identifier(Symbol::Reference(val)))
+                        (Some(UnresolvedType::Undefined.into()), Value::Identifier(Symbol::Reference(val)))
                     } else { ParseError::parsing_error(self.peek()?, "Expected Identifier")? }
                 }
-                Lit::Nil => (Some(Type::Nil), Value::Nil(())),
+                Lit::Nil => (Some(LangType::Nil), Value::Nil(())),
             };
             Ok(ExprVariant::Value(AstData::new(value, line_char, typ)))
         } else { ParseError::parsing_error(self.peek()?, "Expected value expression") }
@@ -511,9 +511,12 @@ impl ParserState {
         Ok(ExprVariant::Lambda(AstData::new(lambda, line_char, typ)))
     }
 
+    // NOTE: lambda form is going to be the non type notated signature
+
     pub fn parse_lambda_form(&mut self, pattern: LambdaFormPattern) -> Result<ExprVariant, ParseError> {
         let line_char = self.line_char()?;
-        let lambda = self.parse_lambda(pattern)?;
+        let mut lambda = self.parse_lambda(pattern)?;
+        lambda.is_form = true;
         Ok(ExprVariant::Lambda(AstData::new(lambda, line_char, None)))
     }
 
@@ -531,7 +534,7 @@ impl ParserState {
         let expr = self.parse_expression(*pattern.expr)?;
 
 
-        Ok(LambdaData { parameters, body_expr: expr })
+        Ok(LambdaData { parameters, body_expr: expr, is_form: false })
     }
 
 
@@ -605,7 +608,7 @@ impl ParserState {
                         self.consume(TokenType::METHOD_SPACE_ACCESS)?;
                         // ::=  [ Identifier ]
                         let identifier = if matches!(self.peek()?. token_type, TokenType::IDENTIFIER) {
-                            Some(self.parse_identifier()?)
+                            Some(Symbol::new_reference(self.parse_identifier()?))
                         } else { None };
 
                         // ::= '['
@@ -641,18 +644,26 @@ impl ParserState {
         } else { Ok(None) }
     }
 
-    pub fn parse_parameters(&mut self, params: Option<Vec<Param>>) -> Result<Option<Vec<Parameter>>, ParseError> {
+    pub fn parse_parameters(&mut self, params: Option<Vec<Param>>, line_char: (u32, u32)) -> Result<Option<Vec<Parameter>>, ParseError> {
         if let Some(params) = params {
             let parameters = params.into_iter()
                 .map(|param| {
                     let modifiers = self.parse_modifiers(param.modifier_count)?;
                     let identifier = Symbol::new_definition(self.parse_identifier()?);
+
                     let typ = if param.has_type {
                         Some(self.parse_type(true)?)
                     } else { None };
+
                     Ok(Parameter { modifiers, identifier, typ })
                 }).collect::<Result<Vec<Parameter>, ParseError>>()?;
-            Ok(Some(parameters))
+
+            if !parameters.iter()
+                .map(|p| p.typ.is_some())
+                .reduce(|acc, has_type| acc == has_type)
+                .unwrap_or(true) {
+                ParseError::parse_error("All parameters must be typed or untype(lambda form only)".to_string())
+            } else { Ok(Some(parameters)) }
         } else { Ok(None) }
     }
 

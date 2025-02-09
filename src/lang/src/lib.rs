@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 use std::str::FromStr;
 use bitflags::bitflags;
 use crate::token::Mod;
-use crate::types::Type;
+use crate::types::LangType;
 
 
 pub mod util;
@@ -59,23 +59,23 @@ pub enum PrimType {
 }
 
 
-impl From<&Type> for ValueType {
-    fn from(value: &Type) -> Self {
+impl From<&LangType> for ValueType {
+    fn from(value: &LangType) -> Self {
         match value {
-            Type::Unresolved(_) => panic!("Fatal<internal>: Attempted to convert unresolved Type to ValueType"),
-            Type::Integer => ValueType::Primitive(PrimType::I64),
-            Type::Float => ValueType::Primitive(PrimType::F64),
-            Type::Boolean => ValueType::Primitive(PrimType::Bool),
-            Type::Array(_) => ValueType::Array,
-            Type::String => ValueType::String,
-            Type::Tuple(_) => ValueType::Tuple,
+            LangType::Unresolved(_) => panic!("Fatal<internal>: Attempted to convert unresolved Type to ValueType"),
+            LangType::Integer => ValueType::Primitive(PrimType::I64),
+            LangType::Float => ValueType::Primitive(PrimType::F64),
+            LangType::Boolean => ValueType::Primitive(PrimType::Bool),
+            LangType::Array(_) => ValueType::Array,
+            LangType::String => ValueType::String,
+            LangType::Tuple(_) => ValueType::Tuple,
             // FIXME there is a nil value type, but I would like to avoid acknowledging
             //  nil values this deep internally
-            Type::Nil => panic!("Fatal<internal>: Attempted to cover Nil to ValueType"),
-            Type::Quote => ValueType::Quote,
+            LangType::Nil => panic!("Fatal<internal>: Attempted to cover Nil to ValueType"),
+            LangType::Quote => ValueType::Quote,
             // FIXME, this need to map to the class definition, symbols should also be values?
-            Type::Object(_) => ValueType::Object,
-            Type::Lambda(_) => ValueType::Function
+            LangType::Object(_) => ValueType::Object,
+            LangType::Lambda(_) => ValueType::Function
         }
     }
 }

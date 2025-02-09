@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicUsize;
 use intmap::IntMap;
 use lang::{ModifierFlags, ValueType};
 use lang::ast::{FuncMeta, MetaData, ResolveData, Symbol};
-use lang::types::{Type, TypeId, TypeTable};
+use lang::types::{LangType, TypeId, TypeTable};
 use lang::util::{IString, SCACHE};
 
 
@@ -26,7 +26,7 @@ pub struct SymbolContext {
     pub scope_id: u32,
     pub depth: u32,
     pub type_id: TypeId,
-    pub typ: Type,
+    pub typ: LangType,
     pub meta_data: Option<MetaData>,
 }
 
@@ -267,19 +267,19 @@ impl SubEnvironment {
 
 
     // FIXME clone here
-    pub fn get_type_by_id(&self, type_id: TypeId) -> Type {
+    pub fn get_type_by_id(&self, type_id: TypeId) -> LangType {
         self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone()
     }
 
-    pub fn get_type_by_name(&self, name: IString) -> Option<Type> {
+    pub fn get_type_by_name(&self, name: IString) -> Option<LangType> {
         self.type_table_ref.read().unwrap().get_type_by_name(name).map_or_else(|| None, |t| Some(t.clone()))
     }
-    pub fn get_type_and_id_by_name(&self, name: IString) -> Option<(Type, TypeId)> {
+    pub fn get_type_and_id_by_name(&self, name: IString) -> Option<(LangType, TypeId)> {
         self.type_table_ref.read().unwrap().get_type_and_id_by_name(name)
             .map_or_else(|| None, |t| Some((t.0.clone(), t.1)))
     }
 
-    pub fn get_id_for_type(&self, typ: &Type) -> Option<TypeId> {
+    pub fn get_id_for_type(&self, typ: &LangType) -> Option<TypeId> {
         self.type_table_ref.read().unwrap().get_type_id(typ)
     }
 
@@ -325,7 +325,7 @@ impl SubEnvironment {
         } else { panic!("Fatal<Internal>: Attempted to add symbol reference(non-definition) to symbol table") }
     }
 
-    pub fn get_resolve_data_by_type(&mut self, typ: &Type) -> Option<ResolveData> {
+    pub fn get_resolve_data_by_type(&mut self, typ: &LangType) -> Option<ResolveData> {
         let existing = self.type_table_ref.read().unwrap().get_type_id(&typ);
 
         if let Some(existing) = existing {
@@ -346,7 +346,7 @@ impl SubEnvironment {
     }
 
     pub fn get_nil_resolve(&self) -> ResolveData {
-        ResolveData::new(self.curr_ns, self.curr_scope, TypeTable::NIL, Type::Nil)
+        ResolveData::new(self.curr_ns, self.curr_scope, TypeTable::NIL, LangType::Nil)
     }
 
     // TODO add ability to look up other namespaces via name?

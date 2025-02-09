@@ -2,7 +2,7 @@ use crate::ast::Value::U32;
 use crate::ModifierFlags;
 use crate::util::IString;
 use crate::token::{Mod, Op};
-use crate::types::{Type, TypeError, TypeId, TypeTable};
+use crate::types::{LangType, TypeError, TypeId, TypeTable};
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -13,17 +13,12 @@ pub struct AstData<T> {
 }
 
 
-impl<T> AstData<T> {
-    pub fn update_resolve_state(&mut self, state: ResolveState) -> &ResolveState {
-        self.resolve_state = state;
-        &self.resolve_state
-    }
-}
+
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolveState {
-    Unresolved(Type),
+    Unresolved(LangType),
     Resolved(ResolveData),
 }
 
@@ -31,7 +26,7 @@ pub enum ResolveState {
 impl ResolveState {
     pub fn is_resolved(&self) -> bool { !matches!(self, Self::Unresolved(_)) }
 
-    pub fn get_type(&self) -> &Type {
+    pub fn get_type(&self) -> &LangType {
         match self {
             ResolveState::Unresolved(typ) => typ,
             ResolveState::Resolved(res) => &res.typ
@@ -44,7 +39,7 @@ impl ResolveState {
         } else { None }
     }
 
-    pub fn get_type_and_id(&self) -> (&Type, Option<TypeId>) {
+    pub fn get_type_and_id(&self) -> (&LangType, Option<TypeId>) {
         (self.get_type(), self.get_type_id())
     }
 }
@@ -55,14 +50,14 @@ pub struct ResolveData {
     pub type_id: TypeId,
     pub ns_id: u16,
     pub scope_id: u32,
-    pub typ: Type,
+    pub typ: LangType,
     pub meta_data: Option<MetaData>,
 }
 
 
 impl ResolveData {
-    pub fn new(ns_id: u16, scope_id: u32, type_id: TypeId, typ: Type) -> Self {
-        if matches!(typ, Type::Unresolved(_)) {
+    pub fn new(ns_id: u16, scope_id: u32, type_id: TypeId, typ: LangType) -> Self {
+        if matches!(typ, LangType::Unresolved(_)) {
             panic!("Fatal<internal>: Constructed resolution data with unresolved type")
         }
         Self { type_id, ns_id, scope_id, typ, meta_data: None }
@@ -90,13 +85,13 @@ pub struct FuncMeta {
 pub struct FuncParam {
     pub name: Symbol,
     pub modifier_flags: ModifierFlags,
-    pub typ: Option<Type>,
+    pub typ: Option<LangType>,
     pub type_id: Option<TypeId>,
 }
 
 
 impl<T> AstData<T> {
-    pub fn new(data: T, line_char: (u32, u32), typ: Option<Type>) -> Self {
+    pub fn new(data: T, line_char: (u32, u32), typ: Option<LangType>) -> Self {
         Self {
             resolve_state: ResolveState::Unresolved(typ.unwrap_or_default()),
             node_data: Box::new(data),
@@ -105,7 +100,7 @@ impl<T> AstData<T> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Symbol {
     Definition { name: IString, is_defined: bool},
     Reference(IString),
@@ -233,7 +228,9 @@ pub struct SCallData {
 pub struct LambdaData {
     pub parameters: Option<Vec<Parameter>>,
     pub body_expr: ExprVariant,
+    pub is_form: bool,
 }
+
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -254,7 +251,7 @@ pub struct Argument {
 pub struct Parameter {
     pub modifiers: Option<Vec<Mod>>,
     pub identifier: Symbol,
-    pub typ: Option<Type>,
+    pub typ: Option<LangType>,
 }
 
 
@@ -311,13 +308,13 @@ pub enum Value {
 
 
 impl Value {
-    pub fn get_type_info_if_primitive(&self) -> Option<(Type, TypeId)> {
+    pub fn get_type_info_if_primitive(&self) -> Option<(LangType, TypeId)> {
         match self {
             Value::I32(_) | Value::I64(_) | Value::U8(_) |
-            Value::U16(_) | Value::U32(_) | Value::U64(_) => Some((Type::Integer, TypeTable::INT)),
-            Value::F32(_) | Value::F64(_) => Some((Type::Float, TypeTable::FLOAT)),
-            Value::Boolean(_) => Some((Type::Boolean, TypeTable::BOOL)),
-            Value::String => Some((Type::String, TypeTable::STRING)),
+            Value::U16(_) | Value::U32(_) | Value::U64(_) => Some((LangType::Integer, TypeTable::INT)),
+            Value::F32(_) | Value::F64(_) => Some((LangType::Float, TypeTable::FLOAT)),
+            Value::Boolean(_) => Some((LangType::Boolean, TypeTable::BOOL)),
+            Value::String => Some((LangType::String, TypeTable::STRING)),
             _ => None
         }
     }

@@ -335,7 +335,7 @@ impl SubEnvironment {
                 .resolve_type(typ).unwrap_or((false, None));
 
             if let Some(type_entry) = resolve_result.1 {
-                Some(ResolveData::new(self.curr_ns, self.curr_scope, type_entry.id()?, type_entry.typ().clone()))
+                Some(ResolveData::new(self.curr_ns, self.curr_scope, type_entry.id()?, type_entry.lang_type().clone()))
             } else { None }
         }
     }

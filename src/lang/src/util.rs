@@ -13,10 +13,9 @@ use sha2::digest::Update;
 use crate::Sha256Hash;
 
 pub struct Interner {
-    map: AHashMap<String, u32>,
-    list: Vec<*const str>,
+    map: AHashMap<&'static str, u32>,
+    list: Vec<Box<String>>,
 }
-
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd)]
 pub struct IString {
@@ -31,7 +30,7 @@ impl Debug for IString {
 
 
 impl Into<u64> for IString { fn into(self) -> u64 { self.value as u64 } }
-impl Into<u32> for IString { fn into(self) -> u32 { self.value  } }
+impl Into<u32> for IString { fn into(self) -> u32 { self.value } }
 
 impl PartialEq<u32> for IString { fn eq(&self, other: &u32) -> bool { self.value == *other } }
 
@@ -58,106 +57,71 @@ impl Default for Interner {
 
 impl Interner {
     pub fn intern(&mut self, string: String) -> IString {
-        if let Some(&id) = self.map.get(&string) {
+        if let Some(&id) = self.map.get(string.as_str()) {
             return IString { value: id };
         }
 
         let new_id = if self.list.len() > u32::MAX as usize {
             panic!("Interner Overflow")
-        } else { self.list.len() as u32 };
+        } else {
+            self.list.len() as u32
+        };
 
-
-        let raw_ptr = string.as_str() as *const str;
-        self.list.push(raw_ptr);
-        self.map.insert(string, new_id);
+        let boxed = Box::new(string);
+        let str_ref: &str = boxed.as_str();
+        let static_ref = unsafe { std::mem::transmute::<&str, &'static str>(str_ref) };
+        self.map.insert(static_ref, new_id);
+        self.list.push(boxed);
         IString { value: new_id }
     }
 
     pub fn resolve(&self, i_string: IString) -> &str {
-        unsafe {
-            self.list.get(i_string.value as usize).map(|&ptr| &*ptr).expect("Invalid interned id")
-        }
+        self.list.get(i_string.value as usize)
+            .expect("Invalid interned id")
+            .as_str()
     }
 
-    pub fn resolve_value(&self, value: u64) -> &str {
-        unsafe {
-            self.list.get(value as usize).map(|&ptr| &*ptr).expect("Invalid interned id")
-        }
-    }
 
     pub fn print_cache(&self) {
-        println!("Intern Cache: {:?}", self.map)
+        println!("Intern Cache: {:#?}", self.map)
     }
 }
 
-
-impl Drop for Interner {
-    fn drop(&mut self) {
-        for &ptr in &self.list {
-            unsafe {
-                let _ = Box::from_raw(ptr as *mut str);
-            }
-        }
-    }
-}
 
 
 pub struct SCache {
-    pub cache: Mutex<Interner>,
-    pub const_init: IString,
-    pub const_param: IString,
-    pub const_var: IString,
-    pub const_func: IString,
-    pub const_pre: IString,
-    pub const_post: IString,
-    pub const_final: IString,
-    pub const_validate: IString,
-    pub const_int: IString,
-    pub const_float: IString,
-    pub const_bool: IString,
-    pub const_string: IString,
-    pub const_nil: IString,
-    pub const_pair: IString,
-    pub const_void: IString,
+    cache: Mutex<Interner>,
+    pub NIL: IString,
+    pub BOOL: IString,
+    pub STRING: IString,
+    pub U8: IString,
+    pub U16: IString,
+    pub U32: IString,
+    pub U64: IString,
+    pub I32: IString,
+    pub I64: IString,
+    pub F32: IString,
+    pub F64: IString,
+
 }
 
 
 impl Default for SCache {
     fn default() -> Self {
         let mut cache = Interner::default();
-        let const_init = cache.intern("init".to_string());
-        let const_param = cache.intern("param".to_string());
-        let const_var = cache.intern("var".to_string());
-        let const_func = cache.intern("func".to_string());
-        let const_pre = cache.intern("pre".to_string());
-        let const_post = cache.intern("post".to_string());
-        let const_final = cache.intern("final".to_string());
-        let const_validate = cache.intern("validate".to_string());
-        let const_int = cache.intern("Int".to_string());
-        let const_float = cache.intern("Float".to_string());
-        let const_bool = cache.intern("Bool".to_string());
-        let const_string = cache.intern("String".to_string());
-        let const_nil = cache.intern("Nil".to_string());
-        let const_pair = cache.intern("pair".to_string());
-        let const_void = cache.intern("#void".to_string());
-
         SCache {
+            NIL: cache.intern("Nil".to_string()),
+            BOOL: cache.intern("Bool".to_string()),
+            STRING: cache.intern("String".to_string()),
+            U8: cache.intern("U8".to_string()),
+            U16: cache.intern("U16".to_string()),
+            U32: cache.intern("U32".to_string()),
+            U64: cache.intern("U64".to_string()),
+            I32: cache.intern("I32".to_string()),
+            I64: cache.intern("I64".to_string()),
+            F32: cache.intern("F32".to_string()),
+            F64: cache.intern("F64".to_string()),
             cache: Mutex::new(cache),
-            const_init,
-            const_param,
-            const_var,
-            const_func,
-            const_pre,
-            const_post,
-            const_final,
-            const_validate,
-            const_int,
-            const_float,
-            const_bool,
-            const_string,
-            const_nil,
-            const_pair,
-            const_void,
         }
     }
 }
@@ -180,13 +144,7 @@ impl SCache {
         }
     }
 
-    pub fn resolve_value(&self, id: u64) -> &str {
-        let interner = self.cache.lock().unwrap();
-        let string_ref: &str = interner.resolve_value(id);
-        unsafe {
-            std::mem::transmute::<&str, &'static str>(string_ref)
-        }
-    }
+   
 }
 
 lazy_static! {pub static ref SCACHE : SCache = SCache::default();}
@@ -227,7 +185,6 @@ pub fn get_sha256(path: &PathBuf) -> std::io::Result<Sha256Hash> {
     let hash = Sha256::digest(&buffer);
     Ok(Sha256Hash::new(hash.into()))
 }
-
 
 
 pub fn read_file(path: &PathBuf) -> std::io::Result<String> {

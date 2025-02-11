@@ -279,7 +279,7 @@ impl ParserState {
         Ok(Some(modifiers))
     }
 
-    pub fn parse_type(&mut self, consume_colon: bool) -> Result<LangType, ParseError> {
+    pub fn  parse_type(&mut self, consume_colon: bool) -> Result<LangType, ParseError> {
         if consume_colon {
             // ::= ':'
             self.consume(TSyntactic(Syn::Colon))?;

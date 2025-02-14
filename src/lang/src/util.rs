@@ -12,6 +12,8 @@ use sha2::{Digest, Sha256};
 use sha2::digest::Update;
 use crate::Sha256Hash;
 
+lazy_static! {pub static ref SCACHE : SCache = SCache::default();}
+
 pub struct Interner {
     map: AHashMap<&'static str, u32>,
     list: Vec<Box<String>>,
@@ -147,7 +149,6 @@ impl SCache {
    
 }
 
-lazy_static! {pub static ref SCACHE : SCache = SCache::default();}
 
 pub fn get_wide_bytes(val: u16) -> (u8, u8) {
     ((val & 0xFF) as u8, ((val >> 8) & 0xFF) as u8)

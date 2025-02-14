@@ -307,19 +307,6 @@ pub enum Value {
 }
 
 
-impl Value {
-    pub fn get_type_info_if_primitive(&self) -> Option<(LangType, TypeId)> {
-        match self {
-            Value::I32(_) | Value::I64(_) | Value::U8(_) |
-            Value::U16(_) | Value::U32(_) | Value::U64(_) => Some((LangType::Integer, TypeTable::INT)),
-            Value::F32(_) | Value::F64(_) => Some((LangType::Float, TypeTable::FLOAT)),
-            Value::Boolean(_) => Some((LangType::Boolean, TypeTable::BOOL)),
-            Value::String => Some((LangType::String, TypeTable::STRING)),
-            _ => None
-        }
-    }
-}
-
 
 
 

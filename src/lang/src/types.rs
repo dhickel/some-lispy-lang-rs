@@ -2,7 +2,7 @@ use std::any::Any;
 use std::ops::{Add, Deref};
 use ahash::AHashMap;
 use intmap::IntMap;
-use crate::util::{IString, SCACHE};
+use crate::util::{IString, SCache, SCACHE};
 use crate::ast::Symbol;
 use crate::PrimType::Bool;
 
@@ -242,7 +242,7 @@ impl CustomType {
     pub fn is_resolved(&self) -> bool {
         false // FIXME: make actually resolve
     }
-    
+
     pub fn name(&self) -> IString {
         todo!()
     }
@@ -418,9 +418,9 @@ impl FunctionType {
 
 #[derive(Debug)]
 pub struct TypeTable {
-    type_id_table: Vec<LangType>,
-    type_enum_map: AHashMap<LangType, TypeId>,
-    type_name_map: IntMap<TypeId>, // FIXME: I dont think this is needed
+    type_id_table: Vec<LangType>, // Store resolved types for id lookups
+    type_enum_map: AHashMap<LangType, TypeId>, // Store ids for look-up via LangType
+    type_name_map: IntMap<TypeId>, // Map declare custom type IString Ids to type Ids
 }
 
 
@@ -469,21 +469,21 @@ impl Default for TypeTable {
         type_id_table.push(LangType::F64);
         type_enum_map.insert(LangType::F64, Self::F64);
         type_name_map.insert(SCACHE.F64.into(), Self::F64);
-        
+
         TypeTable { type_id_table, type_enum_map, type_name_map }
     }
 }
 
 
 pub struct TypeEntry {
-    id: Option<TypeId>,
-    typ: LangType,
+    id: TypeId,
+    lang_type: LangType,
 }
 
 
 impl TypeEntry {
-    pub fn id(&self) -> Option<TypeId> { self.id }
-    pub fn lang_type(&self) -> &LangType { &self.typ }
+    pub fn id(&self) -> TypeId { self.id }
+    pub fn lang_type(&self) -> &LangType { &self.lang_type }
 }
 
 
@@ -504,7 +504,7 @@ impl TypeTable {
     pub const F64: TypeId = TypeId(10);
 
     fn get_entry(&self, type_id: TypeId) -> TypeEntry {
-        TypeEntry { id: Some(type_id), typ: self.type_id_table[type_id.as_usize()].clone() }
+        TypeEntry { id: type_id, lang_type: self.type_id_table[type_id.as_usize()].clone() }
     }
 
     fn resolve_type_name(&self, name: IString) -> Option<TypeId> {
@@ -530,70 +530,82 @@ impl TypeTable {
 
         self.type_enum_map.insert(typ.clone(), idx);
 
-        if let LangType::Custom(cust_type) = &typ { 
-            self.type_name_map.insert(cust_type.name().into(), idx); }
+        if let LangType::Custom(cust_type) = &typ {
+            self.type_name_map.insert(cust_type.name().into(), idx);
+        }
 
         self.type_id_table.push(typ.clone());
 
-        Ok(TypeEntry { id: Some(idx), typ: self.type_id_table[idx.as_usize()].clone() })
+        Ok(TypeEntry { id: idx, lang_type: self.type_id_table[idx.as_usize()].clone() })
     }
 
-    pub fn resolve_type(&mut self, typ: &LangType) -> Result<(bool, Option<TypeEntry>), TypeError> {
+    pub fn resolve_type(&mut self, typ: &mut LangType) -> Result<Option<TypeEntry>, TypeError> {
+        if typ.is_resolved() {
+            // Panic to enforce all resolution paths to check if already resolved, for simplification and performance
+            panic!("Fatal<Internal>: Attempted to resolve, already resolved type");
+        }
 
-
-        // Insert new types should only happen on functions and arrays. As these are variations
-        //  of built-in types. All other definitions must occur via definition statements;
         match typ {
-            LangType::Array(inner) => {
-                if let (true, Some(type_entry)) = self.resolve_type(inner)? {
-                    let resolved_type = LangType::Array(Box::new(type_entry.typ));
+            LangType::Composite(CompositeType::Array(inner)) => {
+                // Ensure inner type is resolved
+                if let (Some(type_entry)) = self.resolve_type(inner)? {
+                    let resolved_type = LangType::Composite(CompositeType::Array(Box::new(type_entry.lang_type)));
+                    // Check if Array<InnerType> is already defined now that inner is resolved
                     if let Some(existing) = self.type_enum_map.get(&resolved_type) {
-                        Ok((true, Some(TypeEntry { id: Some(*existing), typ: typ.clone() })))
-                    } else { Ok((true, Some(self.define_new_type(typ)?))) }
-                } else { Ok((false, None)) }
+                        Ok(Some(TypeEntry { id: *existing, lang_type: typ.clone() }))
+                    } else {
+                        // Define a new type if it does not exist (only done for built-in types)
+                        let resolved_type = self.define_new_type(typ)?;
+                        Ok(Some(resolved_type))
+                    }
+                } else { Ok(None) }
             }
 
-            LangType::Lambda(func_type) => {
-                let mut resolved_type = FunctionType::default();
+            LangType::Composite(CompositeType::Function(func_type)) => {
+                // Declare an empty func type to populate
                 if !func_type.are_params_resolved() {
-                    for param in func_type.param_types.iter() {
+                    for i in 0..func_type.param_types.len() {
+                        let mut param = &mut func_type.param_types[i];
                         if !param.is_resolved() {
-                            if let (true, Some(entry)) = self.resolve_type(param)? {
-                                resolved_type.param_types.push(entry.typ);
-                            } else { resolved_type.param_types.push(param.clone()) }
+                            if let Some(entry) = self.resolve_type(&mut param)? {
+                                // Update the param at the current index with the resolved type
+                                func_type.set_param_type(i, entry.lang_type)?
+                            }
                         }
                     }
-                } else { resolved_type.param_types = func_type.param_types.clone() }
+                }
 
                 if !func_type.is_return_resolved() {
-                    if let Ok((true, Some(entry))) = self.resolve_type(&func_type.rtn_type) {
-                        resolved_type.rtn_type = Box::new(entry.typ)
+                    if let Ok(Some(entry)) = self.resolve_type(&mut func_type.rtn_type) {
+                        //Update the return type with the resolved type
+                        func_type.set_return_type(entry.lang_type)?
                     }
-                } else { resolved_type.rtn_type = func_type.rtn_type.clone() }
+                }
 
-                let resolved_type = LangType::Lambda(resolved_type);
-
-                if resolved_type.is_resolved() {
-                    if let Some(existing) = self.type_enum_map.get(&resolved_type) {
-                        Ok((true, Some(TypeEntry { id: Some(*existing), typ: resolved_type })))
-                    } else { Ok((true, Some(self.define_new_type(&resolved_type)?))) }
-                } else { Ok((false, Some(TypeEntry { id: None, typ: resolved_type }))) }
+                if func_type.is_resolved() {
+                    // Define a new type if it does not exist (only done for built-in types)
+                    let resolved_type = self.define_new_type(&typ)?;
+                    Ok(Some(resolved_type))
+                } else { Ok(None) }
             }
+
+            LangType::Composite(_) => todo!("Unimplemented Composite type"),
 
             LangType::Unresolved(unresolved) => {
                 match unresolved {
                     UnresolvedType::Identifier(i_str) => {
+                        // Check if the type has been defined. Custom Types need to have their declaration
+                        // parsed before resolving.
                         if let Some(type_id) = self.type_name_map.get(i_str.value.into()) {
-                            Ok((true, Some(TypeEntry { id: Some(*type_id), typ: typ.clone() })))
-                        } else { Ok((false, None)) }
+                            Ok(Some(TypeEntry { id: *type_id, lang_type: typ.clone() }))
+                        } else { Ok(None) }
                     }
                     _ => panic!("Fatal<Internal>: Unknown types should not be resolved directly")
                 }
             }
-            LangType::Quote => todo!("Implement Quote"),
-            LangType::Object(_) => todo!("Implement Objects"),
-            LangType::Tuple(_) => todo!("Implement Tuples"),
-            LangType::Nil | LangType::Boolean | LangType::Integer | LangType::Float | LangType::String => panic!("Should already exist"),
+
+            _ => panic!("Fatal<Internal>: resolve_type called on non-resolvable type, 
+                         Only composite/custom types (unresolved) need resolution")
         }
     }
 

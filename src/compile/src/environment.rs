@@ -332,7 +332,7 @@ impl SubEnvironment {
             Some(ResolveData::new(self.curr_ns, self.curr_scope, existing, typ.clone()))
         } else {
             let resolve_result = self.type_table_ref.write().unwrap()
-                .resolve_type(typ).unwrap_or((false, None));
+                .resolve_type(&mut typ).unwrap_or((false, None));
 
             if let Some(type_entry) = resolve_result.1 {
                 Some(ResolveData::new(self.curr_ns, self.curr_scope, type_entry.id()?, type_entry.lang_type().clone()))

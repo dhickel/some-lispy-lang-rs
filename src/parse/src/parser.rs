@@ -285,15 +285,14 @@ impl ParserState {
             self.consume(TSyntactic(Syn::Colon))?;
         }
 
-
         if matches!(self.peek()?.token_type, TokenType::FN) {
             self.advance()?;
             Ok(self.parse_func_type()?)
         } else if let Some(TokenData::String(str)) = self.consume(TokenType::IDENTIFIER)?.data {
-            if matches!(self.peek()?.token_type, TokenType::ANGLE_BRACKET_LEFT) {
+            if matches!(self.peek()?.token_type, TokenType::LEFT_BRACKET) {
                 self.advance()?;
                 let typ = self.parse_type(false)?;
-                self.consume(TokenType::ANGLE_BRACKET_RIGHT)?;
+                self.consume(TokenType::RIGHT_BRACKET)?;
                 Ok(typ)
             } else { Ok(LangType::parse_type_from_string(str)) }
         } else { ParseError::parsing_error(self.peek()?, "Expected Identifier for type") }

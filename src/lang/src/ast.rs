@@ -2,7 +2,7 @@ use crate::ast::Value::U32;
 use crate::ModifierFlags;
 use crate::util::IString;
 use crate::token::{Mod, Op};
-use crate::types::{LangType, TypeError, TypeId, TypeTable};
+use crate::types::{LangType, TypeEntry, TypeError, TypeId, TypeTable};
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,20 +47,21 @@ impl ResolveState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolveData {
-    pub type_id: TypeId,
     pub ns_id: u16,
     pub scope_id: u32,
-    pub typ: LangType,
+    pub type_entry: TypeEntry,
     pub meta_data: Option<MetaData>,
 }
 
 
 impl ResolveData {
-    pub fn new(ns_id: u16, scope_id: u32, type_id: TypeId, typ: LangType) -> Self {
-        if matches!(typ, LangType::Unresolved(_)) {
-            panic!("Fatal<internal>: Constructed resolution data with unresolved type")
-        }
-        Self { type_id, ns_id, scope_id, typ, meta_data: None }
+   pub fn with_meta_data(mut self, meta: MetaData) -> Self {
+       self.meta_data = Some(meta);
+       self
+   }
+    
+    pub fn new(ns_id: u16, scope_id: u32, type_entry: TypeEntry) -> Self {
+        Self { ns_id, scope_id, type_entry, meta_data: None }
     }
 }
 

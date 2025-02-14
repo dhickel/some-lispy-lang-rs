@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicUsize;
 use intmap::IntMap;
 use lang::{ModifierFlags, ValueType};
 use lang::ast::{FuncMeta, MetaData, ResolveData, Symbol};
-use lang::types::{LangType, TypeId, TypeTable};
+use lang::types::{LangType, PrimitiveType, TypeEntry, TypeId, TypeTable};
 use lang::util::{IString, SCACHE};
 
 
@@ -329,24 +329,40 @@ impl SubEnvironment {
         let existing = self.type_table_ref.read().unwrap().get_type_id(&typ);
 
         if let Some(existing) = existing {
-            Some(ResolveData::new(self.curr_ns, self.curr_scope, existing, typ.clone()))
+            Some(ResolveData::new(self.curr_ns, self.curr_scope, TypeEntry::new(existing, typ.clone())))
         } else {
-            let resolve_result = self.type_table_ref.write().unwrap()
-                .resolve_type(&mut typ).unwrap_or((false, None));
+            // SAFETY: We know typ won't be accessed through its original reference while
+            // resolve_type() is running, since we're the only ones holding the write lock
+            // on type_table_ref. The mutable reference is dropped before we return.
+            // TODO: this should be updated to better logic and avoid unsafe
+            let type_ptr = typ as *const LangType as *mut LangType;
+            let type_mut = unsafe { &mut *type_ptr };
 
-            if let Some(type_entry) = resolve_result.1 {
-                Some(ResolveData::new(self.curr_ns, self.curr_scope, type_entry.id()?, type_entry.lang_type().clone()))
+            let resolve_result = self.type_table_ref.write().unwrap()
+                .resolve_type(type_mut).expect("Need to propagate errors "); // FIXME
+
+            if let Some(type_entry) = resolve_result {
+                Some(self.new_resolve(type_entry))
             } else { None }
         }
     }
 
     pub fn get_resolve_data_by_type_id(&self, id: TypeId) -> ResolveData {
         let typ = self.type_table_ref.read().unwrap().get_type_by_id(id).clone();
-        ResolveData::new(self.curr_ns, self.curr_scope, id, typ)
+        ResolveData::new(self.curr_ns, self.curr_scope, TypeEntry::new())
+    }
+    
+    fn new_resolve(&self, type_entry: TypeEntry ) -> ResolveData {
+        ResolveData {
+            ns_id: self.curr_ns,
+            scope_id: self.curr_scope,
+            type_entry,
+            meta_data: None,
+        }
     }
 
     pub fn get_nil_resolve(&self) -> ResolveData {
-        ResolveData::new(self.curr_ns, self.curr_scope, TypeTable::NIL, LangType::Nil)
+        ResolveData::new(self.curr_ns, self.curr_scope, TypeTable::NIL, LangType::Primitive(PrimitiveType::Nil))
     }
 
     // TODO add ability to look up other namespaces via name?

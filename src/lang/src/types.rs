@@ -1,10 +1,7 @@
-use std::any::Any;
-use std::ops::{Add, Deref};
-use ahash::AHashMap;
+
 use intmap::IntMap;
 use crate::util::{IString, SCache, SCACHE};
 use crate::ast::Symbol;
-use crate::PrimType::Bool;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct TypeId(u16);
@@ -25,6 +22,10 @@ impl From<usize> for TypeId {
         }
         Self(value as u16)
     }
+}
+
+impl From<TypeId> for usize {
+    fn from(value: TypeId) -> Self { value.0 as usize }
 }
 
 #[derive(Debug)]
@@ -415,128 +416,110 @@ impl FunctionType {
     // }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypeEntry {
+    id: TypeId,
+    lang_type: LangType,
+}
+
+impl TypeEntry {
+    pub fn id(&self) -> TypeId { self.id }
+    pub fn lang_type(&self) -> &LangType { &self.lang_type }
+    pub fn new(id: TypeId, lang_type: LangType) -> TypeEntry { TypeEntry { id, lang_type } }
+}
+
 
 #[derive(Debug)]
 pub struct TypeTable {
-    type_id_table: Vec<LangType>, // Store resolved types for id lookups
-    type_enum_map: AHashMap<LangType, TypeId>, // Store ids for look-up via LangType
+    type_table: Vec<TypeEntry>, // Store resolved types for id lookups
     type_name_map: IntMap<TypeId>, // Map declare custom type IString Ids to type Ids
 }
 
 
 impl Default for TypeTable {
     fn default() -> Self {
-        let mut type_id_table = Vec::<LangType>::with_capacity(100);
-        let mut type_enum_map = AHashMap::<LangType, TypeId>::with_capacity(100);
-        let mut type_name_map = IntMap::<TypeId>::with_capacity(100);
+        let type_table = Vec::<TypeEntry>::with_capacity(100);
+        let type_name_map = IntMap::<TypeId>::with_capacity(100);
+        let mut type_table = TypeTable { type_table, type_name_map };
 
-        type_id_table.push(LangType::NIL);
-        type_enum_map.insert(LangType::NIL, Self::NIL);
-        type_name_map.insert(SCACHE.NIL.into(), Self::NIL);
+        type_table.insert(SCACHE.NIL, TypeTable::NIL);
+        type_table.insert(SCACHE.BOOL, TypeTable::BOOL);
+        type_table.insert(SCACHE.STRING, TypeTable::STRING);
+        type_table.insert(SCACHE.U8, TypeTable::U8);
+        type_table.insert(SCACHE.U16, TypeTable::U16);
+        type_table.insert(SCACHE.U32, TypeTable::U32);
+        type_table.insert(SCACHE.U64, TypeTable::U64);
+        type_table.insert(SCACHE.I32, TypeTable::I32);
+        type_table.insert(SCACHE.I64, TypeTable::I64);
+        type_table.insert(SCACHE.F32, TypeTable::F32);
+        type_table.insert(SCACHE.F64, TypeTable::F64);
 
-        type_id_table.push(LangType::BOOL);
-        type_enum_map.insert(LangType::BOOL, Self::BOOL);
-        type_name_map.insert(SCACHE.BOOL.into(), Self::BOOL);
-
-        type_id_table.push(LangType::U8);
-        type_enum_map.insert(LangType::U8, Self::U8);
-        type_name_map.insert(SCACHE.U8.into(), Self::U8);
-
-        type_id_table.push(LangType::U16);
-        type_enum_map.insert(LangType::U16, Self::U16);
-        type_name_map.insert(SCACHE.U16.into(), Self::U16);
-
-        type_id_table.push(LangType::U32);
-        type_enum_map.insert(LangType::U32, Self::U32);
-        type_name_map.insert(SCACHE.U32.into(), Self::U32);
-
-        type_id_table.push(LangType::U64);
-        type_enum_map.insert(LangType::U64, Self::U64);
-        type_name_map.insert(SCACHE.U64.into(), Self::U64);
-
-        type_id_table.push(LangType::I32);
-        type_enum_map.insert(LangType::I32, Self::I32);
-        type_name_map.insert(SCACHE.I32.into(), Self::I32);
-
-        type_id_table.push(LangType::I64);
-        type_enum_map.insert(LangType::I64, Self::I64);
-        type_name_map.insert(SCACHE.I64.into(), Self::I64);
-
-        type_id_table.push(LangType::F32);
-        type_enum_map.insert(LangType::F32, Self::F32);
-        type_name_map.insert(SCACHE.F32.into(), Self::F32);
-
-        type_id_table.push(LangType::F64);
-        type_enum_map.insert(LangType::F64, Self::F64);
-        type_name_map.insert(SCACHE.F64.into(), Self::F64);
-
-        TypeTable { type_id_table, type_enum_map, type_name_map }
+        type_table
     }
 }
 
-
-pub struct TypeEntry {
-    id: TypeId,
-    lang_type: LangType,
-}
-
-
-impl TypeEntry {
-    pub fn id(&self) -> TypeId { self.id }
-    pub fn lang_type(&self) -> &LangType { &self.lang_type }
-}
-
-
-// TODO clean up the structure and remove all the cloning, I assume type system
-//  will be fully redone at some point anyway  
 
 impl TypeTable {
-    pub const NIL: TypeId = TypeId(0);
-    pub const BOOL: TypeId = TypeId(1);
-    pub const STRING: TypeId = TypeId(2);
-    pub const U8: TypeId = TypeId(3);
-    pub const U16: TypeId = TypeId(4);
-    pub const U32: TypeId = TypeId(5);
-    pub const U64: TypeId = TypeId(6);
-    pub const I32: TypeId = TypeId(7);
-    pub const I64: TypeId = TypeId(8);
-    pub const F32: TypeId = TypeId(9);
-    pub const F64: TypeId = TypeId(10);
+    pub const NIL: TypeEntry = TypeEntry { id: TypeId(0), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const BOOL: TypeEntry = TypeEntry { id: TypeId(1), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const STRING: TypeEntry = TypeEntry { id: TypeId(2), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const U8: TypeEntry = TypeEntry { id: TypeId(3), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const U16: TypeEntry = TypeEntry { id: TypeId(4), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const U32: TypeEntry = TypeEntry { id: TypeId(5), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const U64: TypeEntry = TypeEntry { id: TypeId(6), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const I32: TypeEntry = TypeEntry { id: TypeId(7), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const I64: TypeEntry = TypeEntry { id: TypeId(8), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const F32: TypeEntry = TypeEntry { id: TypeId(9), lang_type: LangType::Primitive(PrimitiveType::Nil) };
+    pub const F64: TypeEntry = TypeEntry { id: TypeId(10), lang_type: LangType::Primitive(PrimitiveType::Nil) };
 
-    fn get_entry(&self, type_id: TypeId) -> TypeEntry {
-        TypeEntry { id: type_id, lang_type: self.type_id_table[type_id.as_usize()].clone() }
+    pub fn get_entry(&self, type_id: TypeId) -> &TypeEntry {
+        &self.type_table[type_id.as_usize()]
     }
 
-    fn resolve_type_name(&self, name: IString) -> Option<TypeId> {
-        self.type_name_map.get(name.into()).copied()
+    pub fn lookup_by_type(&self, typ: &LangType) -> Option<&TypeEntry> {
+        self.type_table.iter().find(|t| t.lang_type == *typ)
     }
 
+    pub fn lookup_by_name(&self, name: IString) -> Option<TypeId> {
+        self.type_name_map.get(name.into()).map_or_else(|| None, |id| Some(*id))
+    }
 
-    // Only call from definition statements, and on variant of internal types (Arrays/Lambdas atm) 
+    fn insert(&mut self, name: IString, type_entry: TypeEntry) {
+        // Ensure the existing id is the same as where it will be pushed
+        // This function is only used internally but this avoids any needless bugs
+        assert_eq!(type_entry.id.as_usize(), self.type_table.len());
+        self.type_name_map.insert(name.into(), type_entry.id);
+        self.type_table.push(type_entry)
+    }
+
+    // Only call on definition statements, and on variant of internal types (Arrays/Lambdas atm) 
 
     fn define_new_type(&mut self, typ: &LangType) -> Result<TypeEntry, TypeError> {
-        if self.type_enum_map.contains_key(&typ) {
-            return Err(
-                TypeError::InvalidOperation("Fatal<Internal>: Attempted to redefine existing type".to_string())
-            );
+        if self.type_table.iter().any(|t| t.lang_type == *typ) {
+            return Err(TypeError::InvalidOperation("Fatal<Internal>: Attempted to redefine existing type".to_string()));
         }
 
         let idx = {
-            let len = self.type_id_table.len();
+            let len = self.type_table.len();
             if len > u16::MAX as usize {
                 return Err(TypeError::TypeOverflow);
             } else { TypeId::from(len) } // len instead of len -1, type hasn't been pushed yet
         };
 
-        self.type_enum_map.insert(typ.clone(), idx);
+        let entry = TypeEntry::new(idx, typ.clone());
 
-        if let LangType::Custom(cust_type) = &typ {
-            self.type_name_map.insert(cust_type.name().into(), idx);
+        match typ {
+            LangType::Composite(comp_type) => {
+                self.type_table.push(entry.clone());
+            }
+            LangType::Custom(custom_type) => {
+                self.type_table.push(entry.clone());
+                self.type_name_map.insert(custom_type.name().into(), idx);
+            }
+            _ => panic!("Fatal<Internal>: Only composite and custom types can be defined as new types, found: {:?}", typ)
         }
 
-        self.type_id_table.push(typ.clone());
-
-        Ok(TypeEntry { id: idx, lang_type: self.type_id_table[idx.as_usize()].clone() })
+        Ok(entry)
     }
 
     pub fn resolve_type(&mut self, typ: &mut LangType) -> Result<Option<TypeEntry>, TypeError> {
@@ -551,8 +534,8 @@ impl TypeTable {
                 if let (Some(type_entry)) = self.resolve_type(inner)? {
                     let resolved_type = LangType::Composite(CompositeType::Array(Box::new(type_entry.lang_type)));
                     // Check if Array<InnerType> is already defined now that inner is resolved
-                    if let Some(existing) = self.type_enum_map.get(&resolved_type) {
-                        Ok(Some(TypeEntry { id: *existing, lang_type: typ.clone() }))
+                    if let Some(existing) = self.lookup_by_type(&resolved_type) {
+                        Ok(Some(existing.clone()))
                     } else {
                         // Define a new type if it does not exist (only done for built-in types)
                         let resolved_type = self.define_new_type(typ)?;
@@ -597,7 +580,7 @@ impl TypeTable {
                         // Check if the type has been defined. Custom Types need to have their declaration
                         // parsed before resolving.
                         if let Some(type_id) = self.type_name_map.get(i_str.value.into()) {
-                            Ok(Some(TypeEntry { id: *type_id, lang_type: typ.clone() }))
+                            Ok(Some(self.get_entry(*type_id).clone()))
                         } else { Ok(None) }
                     }
                     _ => panic!("Fatal<Internal>: Unknown types should not be resolved directly")
@@ -608,31 +591,11 @@ impl TypeTable {
                          Only composite/custom types (unresolved) need resolution")
         }
     }
-
-
-    pub fn get_type_id(&self, typ: &LangType) -> Option<TypeId> {
-        self.type_enum_map.get(typ).map_or_else(|| None, |t| Some(*t))
-    }
-
-
-    pub fn get_type_by_id(&self, id: TypeId) -> &LangType {
-        unsafe { self.type_id_table.get_unchecked(id.as_usize()) }
-    }
-
-
+    
     pub fn type_id_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
-        let src = &self.type_id_table[src_type.as_usize()];
-        let dst = &self.type_id_table[dst_type.as_usize()];
-        dst.compatible_with(src)
+        let src = &self.type_table[src_type.as_usize()];
+        let dst = &self.type_table[dst_type.as_usize()];
+        dst.lang_type().compatible_with(&src.lang_type)
     }
-
-
-    pub fn get_type_by_name(&self, i_string: IString) -> Option<&LangType> {
-        self.type_name_map.get(i_string.into()).map(|id| self.get_type_by_id(*id))
-    }
-
-
-    pub fn get_type_and_id_by_name(&self, i_string: IString) -> Option<(&LangType, TypeId)> {
-        self.type_name_map.get(i_string.into()).map(|id| (self.get_type_by_id(*id), *id))
-    }
+    
 }

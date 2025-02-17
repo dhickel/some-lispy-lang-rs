@@ -233,6 +233,14 @@ impl SubEnvironment {
         self.curr_depth
     }
 
+    pub fn get_scope_context(&self) -> ScopeContext {
+        ScopeContext {
+            ns_id: self.curr_ns,
+            scope_id: self.curr_scope,
+            depth: self.curr_depth,
+        }
+    }
+
     pub fn push_scope(&mut self) {
         println!("Pushed Scope #{}", self.curr_scope);
         self.curr_scope += 1;
@@ -258,21 +266,21 @@ impl SubEnvironment {
         self.curr_context.pop().expect("Fatal<Internal>: Popped non-existent context");
     }
 
-    pub fn get_type_entry(&self, type_id: TypeId) -> &TypeEntry {
+    pub fn get_type_entry(&self, type_id: TypeId) -> TypeEntry {
         self.type_table_ref.read().unwrap().get_entry(type_id)
     }
 
-    pub fn get_type_entry_by_name(&self, name: IString) -> Option<&TypeEntry> {
+    pub fn get_type_entry_by_name(&self, name: IString) -> Option<TypeEntry> {
         if let Some(id) = self.type_table_ref.read().unwrap().lookup_by_name(name) {
             Some(self.type_table_ref.read().unwrap().get_entry(id))
         } else { None }
     }
-    pub fn get_type_entry_by_type(&self, typ: &LangType) -> Option<&TypeEntry> {
+    pub fn get_type_entry_by_type(&self, typ: &LangType) -> Option<TypeEntry> {
         self.type_table_ref.read().unwrap().lookup_by_type(typ)
     }
 
     pub fn are_types_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
-        self.type_table_ref.read().unwrap().type_id_compatible(src_type, dst_type)
+        self.type_table_ref.read().unwrap().type_ids_compatible(src_type, dst_type)
     }
 
     pub fn add_symbol(
@@ -287,19 +295,16 @@ impl SubEnvironment {
 
             println!("Adding Symbol({:?}) In Scope: ns={:?}, curr_scope={:?}, active scopes:={:?}",
                      SCACHE.resolve(symbol.name()), self.curr_ns, self.curr_scope, self.active_scopes);
-            
+
             let typ = self.type_table_ref.read().unwrap().get_entry(type_id);
             let value_type: ValueType = ValueType::from(&typ);
             let symbol = SymbolContext {
                 name: symbol.name(),
                 value_type,
                 mod_flags,
+                scope_context: self.get_scope_context(),
+                type_entry: typ,
                 meta_data,
-                type_id,
-                typ,
-                ns_id: self.curr_ns,
-                scope_id: self.curr_scope,
-                depth: self.curr_depth,
             };
 
             println!("Resolved Symbol: {:?}", symbol);
@@ -315,10 +320,10 @@ impl SubEnvironment {
     }
 
     pub fn get_resolve_data_by_type(&mut self, typ: &LangType) -> Option<ResolveData> {
-        let existing = self.type_table_ref.read().unwrap().get_type_id(&typ);
+        let existing = self.type_table_ref.read().unwrap().lookup_by_type(typ);
 
         if let Some(existing) = existing {
-            Some(ResolveData::new(self.curr_ns, self.curr_scope, TypeEntry::new(existing, typ.clone())))
+            Some(ResolveData::new(self.get_scope_context(), existing))
         } else {
             // SAFETY: We know typ won't be accessed through its original reference while
             // resolve_type() is running, since we're the only ones holding the write lock
@@ -337,21 +342,20 @@ impl SubEnvironment {
     }
 
     pub fn get_resolve_data_by_type_id(&self, id: TypeId) -> ResolveData {
-        let typ = self.type_table_ref.read().unwrap().get_type_by_id(id).clone();
-        ResolveData::new(self.curr_ns, self.curr_scope, TypeEntry::new())
+        let typ = self.type_table_ref.read().unwrap().get_entry(id);
+        self.new_resolve(typ)
     }
 
     fn new_resolve(&self, type_entry: TypeEntry) -> ResolveData {
         ResolveData {
-            ns_id: self.curr_ns,
-            scope_id: self.curr_scope,
+            scope_context: self.get_scope_context(),
             type_entry,
             meta_data: None,
         }
     }
 
     pub fn get_nil_resolve(&self) -> ResolveData {
-        ResolveData::new(self.curr_ns, self.curr_scope, TypeTable::NIL, LangType::Primitive(PrimitiveType::Nil))
+        self.new_resolve(TypeTable::NIL)
     }
 
     // TODO add ability to look up other namespaces via name?

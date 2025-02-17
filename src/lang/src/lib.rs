@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 use std::str::FromStr;
 use bitflags::bitflags;
 use crate::token::Mod;
-use crate::types::LangType;
+use crate::types::{CompositeType, LangType, PrimitiveType};
 
 
 pub mod util;
@@ -62,20 +62,31 @@ pub enum PrimType {
 impl From<&LangType> for ValueType {
     fn from(value: &LangType) -> Self {
         match value {
-            LangType::Undefined(_) => panic!("Fatal<internal>: Attempted to convert unresolved Type to ValueType"),
-            LangType::Integer => ValueType::Primitive(PrimType::I64),
-            LangType::Float => ValueType::Primitive(PrimType::F64),
-            LangType::Boolean => ValueType::Primitive(PrimType::Bool),
-            LangType::Array(_) => ValueType::Array,
-            LangType::String => ValueType::String,
-            LangType::Tuple(_) => ValueType::Tuple,
-            // FIXME there is a nil value type, but I would like to avoid acknowledging
-            //  nil values this deep internally
-            LangType::Nil => panic!("Fatal<internal>: Attempted to cover Nil to ValueType"),
-            LangType::Quote => ValueType::Quote,
-            // FIXME, this need to map to the class definition, symbols should also be values?
-            LangType::Object(_) => ValueType::Object,
-            LangType::Lambda(_) => ValueType::Function
+            LangType::Primitive(prim) => {
+                match prim {
+                    PrimitiveType::U8 => ValueType::Primitive(PrimType::U8),
+                    PrimitiveType::U16 => ValueType::Primitive(PrimType::U16),
+                    PrimitiveType::U32 => ValueType::Primitive(PrimType::U16),
+                    PrimitiveType::U64 => ValueType::Primitive(PrimType::U16),
+                    PrimitiveType::I32 => ValueType::Primitive(PrimType::U16),
+                    PrimitiveType::I64 => ValueType::Primitive(PrimType::U16),
+                    PrimitiveType::F32 => ValueType::Primitive(PrimType::U16),
+                    PrimitiveType::F64 => ValueType::Primitive(PrimType::U16),
+                    PrimitiveType::Bool => ValueType::Primitive(PrimType::U16),
+                    PrimitiveType::Nil => panic!("Fatal<Internal>: Cannot convert Nil types to ValueType, should be pre checked")
+                }
+            }
+            LangType::Composite(comp) => {
+                match comp {
+                    CompositeType::Function(_) => ValueType::Function,
+                    CompositeType::Array(_) => ValueType::Array,
+                    CompositeType::Tuple(_) => ValueType::Tuple,
+                    CompositeType::String => ValueType::String,
+                    CompositeType::Quote => ValueType::Quote,
+                }
+            }
+            LangType::Custom(_) => ValueType::Object,
+            LangType::Undefined => panic!("Fatal<Internal>: Cannot convert Undefined types to ValueType, should be pre checked"),
         }
     }
 }

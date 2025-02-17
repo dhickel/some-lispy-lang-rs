@@ -28,13 +28,13 @@ impl ResolveState {
     pub fn get_type(&self) -> &LangType {
         match self {
             ResolveState::Unresolved(typ) => typ,
-            ResolveState::Resolved(res) => &res.typ
+            ResolveState::Resolved(res) => &res.type_entry.lang_type()
         }
     }
 
     pub fn get_type_id(&self) -> Option<TypeId> {
         if let ResolveState::Resolved(res) = self {
-            Some(res.type_id)
+            Some(res.type_entry.id())
         } else { None }
     }
 
@@ -99,7 +99,7 @@ pub struct FuncParam {
 impl<T> AstData<T> {
     pub fn new(data: T, line_char: (u32, u32), typ: Option<LangType>) -> Self {
         Self {
-            resolve_state: ResolveState::Unresolved(typ.unwrap_or_default()),
+            resolve_state: ResolveState::Unresolved(typ.unwrap_or(LangType::Undefined)),
             node_data: Box::new(data),
             line_char,
         }

@@ -1,9 +1,7 @@
-use std::any::Any;
-use std::io::stdout;
-use lang::ast::{Argument, AssignData, AstData, AstNode, ExprVariant, FExprData, FuncMeta, FuncParam, LambdaData, LetData, MetaData, MType, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, Value, Parameter};
+use lang::ast::{ AssignData, AstData, AstNode, ExprVariant, FExprData, LambdaData, LetData, MType, 
+                 OpCallData, PredicateData, ResolveState, SCallData, StmntVariant, Value};
 use lang::{ModifierFlags, ValueType};
-use lang::types::{LangType, TypeId, TypeTable, UnresolvedType};
-use lang::types::UnresolvedType::Undefined;
+use lang::types::{LangType};
 use lang::util::{IString, SCACHE};
 use crate::environment::{EnvError, SubEnvironment};
 use crate::{ValuePrecedence, Warning};

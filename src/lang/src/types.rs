@@ -50,19 +50,19 @@ pub enum LangType {
 // FIXME need ot calculate things like operation return values (unless we are going to require explicit casts)
 
 impl LangType {
-    const U8: LangType = LangType::Primitive(PrimitiveType::U8);
-    const U16: LangType = LangType::Primitive(PrimitiveType::U16);
-    const U32: LangType = LangType::Primitive(PrimitiveType::U32);
-    const U64: LangType = LangType::Primitive(PrimitiveType::U64);
-    const I32: LangType = LangType::Primitive(PrimitiveType::I32);
-    const I64: LangType = LangType::Primitive(PrimitiveType::I64);
-    const F32: LangType = LangType::Primitive(PrimitiveType::F32);
-    const F64: LangType = LangType::Primitive(PrimitiveType::F64);
-    const BOOL: LangType = LangType::Primitive(PrimitiveType::Bool);
-    const STRING: LangType = LangType::Composite(CompositeType::String);
-    const NIL: LangType = LangType::Primitive(PrimitiveType::Nil);
-    const QUOTE: LangType = LangType::Composite(CompositeType::Quote);
-    const UNDEFINED: LangType = LangType::Undefined;
+    pub const U8: LangType = LangType::Primitive(PrimitiveType::U8);
+    pub const U16: LangType = LangType::Primitive(PrimitiveType::U16);
+    pub const U32: LangType = LangType::Primitive(PrimitiveType::U32);
+    pub const U64: LangType = LangType::Primitive(PrimitiveType::U64);
+    pub const I32: LangType = LangType::Primitive(PrimitiveType::I32);
+    pub const I64: LangType = LangType::Primitive(PrimitiveType::I64);
+    pub const F32: LangType = LangType::Primitive(PrimitiveType::F32);
+    pub const F64: LangType = LangType::Primitive(PrimitiveType::F64);
+    pub const BOOL: LangType = LangType::Primitive(PrimitiveType::Bool);
+    pub const STRING: LangType = LangType::Composite(CompositeType::String);
+    pub const NIL: LangType = LangType::Primitive(PrimitiveType::Nil);
+    pub const QUOTE: LangType = LangType::Composite(CompositeType::Quote);
+    pub const UNDEFINED: LangType = LangType::Undefined;
 
 
     pub fn parse_type_from_string(name: IString) -> LangType {
@@ -104,6 +104,14 @@ impl LangType {
                 compiler should not be resolving undefined type and must enforce their limited use, or per-infer them")
         }
     }
+
+    pub fn can_cast_primitive(src: &PrimitiveType, dst: &PrimitiveType) -> bool {
+        if src == dst { return true; }
+        let src_precedence = src.get_precedence();
+        let dst_precedence = dst.get_precedence();
+        // > 1 ensures that Bools and Nil cant be cast to numeric types, bool conversion to numeric should be explicit
+        src_precedence <= dst_precedence && src_precedence > 1 && dst_precedence > 1
+    }
 }
 
 
@@ -122,7 +130,7 @@ pub enum PrimitiveType {
 }
 
 impl PrimitiveType {
-    fn get_precedence(&self) -> u8 {
+    pub fn get_precedence(&self) -> u8 {
         match self {
             PrimitiveType::Nil => 0,
             PrimitiveType::Bool => 1,
@@ -195,6 +203,10 @@ impl FunctionType {
     pub fn is_resolved(&self) -> bool { self.are_params_resolved() && self.is_return_resolved() }
 
     pub fn add_param_type(&mut self, typ: LangType) { self.param_types.push(typ) }
+
+    pub fn set_return_type(&mut self, typ: LangType) { self.rtn_type = Box::new(typ) }
+
+    pub fn set_param_type(&mut self, idx: usize, typ: LangType) { self.param_types[idx] = typ; }
 }
 
 
@@ -326,7 +338,7 @@ impl TypeTable {
                     let array_type = LangType::Composite(CompositeType::Array(Box::new(type_entry.lang_type.clone())));
 
                     if let Some(existing) = self.lookup_by_type(&array_type) {
-                         Ok(Some(existing))
+                        Ok(Some(existing))
                     } else {
                         let entry = self.define_new_composite_type(array_type.clone())?;
                         Ok(Some(entry))
@@ -360,7 +372,7 @@ impl TypeTable {
 
             LangType::Custom(custom_type) => {
                 let is_resolved = self.lookup_by_type(&typ).map_or_else(|| false, |_| true);
-                
+
                 if let Some(type_entry) = self.lookup_by_type(&typ) {
                     Ok(Some(type_entry))
                 } else { Ok(None) }
@@ -368,10 +380,33 @@ impl TypeTable {
         }
     }
 
-    pub fn type_id_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
-        todo!("Need to implement")
-        // let src = &self.type_table[src_type.as_usize()];
-        // let dst = &self.type_table[dst_type.as_usize()];
-        // dst.lang_type().compatible_with(&src.lang_type)
+    pub fn type_ids_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
+        if src_type == dst_type { return true; }
+        
+         let src_type = &self.type_table[src_type.as_usize()];
+         let dst_type = &self.type_table[dst_type.as_usize()];
+        
+        match &dst_type.lang_type {
+            LangType::Primitive(dst_prim) =>  {
+                if let LangType::Primitive(src_prim) = &src_type.lang_type {
+                    LangType::can_cast_primitive(src_prim, dst_prim)
+                } else { false}
+            }
+            LangType::Composite(comp_type) => {
+                match comp_type {
+                    // These will match on exact types on first check if same, stubbing out the
+                    // match as there will likely be logic need here later
+                    CompositeType::Function(_) => false, 
+                    // This should atleast check for custom types that can be the members (Heap Object/Interface)
+                    // though this might be best left to an explicit function, which is what I am think atm for these conversions
+                    CompositeType::Array(_) => false,
+                    CompositeType::Tuple(_) => false,
+                    CompositeType::String | CompositeType::Quote => false, 
+                }
+            } 
+            LangType::Custom(_) => todo!("Custom type logic needs implemented"),
+            LangType::Undefined => todo!("Idk what to do for undefined yet"),
+        }
+        
     }
 }

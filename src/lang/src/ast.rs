@@ -1,4 +1,3 @@
-use crate::ast::Value::U32;
 use crate::ModifierFlags;
 use crate::util::IString;
 use crate::token::{Mod, Op};
@@ -44,11 +43,17 @@ impl ResolveState {
     }
 }
 
+#[derive(Copy, Debug, Clone, PartialEq)]
+pub struct ScopeContext {
+    pub ns_id: u16,
+    pub scope_id: u32,
+    pub depth: u32,
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolveData {
-    pub ns_id: u16,
-    pub scope_id: u32,
+    pub scope_context: ScopeContext,
     pub type_entry: TypeEntry,
     pub meta_data: Option<MetaData>,
 }
@@ -60,8 +65,8 @@ impl ResolveData {
        self
    }
     
-    pub fn new(ns_id: u16, scope_id: u32, type_entry: TypeEntry) -> Self {
-        Self { ns_id, scope_id, type_entry, meta_data: None }
+    pub fn new(scope_context: ScopeContext, type_entry: TypeEntry) -> Self {
+        Self { scope_context, type_entry, meta_data: None }
     }
 }
 

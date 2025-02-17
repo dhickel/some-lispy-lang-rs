@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicUsize;
 use intmap::IntMap;
 use lang::{ModifierFlags, ValueType};
-use lang::ast::{FuncMeta, MetaData, ResolveData, Symbol};
+use lang::ast::{FuncMeta, MetaData, ResolveData, ScopeContext, Symbol};
 use lang::types::{LangType, PrimitiveType, TypeEntry, TypeId, TypeTable};
 use lang::util::{IString, SCACHE};
 
@@ -22,11 +22,8 @@ pub struct SymbolContext {
     pub name: IString,
     pub value_type: ValueType,
     pub mod_flags: ModifierFlags,
-    pub ns_id: u16,
-    pub scope_id: u32,
-    pub depth: u32,
-    pub type_id: TypeId,
-    pub typ: LangType,
+    pub scope_context: ScopeContext,
+    pub type_entry: TypeEntry,
     pub meta_data: Option<MetaData>,
 }
 
@@ -42,15 +39,12 @@ impl PartialOrd for SymbolContext {
 impl From<SymbolContext> for ResolveData {
     fn from(sc: SymbolContext) -> Self {
         ResolveData {
-            type_id: sc.type_id,
-            ns_id: sc.ns_id,
-            scope_id: sc.scope_id,
-            typ: sc.typ.clone(),
-            meta_data: sc.meta_data.clone(),
+            scope_context: sc.scope_context,
+            type_entry: sc.type_entry,
+            meta_data: sc.meta_data,
         }
     }
 }
-
 
 #[derive(Default, Debug)]
 struct SymbolTable {
@@ -252,7 +246,6 @@ impl SubEnvironment {
         self.active_scopes.pop().expect("Fatal<Internal>: Popped global scope");
     }
 
-
     pub fn push_func_context(&mut self) {
         self.curr_context.push(EnvContext::Function(FunctionCtx::default()))
     }
@@ -265,22 +258,17 @@ impl SubEnvironment {
         self.curr_context.pop().expect("Fatal<Internal>: Popped non-existent context");
     }
 
-
-    // FIXME clone here
-    pub fn get_type_by_id(&self, type_id: TypeId) -> LangType {
-        self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone()
+    pub fn get_type_entry(&self, type_id: TypeId) -> &TypeEntry {
+        self.type_table_ref.read().unwrap().get_entry(type_id)
     }
 
-    pub fn get_type_by_name(&self, name: IString) -> Option<LangType> {
-        self.type_table_ref.read().unwrap().get_type_by_name(name).map_or_else(|| None, |t| Some(t.clone()))
+    pub fn get_type_entry_by_name(&self, name: IString) -> Option<&TypeEntry> {
+        if let Some(id) = self.type_table_ref.read().unwrap().lookup_by_name(name) {
+            Some(self.type_table_ref.read().unwrap().get_entry(id))
+        } else { None }
     }
-    pub fn get_type_and_id_by_name(&self, name: IString) -> Option<(LangType, TypeId)> {
-        self.type_table_ref.read().unwrap().get_type_and_id_by_name(name)
-            .map_or_else(|| None, |t| Some((t.0.clone(), t.1)))
-    }
-
-    pub fn get_id_for_type(&self, typ: &LangType) -> Option<TypeId> {
-        self.type_table_ref.read().unwrap().get_type_id(typ)
+    pub fn get_type_entry_by_type(&self, typ: &LangType) -> Option<&TypeEntry> {
+        self.type_table_ref.read().unwrap().lookup_by_type(typ)
     }
 
     pub fn are_types_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
@@ -299,7 +287,8 @@ impl SubEnvironment {
 
             println!("Adding Symbol({:?}) In Scope: ns={:?}, curr_scope={:?}, active scopes:={:?}",
                      SCACHE.resolve(symbol.name()), self.curr_ns, self.curr_scope, self.active_scopes);
-            let typ = self.type_table_ref.read().unwrap().get_type_by_id(type_id).clone();
+            
+            let typ = self.type_table_ref.read().unwrap().get_entry(type_id);
             let value_type: ValueType = ValueType::from(&typ);
             let symbol = SymbolContext {
                 name: symbol.name(),
@@ -351,8 +340,8 @@ impl SubEnvironment {
         let typ = self.type_table_ref.read().unwrap().get_type_by_id(id).clone();
         ResolveData::new(self.curr_ns, self.curr_scope, TypeEntry::new())
     }
-    
-    fn new_resolve(&self, type_entry: TypeEntry ) -> ResolveData {
+
+    fn new_resolve(&self, type_entry: TypeEntry) -> ResolveData {
         ResolveData {
             ns_id: self.curr_ns,
             scope_id: self.curr_scope,

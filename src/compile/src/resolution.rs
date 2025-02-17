@@ -228,7 +228,7 @@ impl<'a> Resolver<'a> {
         let (op_resolved, op_type, op_type_id)
             = if self.resolve_expression(&mut data.node_data.operation_expr)? {
             (true, data.resolve_state.get_type(), Some(data.resolve_state.get_type_id().unwrap()))
-        } else { (false, &LangType::Unresolved(Undefined), None) };
+        } else { (false, &LangType::Undefined(Undefined), None) };
 
         if let Some(exprs) = data.node_data.operand_exprs.as_mut() {
             let operands_resolved = exprs.iter_mut().try_fold(true, |acc, expr| {

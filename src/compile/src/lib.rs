@@ -43,7 +43,7 @@ enum ValuePrecedence {
 impl ValuePrecedence {
     pub fn get_precedence_value(typ: &LangType) -> ValuePrecedence {
         match typ {
-            LangType::Unresolved(_) => panic!("Fatal<Internal>: Attempted to get precedence of unresolved value"),
+            LangType::Undefined(_) => panic!("Fatal<Internal>: Attempted to get precedence of unresolved value"),
             LangType::Integer => ValuePrecedence::I64,
             LangType::Float => ValuePrecedence::F64,
             LangType::Boolean => ValuePrecedence::Bool,

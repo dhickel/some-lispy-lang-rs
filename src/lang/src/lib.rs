@@ -62,7 +62,7 @@ pub enum PrimType {
 impl From<&LangType> for ValueType {
     fn from(value: &LangType) -> Self {
         match value {
-            LangType::Unresolved(_) => panic!("Fatal<internal>: Attempted to convert unresolved Type to ValueType"),
+            LangType::Undefined(_) => panic!("Fatal<internal>: Attempted to convert unresolved Type to ValueType"),
             LangType::Integer => ValueType::Primitive(PrimType::I64),
             LangType::Float => ValueType::Primitive(PrimType::F64),
             LangType::Boolean => ValueType::Primitive(PrimType::Bool),

@@ -1,5 +1,5 @@
-use lang::ast::{ AssignData, AstData, AstNode, ExprVariant, FExprData, LambdaData, LetData, MType, 
-                 OpCallData, PredicateData, ResolveState, SCallData, StmntVariant, Value};
+use lang::ast::{AssignData, AstData, AstNode, ExprVariant, FExprData, LambdaData, LetData, MType,
+                OpCallData, PredicateData, ResolveState, SCallData, StmntVariant, Value};
 use lang::{ModifierFlags, ValueType};
 use lang::types::{LangType};
 use lang::util::{IString, SCACHE};
@@ -206,7 +206,7 @@ impl<'a> Resolver<'a> {
                     data.resolve_state.get_type_id().unwrap()
                 } else { return Ok(false); };
 
-                if self.env.are_types_compatible(value_type_id, symbol.type_id) {
+                if self.env.are_types_compatible(value_type_id, symbol.type_entry.id()) {
                     Ok(true)
                 } else {
                     ResolveError::invalid_assignment(data.line_char, &data.resolve_state.get_type(), data.resolve_state.get_type())
@@ -220,26 +220,46 @@ impl<'a> Resolver<'a> {
     // Expressions //
     /////////////////
 
+    
+    // Resolves function call S-Expressions Operations (+-*/...) use resolve_op_expr
     fn resolve_s_expr(&mut self, data: &mut AstData<SCallData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_resolved() { return Ok(true); }
+        let mut operation = &data.node_data.operation_expr;
+        let mut operands = &data.node_data.operand_exprs;
 
-        let (op_resolved, op_type, op_type_id)
-            = if self.resolve_expression(&mut data.node_data.operation_expr)? {
-            (true, data.resolve_state.get_type(), Some(data.resolve_state.get_type_id().unwrap()))
-        } else { (false, &LangType::Undefined(Undefined), None) };
+        // Check and resolve operation expression if needed
+        let operation_resolved = if !operation.get_resolve_state().is_resolved() {
+            self.resolve_expression(&mut operation)?
+        } else { true };
 
-        if let Some(exprs) = data.node_data.operand_exprs.as_mut() {
-            let operands_resolved = exprs.iter_mut().try_fold(true, |acc, expr| {
-                let result = self.resolve_expression(expr)?;
-                Ok(acc && result)
-            })?;
+        // Iter and attempt to resolve any unresolved operands, then check if all are resolved
+        let operands_resolved = if let Some(mut operands) = operands {
+            operands.iter_mut().for_each(|o| {
+                if !o.get_resolve_state().is_resolved() { self.resolve_expression(o)?; }
+            });
+            operands.iter().all(|o| o.get_resolve_state().is_resolved())
+        } else { true };
+        
+        // Built in operations will take the path to resolve_op_expr, which calculates type from operands
+        // Here it is needed to verify that the signature of the arguments match and assign the operations
+        // return type to the nodes resolve data
+         
+        if operation_resolved && operands_resolved {
+            let op_type = data.node_data.operation_expr.get_resolve_state().get_type();
+            
+            let arguments_valid = if let Some(mut operands) = &operands {
+                if let Expr
+                
+                for operand in operands.iter_mut() {
+                    let (valid, conversion) = self.env.are_types_compatible()
+                }
+            } else { true};
 
-            if op_resolved && operands_resolved {
-                let res_data = self.env.get_resolve_data_by_type_id(op_type_id.unwrap());
-                data.resolve_state = ResolveState::Resolved(res_data);
-                Ok(true)
-            } else { Ok(false) }
-        } else { Ok(true) }
+
+            let res_data = self.env.get_resolve_data_by_type_id(op_type_id.unwrap());
+            data.resolve_state = ResolveState::Resolved(res_data);
+            Ok(true)
+        } else { Ok(false) }
     }
 
 
@@ -468,7 +488,6 @@ impl<'a> Resolver<'a> {
             None => true,
             Some(params) => {
                 if !params.iter().all(|p| p.typ.is_some())
-                
             }
         }
 

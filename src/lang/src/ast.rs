@@ -1,7 +1,7 @@
 use crate::ModifierFlags;
 use crate::util::IString;
 use crate::token::{Mod, Op};
-use crate::types::{LangType, TypeEntry, TypeError, TypeId, TypeTable};
+use crate::types::{LangType, PrimitiveType, TypeEntry, TypeError, TypeId, TypeTable};
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,6 +37,12 @@ impl ResolveState {
             Some(res.type_entry.id())
         } else { None }
     }
+    
+    pub fn get_type_entry(&self) -> Option<&TypeEntry> {
+        if let ResolveState::Resolved(res) = self {
+            Some(&res.type_entry)
+        } else { None }
+    }
 
     pub fn get_type_and_id(&self) -> (&LangType, Option<TypeId>) {
         (self.get_type(), self.get_type_id())
@@ -50,12 +56,21 @@ pub struct ScopeContext {
     pub depth: u32,
 }
 
+#[derive(Debug, Clone, PartialEq,Default)]
+pub enum TypeConversion {
+    #[default]
+    None,
+    Primitive(PrimitiveType), 
+    Custom(TypeId),
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolveData {
     pub scope_context: ScopeContext,
     pub type_entry: TypeEntry,
     pub meta_data: Option<MetaData>,
+    pub type_conversion: TypeConversion
 }
 
 
@@ -65,8 +80,13 @@ impl ResolveData {
        self
    }
     
+    pub fn with_type_conversion(mut self, conversion: TypeConversion) -> Self {
+        self.type_conversion = conversion;
+        self
+    }
+    
     pub fn new(scope_context: ScopeContext, type_entry: TypeEntry) -> Self {
-        Self { scope_context, type_entry, meta_data: None }
+        Self { scope_context, type_entry, meta_data: None, type_conversion: TypeConversion::None }
     }
 }
 

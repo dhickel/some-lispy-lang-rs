@@ -2,7 +2,7 @@ use std::process::id;
 use intmap::IntMap;
 use sha2::digest::typenum::private::IsEqualPrivate;
 use crate::util::{IString, SCache, SCACHE};
-use crate::ast::Symbol;
+use crate::ast::{Symbol, TypeConversion};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct TypeId(u16);
@@ -217,7 +217,7 @@ pub struct TypeMeta {}
 pub struct TypeEntry {
     id: TypeId,
     lang_type: LangType,
-    meta_data: Option<TypeMeta>,
+    meta_data: Option<TypeMeta>, // FIXME this should be stored here as it takes up unneeded space as these are currently cloned
 }
 
 impl TypeEntry {
@@ -380,33 +380,76 @@ impl TypeTable {
         }
     }
 
-    pub fn type_ids_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
-        if src_type == dst_type { return true; }
-        
-         let src_type = &self.type_table[src_type.as_usize()];
-         let dst_type = &self.type_table[dst_type.as_usize()];
-        
+    // pub fn type_ids_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
+    //     if src_type == dst_type { return true; }
+    //     
+    //      let src_type = &self.type_table[src_type.as_usize()];
+    //      let dst_type = &self.type_table[dst_type.as_usize()];
+    //     
+    //     match &dst_type.lang_type {
+    //         LangType::Primitive(dst_prim) =>  {
+    //             if let LangType::Primitive(src_prim) = &src_type.lang_type {
+    //                 LangType::can_cast_primitive(src_prim, dst_prim)
+    //             } else { false}
+    //         }
+    //         LangType::Composite(comp_type) => {
+    //             match comp_type {
+    //                 // These will match on exact types on first check if same, stubbing out the
+    //                 // match as there will likely be logic need here later
+    //                 CompositeType::Function(_) => false, 
+    //                 // This should atleast check for custom types that can be the members (Heap Object/Interface)
+    //                 // though this might be best left to an explicit function, which is what I am think atm for these conversions
+    //                 CompositeType::Array(_) => false,
+    //                 CompositeType::Tuple(_) => false,
+    //                 CompositeType::String | CompositeType::Quote => false, 
+    //             }
+    //         } 
+    //         LangType::Custom(_) => todo!("Custom type logic needs implemented"),
+    //         LangType::Undefined => todo!("Idk what to do for undefined yet"),
+    //     }
+    // }
+
+    pub fn type_id_compatible(&self, src_type: TypeId, dst_type: TypeId) -> (bool, TypeConversion) {
+        // First check if types are identical - no conversion needed
+        if src_type == dst_type {
+            return (true, TypeConversion::None);
+        }
+
+        let src_type = &self.type_table[src_type.as_usize()];
+        let dst_type = &self.type_table[dst_type.as_usize()];
+
         match &dst_type.lang_type {
-            LangType::Primitive(dst_prim) =>  {
+            LangType::Primitive(dst_prim) => {
                 if let LangType::Primitive(src_prim) = &src_type.lang_type {
-                    LangType::can_cast_primitive(src_prim, dst_prim)
-                } else { false}
+                    // Check primitive type compatibility
+                    let src_precedence = src_prim.get_precedence();
+                    let dst_precedence = dst_prim.get_precedence();
+
+                    if src_precedence <= dst_precedence && src_precedence > 1 && dst_precedence > 1 {
+                        (true, TypeConversion::Primitive(dst_prim.clone()))
+                    } else {
+                        (false, TypeConversion::None)
+                    }
+                } else {
+                    (false, TypeConversion::None)
+                }
             }
             LangType::Composite(comp_type) => {
                 match comp_type {
-                    // These will match on exact types on first check if same, stubbing out the
-                    // match as there will likely be logic need here later
-                    CompositeType::Function(_) => false, 
-                    // This should atleast check for custom types that can be the members (Heap Object/Interface)
-                    // though this might be best left to an explicit function, which is what I am think atm for these conversions
-                    CompositeType::Array(_) => false,
-                    CompositeType::Tuple(_) => false,
-                    CompositeType::String | CompositeType::Quote => false, 
+                    // For now, composite types only match if identical (handled above)
+                    // Later you can add conversion logic for compatible composite types
+                    CompositeType::Function(_) => (false, TypeConversion::None),
+                    CompositeType::Array(_) => (false, TypeConversion::None),
+                    CompositeType::Tuple(_) => (false, TypeConversion::None),
+                    CompositeType::String | CompositeType::Quote => (false, TypeConversion::None),
                 }
-            } 
-            LangType::Custom(_) => todo!("Custom type logic needs implemented"),
-            LangType::Undefined => todo!("Idk what to do for undefined yet"),
+            }
+            LangType::Custom(_custom_type) => {
+                // Later you'll implement custom type conversion logic here
+                // For now, return false with no conversion
+                (false, TypeConversion::None)
+            }
+            LangType::Undefined => (false, TypeConversion::None),
         }
-        
     }
 }

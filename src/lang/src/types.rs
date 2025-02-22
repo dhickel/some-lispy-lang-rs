@@ -324,7 +324,10 @@ impl TypeTable {
     }
 
     pub fn resolve_type(&mut self, typ: &mut LangType) -> Result<Option<TypeEntry>, TypeError> {
-        if typ.is_resolved() { return Ok(self.lookup_by_type(typ)); }
+        if typ.is_resolved() {
+            println!("Debug: Re-resolved resolved type {:?}, this should be avoid for performance", typ);
+            return Ok(self.lookup_by_type(typ));
+        }
 
         match typ {
             LangType::Primitive(_) => panic!("Fatal<Internal>: Primitives are already resolved and this path never taken"),
@@ -379,35 +382,6 @@ impl TypeTable {
             }
         }
     }
-
-    // pub fn type_ids_compatible(&self, src_type: TypeId, dst_type: TypeId) -> bool {
-    //     if src_type == dst_type { return true; }
-    //     
-    //      let src_type = &self.type_table[src_type.as_usize()];
-    //      let dst_type = &self.type_table[dst_type.as_usize()];
-    //     
-    //     match &dst_type.lang_type {
-    //         LangType::Primitive(dst_prim) =>  {
-    //             if let LangType::Primitive(src_prim) = &src_type.lang_type {
-    //                 LangType::can_cast_primitive(src_prim, dst_prim)
-    //             } else { false}
-    //         }
-    //         LangType::Composite(comp_type) => {
-    //             match comp_type {
-    //                 // These will match on exact types on first check if same, stubbing out the
-    //                 // match as there will likely be logic need here later
-    //                 CompositeType::Function(_) => false, 
-    //                 // This should atleast check for custom types that can be the members (Heap Object/Interface)
-    //                 // though this might be best left to an explicit function, which is what I am think atm for these conversions
-    //                 CompositeType::Array(_) => false,
-    //                 CompositeType::Tuple(_) => false,
-    //                 CompositeType::String | CompositeType::Quote => false, 
-    //             }
-    //         } 
-    //         LangType::Custom(_) => todo!("Custom type logic needs implemented"),
-    //         LangType::Undefined => todo!("Idk what to do for undefined yet"),
-    //     }
-    // }
 
     pub fn type_id_compatible(&self, src_type: TypeId, dst_type: TypeId) -> (bool, TypeConversion) {
         // First check if types are identical - no conversion needed

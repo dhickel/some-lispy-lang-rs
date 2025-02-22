@@ -12,9 +12,6 @@ pub struct AstData<T> {
 }
 
 
-
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolveState {
     Unresolved(LangType),
@@ -24,29 +21,13 @@ pub enum ResolveState {
 
 impl ResolveState {
     pub fn is_resolved(&self) -> bool { !matches!(self, Self::Unresolved(_)) }
-
-    pub fn get_type(&self) -> &LangType {
-        match self {
-            ResolveState::Unresolved(typ) => typ,
-            ResolveState::Resolved(res) => &res.type_entry.lang_type()
-        }
-    }
-
-    pub fn get_type_id(&self) -> Option<TypeId> {
-        if let ResolveState::Resolved(res) = self {
-            Some(res.type_entry.id())
-        } else { None }
-    }
     
     pub fn get_type_entry(&self) -> Option<&TypeEntry> {
         if let ResolveState::Resolved(res) = self {
             Some(&res.type_entry)
         } else { None }
     }
-
-    pub fn get_type_and_id(&self) -> (&LangType, Option<TypeId>) {
-        (self.get_type(), self.get_type_id())
-    }
+    
 }
 
 #[derive(Copy, Debug, Clone, PartialEq)]
@@ -56,11 +37,11 @@ pub struct ScopeContext {
     pub depth: u32,
 }
 
-#[derive(Debug, Clone, PartialEq,Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum TypeConversion {
     #[default]
     None,
-    Primitive(PrimitiveType), 
+    Primitive(PrimitiveType),
     Custom(TypeId),
 }
 
@@ -70,21 +51,21 @@ pub struct ResolveData {
     pub scope_context: ScopeContext,
     pub type_entry: TypeEntry,
     pub meta_data: Option<MetaData>,
-    pub type_conversion: TypeConversion
+    pub type_conversion: TypeConversion,
 }
 
 
 impl ResolveData {
-   pub fn with_meta_data(mut self, meta: MetaData) -> Self {
-       self.meta_data = Some(meta);
-       self
-   }
-    
+    pub fn with_meta_data(mut self, meta: MetaData) -> Self {
+        self.meta_data = Some(meta);
+        self
+    }
+
     pub fn with_type_conversion(mut self, conversion: TypeConversion) -> Self {
         self.type_conversion = conversion;
         self
     }
-    
+
     pub fn new(scope_context: ScopeContext, type_entry: TypeEntry) -> Self {
         Self { scope_context, type_entry, meta_data: None, type_conversion: TypeConversion::None }
     }
@@ -128,7 +109,7 @@ impl<T> AstData<T> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Symbol {
-    Definition { name: IString, is_defined: bool},
+    Definition { name: IString, is_defined: bool },
     Reference(IString),
 }
 
@@ -136,17 +117,16 @@ impl Symbol {
     pub fn new_definition(name: IString) -> Self {
         Symbol::Definition { name, is_defined: false }
     }
-    
+
     pub fn new_reference(name: IString) -> Self {
-       Symbol::Reference(name) 
+        Symbol::Reference(name)
     }
-    
+
     pub fn name(&self) -> IString {
         match self {
             Symbol::Definition { name, .. } | Symbol::Reference(name) => *name
         }
     }
-    
 }
 
 
@@ -183,7 +163,7 @@ impl Into<AstNode> for StmntVariant {
 pub struct AssignData {
     pub namespace: Option<IString>,
     pub identifier: Symbol,
-    pub value: ExprVariant,
+    pub expr: ExprVariant,
 }
 
 
@@ -240,6 +220,28 @@ impl ExprVariant {
             ExprVariant::Lambda(data) => &data.resolve_state,
         }
     }
+
+    pub fn get_resolve_state_mut(&mut self) -> &mut ResolveState {
+        match self {
+            ExprVariant::SCall(data) => &mut data.resolve_state,
+            ExprVariant::FCall(data) => &mut data.resolve_state,
+            ExprVariant::Value(data) => &mut data.resolve_state,
+            ExprVariant::OpCall(data) => &mut data.resolve_state,
+            ExprVariant::Block(data) => &mut data.resolve_state,
+            ExprVariant::Predicate(data) => &mut data.resolve_state,
+            ExprVariant::Lambda(data) => &mut data.resolve_state,
+        }
+    }
+    
+    pub fn add_type_conversion(&mut self, conversion: TypeConversion) {
+        let resolve_state = self.get_resolve_state_mut();
+        
+        if let ResolveState::Resolved(resolve_data) = resolve_state {
+            resolve_data.type_conversion = conversion;
+        } else {
+            panic!("Fatal<Internal>: Attempted to add type conversion to unresolved node, this path should not occur")
+        }
+    }
 }
 
 
@@ -256,7 +258,6 @@ pub struct LambdaData {
     pub body_expr: ExprVariant,
     pub is_form: bool,
 }
-
 
 
 #[derive(Debug, Clone, PartialEq)]

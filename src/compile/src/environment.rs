@@ -279,9 +279,10 @@ impl SubEnvironment {
         self.type_table_ref.read().unwrap().lookup_by_type(typ)
     }
 
-    pub fn are_types_compatible(&self, src_type: TypeId, dst_type: TypeId) -> (bool, TypeConversion) {
+    pub fn are_type_ids_compatible(&self, src_type: TypeId, dst_type: TypeId) -> (bool, TypeConversion) {
         self.type_table_ref.read().unwrap().type_id_compatible(src_type, dst_type)
     }
+    
     
     pub fn add_symbol(
         &mut self,

@@ -375,7 +375,7 @@ impl ParserState {
         // ::= Expr
         let value = self.parse_expression(pattern.expr)?;
 
-        let assign_data = AssignData { identifier, namespace: None, value };
+        let assign_data = AssignData { identifier, namespace: None, expr: value };
         Ok(StmntVariant::Assign(AstData::new(assign_data, line_char, None)))
     }
 

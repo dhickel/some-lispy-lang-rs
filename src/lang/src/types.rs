@@ -112,6 +112,16 @@ impl LangType {
         // > 1 ensures that Bools and Nil cant be cast to numeric types, bool conversion to numeric should be explicit
         src_precedence <= dst_precedence && src_precedence > 1 && dst_precedence > 1
     }
+
+    pub fn is_primitive(&self) -> bool { matches!(self, LangType::Primitive(_)) }
+
+    pub fn is_composite(&self) -> bool { matches!(self, LangType::Composite(_)) }
+
+    pub fn is_custom(&self) -> bool { matches!(self, LangType::Custom(_)) }
+
+    pub fn is_undefined(&self) -> bool { matches!(self, LangType::Undefined) }
+
+    pub fn is_nil(&self) -> bool { matches!(self, LangType::Primitive(PrimitiveType::Nil)) }
 }
 
 
@@ -425,5 +435,32 @@ impl TypeTable {
             }
             LangType::Undefined => (false, TypeConversion::None),
         }
+    }
+
+    pub fn get_widest_prim_type_needed(&self, prim_types: &[LangType]) -> TypeConversion {
+        //FIXME: This should actually be an error, if this method becomes common it should be refactored
+        assert!(prim_types.iter().all(|t| matches!(t, LangType::Primitive(p) if *p != PrimitiveType::Nil)),
+                "Bad type for widening check"
+        );
+
+        // Start with the lowest precedence type
+        let mut widest = None;
+        let mut highest_precedence = 0;
+
+        // Find the type with the highest precedence
+        for t in prim_types.iter() {
+            if let LangType::Primitive(prim) = t {
+                let precedence = prim.get_precedence();
+                if precedence > highest_precedence {
+                    highest_precedence = precedence;
+                    widest = Some(prim.clone());
+                }
+            }
+        }
+
+        // Return the conversion to the widest type
+        if let Some(conv) = widest {
+            TypeConversion::Primitive(conv)
+        } else { TypeConversion::None }
     }
 }

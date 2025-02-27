@@ -20,11 +20,10 @@ pub enum EnvError {
 #[derive(Debug, Clone)]
 pub struct SymbolContext {
     pub name: IString,
-    pub value_type: ValueType,
+    //pub value_type: ValueType,
     pub mod_flags: ModifierFlags,
     pub scope_context: ScopeContext,
     pub type_entry: TypeEntry,
-    pub meta_data: Option<MetaData>,
 }
 
 
@@ -41,7 +40,7 @@ impl From<SymbolContext> for ResolveData {
         ResolveData {
             scope_context: sc.scope_context,
             type_entry: sc.type_entry,
-            meta_data: sc.meta_data,
+            type_conversion: TypeConversion::None,
         }
     }
 }
@@ -271,9 +270,9 @@ impl SubEnvironment {
     }
 
     pub fn get_type_entry_by_name(&self, name: IString) -> Option<TypeEntry> {
-        if let Some(id) = self.type_table_ref.read().unwrap().lookup_by_name(name) {
-            Some(self.type_table_ref.read().unwrap().get_entry(id))
-        } else { None }
+        self.type_table_ref.read().unwrap()
+            .lookup_by_name(name)
+            .map(|id| self.type_table_ref.read().unwrap().get_entry(id))
     }
     pub fn get_type_entry_by_type(&self, typ: &LangType) -> Option<TypeEntry> {
         self.type_table_ref.read().unwrap().lookup_by_type(typ)
@@ -282,30 +281,27 @@ impl SubEnvironment {
     pub fn are_type_ids_compatible(&self, src_type: TypeId, dst_type: TypeId) -> (bool, TypeConversion) {
         self.type_table_ref.read().unwrap().type_id_compatible(src_type, dst_type)
     }
-    
-    
+
+
     pub fn add_symbol(
         &mut self,
         symbol: Symbol,
         type_id: TypeId,
         mod_flags: ModifierFlags,
-        meta_data: Option<MetaData>,
     ) -> Result<(), EnvError> {
         if let Symbol::Definition { mut is_defined, .. } = symbol {
-            if is_defined { return Ok(()); }
+            if is_defined { return Ok(()); } //FIXMR should return an error on re-definitions
 
             println!("Adding Symbol({:?}) In Scope: ns={:?}, curr_scope={:?}, active scopes:={:?}",
                      SCACHE.resolve(symbol.name()), self.curr_ns, self.curr_scope, self.active_scopes);
 
             let typ = self.type_table_ref.read().unwrap().get_entry(type_id);
-            let value_type: ValueType = ValueType::from(&typ);
+            
             let symbol = SymbolContext {
                 name: symbol.name(),
-                value_type,
                 mod_flags,
                 scope_context: self.get_scope_context(),
                 type_entry: typ,
-                meta_data,
             };
 
             println!("Resolved Symbol: {:?}", symbol);
@@ -330,33 +326,30 @@ impl SubEnvironment {
             // resolve_type() is running, since we're the only ones holding the write lock
             // on type_table_ref. The mutable reference is dropped before we return.
             // TODO: this should be updated to better logic and avoid unsafe
-            let type_ptr = typ as *const LangType as *mut LangType;
-            let type_mut = unsafe { &mut *type_ptr };
-
+           
+            
             let resolve_result = self.type_table_ref.write().unwrap()
-                .resolve_type(type_mut).expect("Need to propagate errors "); // FIXME
+                .resolve_type(typ).expect("Need to propagate errors "); // FIXME
 
-            if let Some(type_entry) = resolve_result {
-                Some(self.new_resolve(type_entry))
-            } else { None }
+            resolve_result.map(|type_entry| self.new_resolve(type_entry, None))
         }
     }
 
     pub fn get_resolve_data_by_type_id(&self, id: TypeId) -> ResolveData {
         let typ = self.type_table_ref.read().unwrap().get_entry(id);
-        self.new_resolve(typ)
+        self.new_resolve(typ, None)
     }
 
-    fn new_resolve(&self, type_entry: TypeEntry) -> ResolveData {
+    fn new_resolve(&self, type_entry: TypeEntry, conv_needed: Option<TypeConversion>) -> ResolveData {
         ResolveData {
             scope_context: self.get_scope_context(),
             type_entry,
-            meta_data: None,
+            type_conversion: if let Some(conv_needed) = conv_needed { conv_needed } else { TypeConversion::None },
         }
     }
 
     pub fn get_nil_resolve(&self) -> ResolveData {
-        self.new_resolve(TypeTable::NIL)
+        self.new_resolve(TypeTable::NIL, None)
     }
 
     // TODO add ability to look up other namespaces via name?

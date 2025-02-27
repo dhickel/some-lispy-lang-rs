@@ -26,43 +26,43 @@ impl Warning {
 }
 
 
-#[derive(PartialOrd, PartialEq, Ord, Eq)]
-enum ValuePrecedence {
-    Bool = 0,
-    U8 = 1,
-    U16 = 2,
-    I32 = 3,
-    U32 = 4,
-    F32 = 5,
-    I64 = 6,
-    U64 = 7,
-    F64 = 8,
-}
-
-
-impl ValuePrecedence {
-    pub fn get_precedence_value(typ: &LangType) -> ValuePrecedence {
-        match typ {
-            LangType::Undefined(_) => panic!("Fatal<Internal>: Attempted to get precedence of unresolved value"),
-            LangType::Integer => ValuePrecedence::I64,
-            LangType::Float => ValuePrecedence::F64,
-            LangType::Boolean => ValuePrecedence::Bool,
-            _ => panic!("Fatal<Internal>: Attempted to get precedence of non-primitive type [{:?}]", typ),
-        }
-    }
-
-    pub fn return_value_coercion(values: &[LangType]) -> (bool, &LangType) {
-        assert!(!values.is_empty());
-        let mut max: (ValuePrecedence, &LangType) = (Self::get_precedence_value(&values[0]), &values[0]);
-        let mut made_change = false;
-        
-        for value in values.iter().skip(1) {
-            let precedence = Self::get_precedence_value(value);
-            if precedence > max.0 {
-                max = (precedence, value);
-                made_change = true;
-            }
-        }
-        (made_change, max.1)
-    }
-}
+// #[derive(PartialOrd, PartialEq, Ord, Eq)]
+// enum ValuePrecedence {
+//     Bool = 0,
+//     U8 = 1,
+//     U16 = 2,
+//     I32 = 3,
+//     U32 = 4,
+//     F32 = 5,
+//     I64 = 6,
+//     U64 = 7,
+//     F64 = 8,
+// }
+// 
+// 
+// impl ValuePrecedence {
+//     pub fn get_precedence_value(typ: &LangType) -> ValuePrecedence {
+//         match typ {
+//             LangType::Undefined(_) => panic!("Fatal<Internal>: Attempted to get precedence of unresolved value"),
+//             LangType::Integer => ValuePrecedence::I64,
+//             LangType::Float => ValuePrecedence::F64,
+//             LangType::Boolean => ValuePrecedence::Bool,
+//             _ => panic!("Fatal<Internal>: Attempted to get precedence of non-primitive type [{:?}]", typ),
+//         }
+//     }
+// 
+//     pub fn return_value_coercion(values: &[LangType]) -> (bool, &LangType) {
+//         assert!(!values.is_empty());
+//         let mut max: (ValuePrecedence, &LangType) = (Self::get_precedence_value(&values[0]), &values[0]);
+//         let mut made_change = false;
+//         
+//         for value in values.iter().skip(1) {
+//             let precedence = Self::get_precedence_value(value);
+//             if precedence > max.0 {
+//                 max = (precedence, value);
+//                 made_change = true;
+//             }
+//         }
+//         (made_change, max.1)
+//     }
+// }

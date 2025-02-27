@@ -1,12 +1,9 @@
-use std::any::Any;
-use std::fmt::format;
-use std::ops::Deref;
-use lang::ast::{AssignData, AstData, AstNode, ExprVariant, FExprData, LambdaData, LetData, MType, OpCallData, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, TypeConversion, Value};
+use lang::ast::{AssignData, AstData, AstNode, ExprVariant, FExprData, LambdaData, LetData, MType, OpCallData, Parameter, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, TypeConversion, Value};
 use lang::{ModifierFlags, ValueType};
 use lang::types::{CompositeType, LangType, TypeTable};
 use lang::util::{IString, SCACHE};
 use crate::environment::{EnvError, SubEnvironment};
-use crate::{ValuePrecedence, Warning};
+use crate::{Warning};
 
 macro_rules! with_scope {
     ($self:expr, $($func:tt)*) => {{
@@ -200,12 +197,7 @@ impl<'a> Resolver<'a> {
         } else { ModifierFlags::NONE };
 
         // Handle different types of assignments (functions need special handling)
-        let meta_data = if let ResolveState::Resolved(res)
-            = &data.node_data.assignment.get_resolve_state() {
-            res.meta_data.clone()
-        } else { panic!("Fatal<internal>: Assignment expected to be resolved") };
-
-        if let Err(err) = self.env.add_symbol(name, symbol_type_id, modifiers, meta_data) {
+        if let Err(err) = self.env.add_symbol(name, symbol_type_id, modifiers) {
             ResolveError::env_error(data.line_char, err)?
         } else { Ok(true) }
     }
@@ -307,7 +299,7 @@ impl<'a> Resolver<'a> {
                                     ops.len(), func_type.param_types.len()).as_str(),
                         );
                     }
-                    
+
                     for (arg, param) in ops.iter_mut().zip(func_type.param_types.iter()) {
                         let param_id = self.env.get_type_entry_by_type(param)
                             .expect("Fatal<internal>: Attempted to look up unresolved param type, this path shouldn't occur")
@@ -424,11 +416,13 @@ impl<'a> Resolver<'a> {
         if data.resolve_state.is_resolved() { return Ok(true); }
 
         println!("Resolving Operand Expression");
-        let operands = data.node_data.operands.as_mut().ok_or_else(||
-            ResolveError::invalid_operation(data.line_char, "Operation expects one or more operands", None)
-        )?;
-        
-        
+        let operands = if let Some(oprs) = data.node_data.operands.as_mut() {
+            oprs
+        } else {
+            return ResolveError::invalid_operation(data.line_char, "Operation expects one or more operands", None)
+        };
+
+
         // First operands must be resolved
         let mut ops_resolved = true;
         for o in operands.iter_mut() {
@@ -437,214 +431,198 @@ impl<'a> Resolver<'a> {
             let resolved = self.resolve_expression(o)?;
             if !resolved { ops_resolved = false; }
 
+
             if let ResolveState::Resolved(res_data) = o.get_resolve_state() {
-                if !res_data.type_entry.lang_type().is_primitive() {
-                    return ResolveError::invalid_operation(data.line_char, "Operation expects a primitive type", None);
+                if {
+                    let t = res_data.type_entry.lang_type();
+                    !t.is_primitive() || t.is_nil()
+                } {
+                    return ResolveError::invalid_operation(data.line_char, "Non-primitive value(s) in operation arguments", None);
                 }
             } else { panic!("Fatal<Internal>: Path should not be reached") }
         }
         // Exit early if not, we need them all resolved to continue
         if !ops_resolved { return Ok(false); }
-        
+
         // Calculate any type conversions needed to support the widest type
-        
-        
-        
+        let operand_types: Vec<LangType> = operands.iter()
+            .map(|o| o.get_resolve_state().get_type_entry().expect("Prechecked").lang_type().clone())
+            .collect();
 
-        let expr_types = exprs.iter().map(|expr| {
-            expr.get_resolve_state().TY().clone()
-        }).collect::<Vec<LangType>>();
+        let return_value = if let TypeConversion::Primitive(conv_type)
+            = LangType::get_widest_prim_type_needed(&operand_types)
+        {
+            for (opr_node, opr_type) in operands.iter_mut().zip(operand_types) {
+                if let LangType::Primitive(opr_type) = opr_type {
+                    if opr_type != conv_type {
+                        if let ResolveState::Resolved(res_data) = opr_node.get_resolve_state_mut() {
+                            res_data.type_conversion = TypeConversion::Primitive(conv_type);
+                        } else { panic!("Fatal<Internal>: Shouldn't Occur, Resolution should be pre-checked") }
+                    }
+                } else { panic!("Fatal<Internal>: Should always be a primitive type due to logic/guards") }
+            }
+            conv_type
+        } else { panic!("Fatal<Internal>: Return value should always be a primitive, and pre-guarded") };
 
-        if !expr_types.iter().all(|t| matches!(t.into(), ValueType::Primitive(_))) {
-            return ResolveError::invalid_argument(data.line_char, "Non-primitive value(s) in operation arguments");
-        }
 
-        let (made_change, rtn_type) = ValuePrecedence::return_value_coercion(&expr_types);
-        if made_change { self.warnings.push(Warning::return_coercion(data.line_char, rtn_type)) }
+        let res_data = self.env.get_resolve_data_by_type(&LangType::Primitive(return_value))
+            .expect("Resolution data should always be returned");
 
-        let res_data = self.env.get_resolve_data_by_type(rtn_type).unwrap();
         data.resolve_state = ResolveState::Resolved(res_data);
         Ok(true)
-    } else { ResolveError::invalid_argument(data.line_char, "Operation requires arguments") }
-}
-
-fn resolve_block_expression(&mut self, data: &mut AstData<Vec<AstNode>>) -> Result<bool, ResolveError> {
-    println!("Resolving Block Expression");
-    if data.resolve_state.is_resolved() { return Ok(true); }
-
-
-    if data.node_data.is_empty() {
-        self.warnings.push(Warning::empty_block(data.line_char));
-        data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve());
-        return Ok(true);
     }
 
-    let block_resolved = data.node_data.iter_mut().try_fold(true, |acc, node| {
-        let result = self.resolve_top_node(node)?;
-        println!("BLock Node: {:?}, Resolved: {:?}", node, result);
-        Ok(acc && result)
-    })?;
 
-    if block_resolved {
-        println!("\n\nResolved Block Expression");
-        match data.node_data.last() {
-            Some(AstNode::Statement(_)) => data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve()),
-            Some(AstNode::Expression(expr)) => {
-                let last_expr = expr.get_resolve_state();
-                let res_data = self.env.get_resolve_data_by_type_id(last_expr.get_type_id().unwrap());
-                data.resolve_state = ResolveState::Resolved(res_data);
-            }
-            None => panic!("Fatal<internal>: Branch should not be reach due to pre-validation")
+    fn resolve_block_expression(&mut self, data: &mut AstData<Vec<AstNode>>) -> Result<bool, ResolveError> {
+        println!("Resolving Block Expression");
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+
+        if data.node_data.is_empty() {
+            self.warnings.push(Warning::empty_block(data.line_char));
+            data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve());
+            return Ok(true);
         }
-        Ok(true)
-    } else {
-        println!("\n\nDidn't Resolve Block Expression");
-        Ok(false)
-    }
-}
 
-fn resolve_predicate_expression(&mut self, data: &mut AstData<PredicateData>) -> Result<bool, ResolveError> {
-    if data.resolve_state.is_resolved() { return Ok(true); }
+        let block_resolved = data.node_data.iter_mut().try_fold(true, |acc, node| {
+            let result = self.resolve_top_node(node)?;
+            println!("BLock Node: {:?}, Resolved: {:?}", node, result);
+            Ok(acc && result)
+        })?;
 
-    let pred_resolve = self.resolve_expression(&mut data.node_data.pred_expr)?;
-
-    if pred_resolve && !matches!(data.node_data.pred_expr.get_resolve_state().get_type(), LangType::Boolean) {
-        return ResolveError::invalid_operation(
-            data.line_char, "Non-boolean expression as predicate condition", None,
-        );
-    }
-
-    let then_resolve = if let Some(then) = &mut data.node_data.then_expr {
-        Some(self.resolve_expression(then)?).clone()
-    } else { None };
-
-
-    let else_resolve = if let Some(els) = &mut data.node_data.else_expr {
-        Some(self.resolve_expression(els)?)
-    } else { None };
-
-    if let (Some(then_resolve), Some(else_resolve)) = (then_resolve, else_resolve) {
-        if !(then_resolve && else_resolve) { return Ok(false); }
-
-        if let (Some(then_state), Some(else_state)) = (&data.node_data.then_expr, &data.node_data.else_expr)
-        {
-            let (then_type, then_id) = then_state.get_resolve_state().get_type_and_id();
-            let else_type = else_state.get_resolve_state().get_type();
-
-            if else_type.compatible_with(then_type) {
-                let res_data = self.env.get_resolve_data_by_type_id(then_id.unwrap());
-                data.resolve_state = ResolveState::Resolved(res_data);
-                Ok(true)
-            } else {
-                data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve());
-                Ok(true)
+        if block_resolved {
+            println!("\n\nResolved Block Expression");
+            match data.node_data.last() {
+                Some(AstNode::Statement(_)) => data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve()),
+                Some(AstNode::Expression(expr)) => {
+                    let last_expr = expr.get_resolve_state();
+                    let res_data = self.env.get_resolve_data_by_type_id(
+                        last_expr.get_type_entry().expect("Fatal<Internal>: Path should pre-validate resolved").id()
+                    );
+                    data.resolve_state = ResolveState::Resolved(res_data);
+                }
+                None => panic!("Fatal<internal>: Branch should not be reach due to pre-validation")
             }
-        } else { Ok(false) }
-    } else if let Some(then_resolve) = then_resolve {
-        if !then_resolve { return Ok(false); }
-
-        if let Some(then_state) = &data.node_data.then_expr {
-            let (typ, typ_id) = then_state.get_resolve_state().get_type_and_id();
-            let res_data = self.env.get_resolve_data_by_type_id(typ_id.unwrap());
-            data.resolve_state = ResolveState::Resolved(res_data);
             Ok(true)
-        } else { panic!("Fatal<internal>: Failed to match expected branch, shouldn't happen") }
-    } else if let Some(else_resolve) = else_resolve {
-        if !else_resolve { return Ok(false); }
-
-        if let Some(else_state) = &data.node_data.else_expr {
-            let (typ, typ_id) = else_state.get_resolve_state().get_type_and_id();
-            let res_data = self.env.get_resolve_data_by_type_id(typ_id.unwrap());
-            data.resolve_state = ResolveState::Resolved(res_data);
-            Ok(true)
-        } else { panic!("Fatal<internal>: Failed to match expected branch, shouldn't happen") }
-    } else { ResolveError::invalid_operation(data.line_char, "Predicate with no branches", None) }
-}
-
-fn resolve_lambda_expression(&mut self, data: &mut AstData<LambdaData>) -> Result<bool, ResolveError> {
-    println!("Resolving lambda expression");
-    if data.resolve_state.is_resolved() { return Ok(true); }
-
-
-    let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;
-
-    println!("Lambda BOdy Expression: {:?}", data.node_data.body_expr);
-    println!("Lambda BOdy Resolved: {:?}", body_resolved);
-
-
-    // TODO we need to make sure to parse alternative type declarations, as types can be on symbol or
-    //  in the lambda signature or both.
-
-
-    let params_resolved = match &data.node_data.parameters {
-        None => true,
-        Some(params) => {
-            if !params.iter().all(|p| p.typ.is_some())
-            todo!()
-        }
-    }
-
-
-    if let Some(params) = &mut data.node_data.parameters {
-        if params.is_empty() {
-            true
         } else {
-            let mut params_resolved = true;
-            // FIXME, currently no type inference is support so just check for types
-            for p in params.iter_mut() {
-                if let Some(typ) = &p.typ {
-                    if !typ.is_resolved() {
-                        params_resolved = false;
-                        break;
-                    }
-                } else { return ResolveError::invalid_parameter(data.line_char, "Parameters must be typed"); }
-            }
-            params_resolved
-        };
-    };
-    // TODO RESUME make sure param symbols are properly added and able to be properly looked up,
-    //   need to track when if they have been added to the symbol table or not
+            println!("\n\nDidn't Resolve Block Expression");
+            Ok(false)
+        }
+    }
 
-    if params_resolved {
-        for (param, id) in params.iter().zip(resolved_types.into_iter()) {
-            println!("Adding Parama Symbol for: {:?}", param);
+    // FIXME messy AF all these lower ones need cleaned up as they didnt need much of a logic re-write and exist as mehyuck
+    fn resolve_predicate_expression(&mut self, data: &mut AstData<PredicateData>) -> Result<bool, ResolveError> {
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+        let pred_resolve = self.resolve_expression(&mut data.node_data.pred_expr)?;
+        if pred_resolve && !matches!(
+            data.node_data.pred_expr.get_resolve_state().get_type_entry().unwrap().lang_type(),
+            &LangType::BOOL
+        ) {
+            return ResolveError::invalid_operation(data.line_char, "Non-boolean expression as predicate condition", None);
+        }
+
+        let then_resolved = self.resolve_expression(&mut data.node_data.then_expr)?;
+        if !then_resolved { return Ok(false); }
+
+        let else_resolve = if let Some(els) = &mut data.node_data.else_expr {
+            Some(self.resolve_expression(els)?)
+        } else { None };
+
+        if let Some(else_resolve) = else_resolve {
+            if !else_resolve { return Ok(false); }
+        }
+
+        // Now its known then branch is resolved along with the else branch if it exists
+        let then_type = data.node_data.then_expr.get_resolve_state().get_type_entry().unwrap();
+        let else_type = if let Some(els) = &data.node_data.else_expr {
+            Some(els.get_resolve_state().get_type_entry().unwrap().clone())
+        } else { None };
+
+        if else_type.is_none() {
+            let res_data = self.env.get_resolve_data_by_type_id(then_type.id());
+            data.resolve_state = ResolveState::Resolved(res_data);
+            return Ok(true);
+        }
+
+        // if there is an else brancn then comparability need to be checked;
+        let else_type = else_type.unwrap();
+
+        // TODO/FIXME this will need better calculation logic, this is kind of important
+        // Check that else branch returns a type compatible with the then branch
+        let (branches_compat, conv_need) = self.env.are_type_ids_compatible(else_type.id(), then_type.id());
+
+        let else_expr = if let Some(expr) = data.node_data.else_expr.as_mut() {
+            expr
+        } else { panic!("Fatal<Internal>: This path should not occur, else_expr should always exist") };
+
+        // If a conversion is need on the else branch, and branches are compatible, 
+        // apply it to the else and return as resolved
+        if branches_compat && conv_need != TypeConversion::None {
+            else_expr.add_type_conversion(conv_need);
+            data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type_id(then_type.id()));
+            Ok(true)
+        } else {
+            // If branches are not compatible than the predicate expression is forced to return nil
+            // this will only be an issue, if it is placed in an assignment or place expecting a result
+            // which will result in an error as it should
+            data.resolve_state = ResolveState::Resolved(self.env.get_nil_resolve());
+            Ok(true)
+        }
+    }
+
+
+    fn resolve_lambda_expression(&mut self, data: &mut AstData<LambdaData>) -> Result<bool, ResolveError> {
+        println!("Resolving lambda expression");
+        if data.resolve_state.is_resolved() { return Ok(true); }
+
+
+        let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;
+
+        // Return early cant do anymore work until body fully resolved
+        if !body_resolved { return Ok(false); }
+
+        println!("Lambda BOdy Expression: {:?}", &data.node_data.body_expr);
+        println!("Lambda BOdy Resolved: {:?}", body_resolved);
+
+        // TODO we need to make sure to parse alternative type declarations, as types can be on symbol or
+        //  in the lambda signature or both.
+
+        let params = &data.node_data.parameters;
+
+        let mut resolved_params: Vec<ResolveData> = Vec::with_capacity(params.len());
+
+        let params_resolved = params.iter().all(|p| {
+            let param_type = &p.clone().typ.expect("Param must be type in actual sig atm");
+            // If resolved is some than param type is resolved
+            if let Some(res_data) = self.env.get_resolve_data_by_type(param_type) {
+                resolved_params.push(res_data.clone());
+                true
+            } else { false }
+        });
+
+        // Return early cant do anymore work until they are fully resolved
+        if !params_resolved { return Ok(false); }
+
+        for (param, res_data) in params.iter().zip(resolved_params.iter()) {
+            println!("Adding Param Symbol for: {:?}", param);
             if let Err(err) = self.env.add_symbol(
                 param.identifier,
-                id, // FIXME need to keep from cloning this
+                res_data.type_entry.id(), // FIXME need to keep from cloning this
                 ModifierFlags::from_mods(&param.modifiers.clone().unwrap_or(vec![])),
-                None,
             ) {
                 return ResolveError::invalid_parameter(
                     data.line_char, format!("Error in lambda parameters: {:?}", err).as_str(),
                 );
             };
         }
-        true
-    } else { false }
 
+        // Set resolution data for the node and return resolved
+        let return_type = &data.node_data.body_expr.get_resolve_state().get_type_entry()
+            .expect("Fatal<Internal>: Body should already be pre-validated as resolved");
 
-    // TODO: here and else where need to implement atleast some type inference where either the actual symbol can be typed
-    //  and or the parameters and the return value, this needs implemented ina few other places as well. No full inference
-    //  atm but any place where it can be dual notated need handled.
-
-    if params_resolved & &body_resolved {
-        println!("\n\nResolved BOdy: {:?}", data.node_data.body_expr);
-        let params = data.node_data.parameters.as_ref().map(|params| params.iter().map(|p| {
-            let (typ, type_id) = self.env.get_type_and_id_by_name(p.typ.unwrap()).map_or_else(|| (None, None), |t| (Some(t.0), Some(t.1)));
-
-            let x = FuncParam {
-                name: p.identifier, // FIXME clone, this all could be cleaned up really
-                modifier_flags: ModifierFlags::from_mods(&p.modifiers.clone().unwrap_or_default()),
-                typ,
-                type_id,
-            }
-        }).collect::<Vec<FuncParam>>());
-
-        let body_type_and_id = data.node_data.body_expr.get_resolve_state().get_type_and_id();
-        let mut res_data = self.env.get_resolve_data_by_type(body_type_and_id.0).unwrap();
-        res_data.meta_data = Some(MetaData::Function(params));
+        let res_data = self.env.get_resolve_data_by_type_id(return_type.id());
         data.resolve_state = ResolveState::Resolved(res_data);
         Ok(true)
-    } else { Ok(false) }
-}
+    }
 }

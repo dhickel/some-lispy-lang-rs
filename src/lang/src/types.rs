@@ -1,4 +1,5 @@
 use std::process::id;
+use ahash::{HashSet, HashSetExt};
 use intmap::IntMap;
 use sha2::digest::typenum::private::IsEqualPrivate;
 use crate::util::{IString, SCache, SCACHE};
@@ -88,23 +89,6 @@ impl LangType {
         }
     }
 
-    pub fn is_resolved(&self) -> bool {
-        match self {
-            LangType::Primitive(_) => true,
-            LangType::Composite(comp_type) => {
-                match comp_type {
-                    CompositeType::Function(func_type) => func_type.is_resolved(),
-                    CompositeType::Array(arr_type) => arr_type.is_resolved(),
-                    CompositeType::Tuple(types) => types.iter().any(|t| t.is_resolved()),
-                    CompositeType::String | CompositeType::Quote => true,
-                }
-            }
-            LangType::Custom(custom_type) => custom_type.is_resolved,
-            LangType::Undefined => panic!("Fatal<Internal>: is_resolved called on undefined type,
-                compiler should not be resolving undefined type and must enforce their limited use, or per-infer them")
-        }
-    }
-
     pub fn can_cast_primitive(src: &PrimitiveType, dst: &PrimitiveType) -> bool {
         if src == dst { return true; }
         let src_precedence = src.get_precedence();
@@ -112,6 +96,31 @@ impl LangType {
         // > 1 ensures that Bools and Nil cant be cast to numeric types, bool conversion to numeric should be explicit
         src_precedence <= dst_precedence && src_precedence > 1 && dst_precedence > 1
     }
+
+    pub fn get_widest_prim_type_needed(prim_types: &[LangType]) -> TypeConversion {
+        //FIXME: This should actually be an error, if this method becomes common it should be refactored
+        assert!(prim_types.iter().all(|t| t.is_primitive() && !t.is_nil()),
+                "Bad type for widening check"
+        );
+
+        // Start with the lowest precedence type
+        let mut widest = None;
+        let mut highest_precedence = 0;
+
+        // Find the type with the highest precedence
+        for t in prim_types.iter() {
+            if let LangType::Primitive(prim) = t {
+                let precedence = prim.get_precedence();
+                if precedence > highest_precedence {
+                    highest_precedence = precedence;
+                    widest = Some(prim.clone());
+                }
+            }
+        }
+        let widest = widest.expect("Fatal<Internal>: Logic should always return a Some");
+        TypeConversion::Primitive(widest)
+    }
+
 
     pub fn is_primitive(&self) -> bool { matches!(self, LangType::Primitive(_)) }
 
@@ -125,7 +134,7 @@ impl LangType {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum PrimitiveType {
     U8,
     U16,
@@ -205,12 +214,7 @@ impl FunctionType {
             Ok(())
         }
     }
-
-    pub fn are_params_resolved(&self) -> bool { self.param_types.iter().all(|p| p.is_resolved()) }
-
-    pub fn is_return_resolved(&self) -> bool { self.rtn_type.is_resolved() }
-
-    pub fn is_resolved(&self) -> bool { self.are_params_resolved() && self.is_return_resolved() }
+    
 
     pub fn add_param_type(&mut self, typ: LangType) { self.param_types.push(typ) }
 
@@ -249,6 +253,7 @@ impl TypeEntry {
 pub struct TypeTable {
     type_table: Vec<TypeEntry>, // Store resolved types for id lookups
     type_name_map: IntMap<TypeId>, // Map declare custom type IString Ids to type Ids
+    type_set: HashSet<LangType>,
 }
 
 
@@ -256,7 +261,8 @@ impl Default for TypeTable {
     fn default() -> Self {
         let type_table = Vec::<TypeEntry>::with_capacity(100);
         let type_name_map = IntMap::<TypeId>::with_capacity(100);
-        let mut type_table = TypeTable { type_table, type_name_map };
+        let type_set = HashSet::<LangType>::with_capacity(100);
+        let mut type_table = TypeTable { type_table, type_name_map, type_set };
 
         type_table.insert(SCACHE.NIL, TypeTable::NIL);
         type_table.insert(SCACHE.BOOL, TypeTable::BOOL);
@@ -291,7 +297,7 @@ impl TypeTable {
     pub fn get_entry(&self, type_id: TypeId) -> TypeEntry { self.type_table[type_id.as_usize()].clone() }
 
     pub fn lookup_by_type(&self, typ: &LangType) -> Option<TypeEntry> {
-        self.type_table.iter().find(|t| t.lang_type == *typ).map(TypeEntry::clone)
+        self.type_table.iter().find(|t| t.lang_type == *typ).cloned()
     }
 
     pub fn lookup_by_name(&self, name: IString) -> Option<TypeId> {
@@ -333,8 +339,12 @@ impl TypeTable {
         Ok(entry)
     }
 
-    pub fn resolve_type(&mut self, typ: &mut LangType) -> Result<Option<TypeEntry>, TypeError> {
-        if typ.is_resolved() {
+    pub fn is_resolved(&self, typ: &LangType) -> bool {
+        self.type_set.contains(typ)
+    }
+
+    pub fn resolve_type(&mut self, typ: &LangType) -> Result<Option<TypeEntry>, TypeError> {
+        if self.is_resolved(typ) {
             println!("Debug: Re-resolved resolved type {:?}, this should be avoid for performance", typ);
             return Ok(self.lookup_by_type(typ));
         }
@@ -361,20 +371,20 @@ impl TypeTable {
 
             LangType::Composite(CompositeType::Function(func_type)) => {
                 if !func_type.are_params_resolved() {
-                    let params = &mut func_type.param_types;
+                    let params = &mut func_type.param_types.clone();
                     for p in params {
-                        if !p.is_resolved() { self.resolve_type(p)?; }
+                        if !self.is_resolved(p) { self.resolve_type(p)?; }
                     }
                 }
 
                 if !func_type.is_return_resolved() {
-                    let rtn = &mut func_type.rtn_type;
+                    let rtn = &mut func_type.rtn_type.clone();
                     self.resolve_type(rtn)?;
                 }
 
                 // Now that resolution has been attempted on any unresolved function member, 
                 // check to see if they are all fully resolved
-                if func_type.is_resolved() {
+                if self.is_resolved(typ) {
                     // Define a new type if it does not exist (only done for built-in types)
                     let resolved_type = self.define_new_composite_type(typ.clone())?;
                     Ok(Some(resolved_type))
@@ -435,32 +445,5 @@ impl TypeTable {
             }
             LangType::Undefined => (false, TypeConversion::None),
         }
-    }
-
-    pub fn get_widest_prim_type_needed(&self, prim_types: &[LangType]) -> TypeConversion {
-        //FIXME: This should actually be an error, if this method becomes common it should be refactored
-        assert!(prim_types.iter().all(|t| matches!(t, LangType::Primitive(p) if *p != PrimitiveType::Nil)),
-                "Bad type for widening check"
-        );
-
-        // Start with the lowest precedence type
-        let mut widest = None;
-        let mut highest_precedence = 0;
-
-        // Find the type with the highest precedence
-        for t in prim_types.iter() {
-            if let LangType::Primitive(prim) = t {
-                let precedence = prim.get_precedence();
-                if precedence > highest_precedence {
-                    highest_precedence = precedence;
-                    widest = Some(prim.clone());
-                }
-            }
-        }
-
-        // Return the conversion to the widest type
-        if let Some(conv) = widest {
-            TypeConversion::Primitive(conv)
-        } else { TypeConversion::None }
     }
 }

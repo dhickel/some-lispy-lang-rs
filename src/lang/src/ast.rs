@@ -21,13 +21,12 @@ pub enum ResolveState {
 
 impl ResolveState {
     pub fn is_resolved(&self) -> bool { !matches!(self, Self::Unresolved(_)) }
-    
+
     pub fn get_type_entry(&self) -> Option<&TypeEntry> {
         if let ResolveState::Resolved(res) = self {
             Some(&res.type_entry)
         } else { None }
     }
-    
 }
 
 #[derive(Copy, Debug, Clone, PartialEq)]
@@ -37,7 +36,7 @@ pub struct ScopeContext {
     pub depth: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub enum TypeConversion {
     #[default]
     None,
@@ -45,30 +44,49 @@ pub enum TypeConversion {
     Custom(TypeId),
 }
 
+impl TypeConversion {
+    // pub fn conv_type_id(&self) -> TypeId {
+    //     match self {
+    //         TypeConversion::None => panic!("TypeConversion::conv_type_id called on None"),
+    //         TypeConversion::Primitive(prim) => {
+    //             match prim {
+    //                 PrimitiveType::U8 => TypeTable::U8.id(),
+    //                 PrimitiveType::U16 => TypeTable::U16.id(),
+    //                 PrimitiveType::U32 => TypeTable::U32.id(),
+    //                 PrimitiveType::U64 => TypeTable::U64.id(),
+    //                 PrimitiveType::I32 => TypeTable::I32.id(),
+    //                 PrimitiveType::I64 => TypeTable::I64.id(),
+    //                 PrimitiveType::F32 => TypeTable::F32.id(),
+    //                 PrimitiveType::F64 => TypeTable::F64.id(),
+    //                 PrimitiveType::Bool => TypeTable::BOOL.id(),
+    //                 PrimitiveType::Nil => TypeTable::NIL.id(),
+    //             }
+    //         }
+    //         TypeConversion::Custom(id) => *id
+    //     }
+    // }
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolveData {
     pub scope_context: ScopeContext,
     pub type_entry: TypeEntry,
-    pub meta_data: Option<MetaData>,
     pub type_conversion: TypeConversion,
 }
 
 
 impl ResolveData {
-    pub fn with_meta_data(mut self, meta: MetaData) -> Self {
-        self.meta_data = Some(meta);
-        self
-    }
-
     pub fn with_type_conversion(mut self, conversion: TypeConversion) -> Self {
         self.type_conversion = conversion;
         self
     }
 
     pub fn new(scope_context: ScopeContext, type_entry: TypeEntry) -> Self {
-        Self { scope_context, type_entry, meta_data: None, type_conversion: TypeConversion::None }
+        Self { scope_context, type_entry, type_conversion: TypeConversion::None }
     }
+
+    pub fn conversion_needed(&self) -> bool { self.type_conversion != TypeConversion::None }
 }
 
 
@@ -232,10 +250,10 @@ impl ExprVariant {
             ExprVariant::Lambda(data) => &mut data.resolve_state,
         }
     }
-    
+
     pub fn add_type_conversion(&mut self, conversion: TypeConversion) {
         let resolve_state = self.get_resolve_state_mut();
-        
+
         if let ResolveState::Resolved(resolve_data) = resolve_state {
             resolve_data.type_conversion = conversion;
         } else {
@@ -254,7 +272,7 @@ pub struct SCallData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaData {
-    pub parameters: Option<Vec<Parameter>>,
+    pub parameters: Vec<Parameter>,
     pub body_expr: ExprVariant,
     pub is_form: bool,
 }
@@ -308,7 +326,7 @@ impl Into<AstNode> for ExprVariant {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredicateData {
     pub pred_expr: ExprVariant,
-    pub then_expr: Option<ExprVariant>,
+    pub then_expr: ExprVariant,
     pub else_expr: Option<ExprVariant>,
 }
 

@@ -35,7 +35,7 @@ let x :int = {
 }";
 
 const LAMBDA_BLOCK : &str = "
-let x : Fn<int;int> = (=> |y| {
+let x : Fn<int;int> = (=> |y :INT| {
     let x: int =  10
     x := (+ x 10)
     (* x y 10 30)

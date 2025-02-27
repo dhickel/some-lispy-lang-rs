@@ -148,7 +148,7 @@ impl IRLower {
         match self.l_state {
             LState::NamespaceFunc | LState::ObjectFunc => {
                 if let Some(curr_func) = &mut self.curr_func {
-                    let store_idx = curr_func.add_local(let_data.resolve_state.get_type_id().unwrap())?;
+                    let store_idx = curr_func.add_local(let_data.resolve_state.get_type_entry().unwrap().id())?;
                     let assign_expr = self.lower_expression(&mut let_data.node_data.assignment)?;
                     Ok(IROp::Store(Box::new(IRStore::StoreLocal { data_expr: assign_expr })))
                 } else { panic!("Fatal<internal>: Expected function in focus") }

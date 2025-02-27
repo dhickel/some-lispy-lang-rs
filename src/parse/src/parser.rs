@@ -525,7 +525,8 @@ impl ParserState {
         // ::= '|'
         self.consume(TokenType::BAR)?;
         // ::= { Parameter }
-        let parameters = self.parse_parameters(pattern.parameters)?;
+        let parameters = self.parse_parameters(pattern.parameters)?
+            .unwrap_or(vec![]);
         // ::= '|'
         self.consume(TokenType::BAR)?;
 
@@ -552,7 +553,22 @@ impl ParserState {
         // ::= ')'
         self.consume_right_paren()?;
 
-        let data = PredicateData { pred_expr, then_expr, else_expr };
+        // Guard to ensure there is always a then
+        // Note: For some reason both were optional, this may need to be re-visited
+
+        let then_expr = if let Some(then_expr) = then_expr {
+            then_expr
+        } else {
+            return ParseError::validation_error(
+                "Expected then expression for conditional".to_string(), line_char.0, line_char.1,
+            );
+        };
+        
+        let data = PredicateData {
+            pred_expr,
+            then_expr,
+            else_expr,
+        };
         Ok(ExprVariant::Predicate(AstData::new(data, line_char, None)))
     }
 

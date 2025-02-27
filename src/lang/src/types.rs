@@ -4,6 +4,7 @@ use intmap::IntMap;
 use sha2::digest::typenum::private::IsEqualPrivate;
 use crate::util::{IString, SCache, SCACHE};
 use crate::ast::{Symbol, TypeConversion};
+use crate::PrimType;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct TypeId(u16);
@@ -214,7 +215,7 @@ impl FunctionType {
             Ok(())
         }
     }
-    
+
 
     pub fn add_param_type(&mut self, typ: LangType) { self.param_types.push(typ) }
 
@@ -343,6 +344,33 @@ impl TypeTable {
         self.type_set.contains(typ)
     }
 
+    pub fn is_func_fully_resolved(&self, func_type: &FunctionType) -> bool {
+        self.are_func_params_resolved(func_type) && self.is_func_return_resolved(func_type)
+    }
+
+    pub fn are_func_params_resolved(&self, func_type: &FunctionType) -> bool {
+        func_type.param_types.iter().all(|p| self.is_resolved(p))
+    }
+
+    pub fn is_func_return_resolved(&self, func_type: &FunctionType) -> bool {
+        self.is_resolved(&func_type.rtn_type)
+    }
+
+    pub fn resolve_primitive(prim_type: &PrimitiveType) -> TypeEntry {
+        match prim_type {
+            PrimitiveType::U8 => Self::U8,
+            PrimitiveType::U16 => Self::U16,
+            PrimitiveType::U32 => Self::U32,
+            PrimitiveType::U64 => Self::U64,
+            PrimitiveType::I32 => Self::I32,
+            PrimitiveType::I64 => Self::I64,
+            PrimitiveType::F32 => Self::F32,
+            PrimitiveType::F64 => Self::F64,
+            PrimitiveType::Bool => Self::BOOL,
+            PrimitiveType::Nil => Self::NIL,
+        }
+    }
+
     pub fn resolve_type(&mut self, typ: &LangType) -> Result<Option<TypeEntry>, TypeError> {
         if self.is_resolved(typ) {
             println!("Debug: Re-resolved resolved type {:?}, this should be avoid for performance", typ);
@@ -350,7 +378,7 @@ impl TypeTable {
         }
 
         match typ {
-            LangType::Primitive(_) => panic!("Fatal<Internal>: Primitives are already resolved and this path never taken"),
+            LangType::Primitive(prim_type) => Ok(Some(Self::resolve_primitive(prim_type))),
 
             LangType::Undefined => panic!("Fatal<Internal>: Undefined types should not occur in a position that would
                 result in them needing resolved, this should be enforced or pre-inferred in the compiler"),
@@ -370,14 +398,14 @@ impl TypeTable {
             }
 
             LangType::Composite(CompositeType::Function(func_type)) => {
-                if !func_type.are_params_resolved() {
-                    let params = &mut func_type.param_types.clone();
+                if !self.are_func_params_resolved(func_type) {
+                    let params = &func_type.param_types;
                     for p in params {
                         if !self.is_resolved(p) { self.resolve_type(p)?; }
                     }
                 }
 
-                if !func_type.is_return_resolved() {
+                if !self.is_func_return_resolved(func_type) {
                     let rtn = &mut func_type.rtn_type.clone();
                     self.resolve_type(rtn)?;
                 }

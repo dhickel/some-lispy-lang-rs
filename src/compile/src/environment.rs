@@ -296,7 +296,7 @@ impl SubEnvironment {
                      SCACHE.resolve(symbol.name()), self.curr_ns, self.curr_scope, self.active_scopes);
 
             let typ = self.type_table_ref.read().unwrap().get_entry(type_id);
-            
+
             let symbol = SymbolContext {
                 name: symbol.name(),
                 mod_flags,
@@ -326,13 +326,17 @@ impl SubEnvironment {
             // resolve_type() is running, since we're the only ones holding the write lock
             // on type_table_ref. The mutable reference is dropped before we return.
             // TODO: this should be updated to better logic and avoid unsafe
-           
-            
+
             let resolve_result = self.type_table_ref.write().unwrap()
                 .resolve_type(typ).expect("Need to propagate errors "); // FIXME
 
             resolve_result.map(|type_entry| self.new_resolve(type_entry, None))
         }
+    }
+
+
+    pub fn is_type_resolved(&self, typ: &LangType) -> bool {
+        self.type_table_ref.read().unwrap().is_resolved(typ)
     }
 
     pub fn get_resolve_data_by_type_id(&self, id: TypeId) -> ResolveData {

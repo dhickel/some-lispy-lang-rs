@@ -20,12 +20,19 @@ pub enum ResolveState {
 
 
 impl ResolveState {
-    pub fn is_resolved(&self) -> bool { !matches!(self, Self::Unresolved(_)) }
+    pub fn is_node_resolved(&self) -> bool { !matches!(self, Self::Unresolved(_)) }
 
     pub fn get_type_entry(&self) -> Option<&TypeEntry> {
         if let ResolveState::Resolved(res) = self {
             Some(&res.type_entry)
         } else { None }
+    }
+
+    pub fn get_lang_type(&self) -> &LangType {
+        match self {
+            ResolveState::Unresolved(typ) => typ,
+            ResolveState::Resolved(res_data) => res_data.type_entry.lang_type()
+        }
     }
 }
 
@@ -65,6 +72,8 @@ impl TypeConversion {
     //         TypeConversion::Custom(id) => *id
     //     }
     // }
+
+    pub fn is_some(&self) -> bool { !matches!(self, TypeConversion::None) }
 }
 
 
@@ -251,6 +260,8 @@ impl ExprVariant {
         }
     }
 
+    
+    // FIXME: this should be atleast be unsafe, or maybe switch to an internal error idk?
     pub fn add_type_conversion(&mut self, conversion: TypeConversion) {
         let resolve_state = self.get_resolve_state_mut();
 

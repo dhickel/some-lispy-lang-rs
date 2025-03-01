@@ -20,8 +20,8 @@ let x : Int = (- 10 20 30 (* (+ 10  y) (+ 20 -20)))\
 ";
 
 const LAMBDA_BLOCK : &str = "
-let x : Fn<Int;Int> = (=> |y: Int| {
-    let x: Int = 10
+let x : Fn<I32;I32> = (=> |y: I32| {
+    let x: I32 = 10
     (* x y 10 30)
 })";
 

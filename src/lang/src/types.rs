@@ -70,6 +70,8 @@ impl LangType {
     pub fn parse_type_from_string(name: IString) -> LangType {
         let name_str = SCACHE.resolve(name);
         // TODO add _ and * type modifiers
+        
+        println!("Type From String: {:?}", name_str);
         match name_str {
             "U8" => LangType::U8,
             "U16" => LangType::U16,
@@ -85,8 +87,9 @@ impl LangType {
             //"Tuple" => Type::Tuple,
             // "Array" => LangType::Composite(CompositeType::Array(Box::new(LangType::UNDEFINED))),
             // "Fn" => LangType::Composite(CompositeType::Function(FunctionType::default())),
-            "()" => LangType::Primitive(PrimitiveType::Nil),
-            _ => LangType::Custom(CustomType { identifier: name, is_resolved: false }),
+            _ => panic!("Fuck")
+            // "()" => LangType::Primitive(PrimitiveType::Nil),
+            // _ => LangType::Custom(CustomType { identifier: name, is_resolved: false }),
         }
     }
 

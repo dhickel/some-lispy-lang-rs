@@ -27,11 +27,11 @@ pub enum ResolveError {
 // TODO dont allow statements inside any expression except a block expression
 
 impl ResolveError {
-    pub fn invalid_assignment<T>(line_char: (u32, u32), t1: &LangType, t2: &LangType) -> Result<T, ResolveError> {
+    pub fn invalid_assignment<T>(line_char: (u32, u32), src_type: &LangType, dst_type: &LangType) -> Result<T, ResolveError> {
         Err(Self::InvalidAssignment(
             format!(
                 "Line: {}, Char: {}, Cannot assign type: {:?}, to symbol of type: {:?}",
-                line_char.0, line_char.1, t1, t2)))
+                line_char.0, line_char.1, src_type, dst_type)))
     }
 
     pub fn invalid_argument<T>(line_char: (u32, u32), msg: &str) -> Result<T, ResolveError> {
@@ -116,7 +116,7 @@ impl<'a> Resolver<'a> {
 
 
     fn resolve_expression(&mut self, expr: &mut ExprVariant) -> Result<bool, ResolveError> {
-        if expr.get_resolve_state().is_resolved() { return Ok(true); }
+        if expr.get_resolve_state().is_node_resolved() { return Ok(true); }
         match expr {
             ExprVariant::SCall(s_call_data) => self.resolve_s_expr(s_call_data),
             ExprVariant::FCall(f_call_data) => self.resolve_f_expr(f_call_data),
@@ -136,75 +136,69 @@ impl<'a> Resolver<'a> {
     // TODO type table insertions for user types
 
     fn resolve_let_stmnt(&mut self, data: &mut AstData<LetData>) -> Result<bool, ResolveError> {
-        if data.resolve_state.is_resolved() { return Ok(true); }
+        if data.resolve_state.is_node_resolved() { return Ok(true); }
 
-        // We want to  abort if the assign type is no resolved, as we need it to validate the let resolution
-        // clippy warning is not identical blocks as the resolve_expression mutates and changes the data if true
-        let assign_type = if data.node_data.assignment.get_resolve_state().is_resolved()
-            || self.resolve_expression(&mut data.node_data.assignment)? {
-            data.node_data.assignment.get_resolve_state().get_type_entry().unwrap().lang_type()
-        } else { return Ok(false); };
+        let assign_node = &mut data.node_data.assignment;
 
-        println!("Data Resolve State: {:?}", data.resolve_state);
-        let symbol_state = if data.resolve_state.is_resolved() {
-            data.resolve_state.clone()
-        } else if let Some(resolved_data) = self.env.get_resolve_data_by_type(
-            data.resolve_state.get_type_entry().unwrap().lang_type()
-        ) {
-            let r_state = ResolveState::Resolved(resolved_data);
-            println!("Resolved data: {:?}", r_state);
-            data.resolve_state = r_state.clone();
-            r_state
-        } else {
-            // Can return now as if the symbol is let to resolvable the assignment type is not as well
-            println!("Returning false");
-            return Ok(false);
-        };
-
-
-        println!("Curr assign_type: {:?}", assign_type);
-        println!("Assign Node: {:?}", data.node_data.assignment);
-        println!("Symbol State: {:?}", symbol_state);
-
-        let assign_type_id = self.env.get_type_entry_by_type(assign_type).unwrap().id();
-        let symbol_type_id = symbol_state.get_type_entry().unwrap().id();
-
-        let (type_ids_compatible, conversion_needed)
-            = self.env.are_type_ids_compatible(symbol_type_id, assign_type_id);
-
-        if !type_ids_compatible {
-            return ResolveError::invalid_assignment(
-                data.line_char, assign_type, symbol_state.get_type_entry().unwrap().lang_type(),
-            );
+        // Resolve assignment if needed
+        if !assign_node.get_resolve_state().is_node_resolved() {
+            self.resolve_expression(assign_node)?;
         }
 
-        let symbol_state = ResolveState::Resolved(
-            self.env.get_resolve_data_by_type_id(symbol_state.get_type_entry().unwrap().id())
-        );
-        println!("Here3");
+        // Return if unresolvable
+        if !assign_node.get_resolve_state().is_node_resolved() {
+            return Ok(false);
+        }
 
+        // Resolve the actual let node (type annotation needs verified to exists)
+        // TODO add type inference, obv delegated to a system/function
+        let symbol_type = data.resolve_state.get_lang_type();
 
-        // Update the resolve state, and then borrow it back to make borrow checker happy.
-        data.resolve_state = symbol_state.clone();
-        if let ResolveState::Resolved(resolved_data) = &mut data.resolve_state {
-            resolved_data.type_conversion = conversion_needed;
-        } else { panic!("Fatal<Internal>: Path should never be taken") }
+        // Return early if type is not resolved, as it needs to be resolved to verify assignment
+        if !self.env.is_type_resolved(symbol_type) { return Ok(false); }
 
+        let symbol_type = self.env.get_type_entry_by_type(symbol_type)
+            .expect("Fatal<Internal>: Above check should ensure a Some value");
 
-        let name = data.node_data.identifier;
+        let assign_type = data.node_data.assignment.get_resolve_state().get_type_entry()
+            .expect("Fatal<Internal>: Above check should ensure a Some value");
+
+        let (compatible, conv_need) = self.env.are_type_ids_compatible(assign_type.id(), symbol_type.id());
+
+        // Return error if assignment is of an incompatible type
+        if !compatible {
+            return ResolveError::invalid_assignment(data.line_char, assign_type.lang_type(), symbol_type.lang_type());
+        }
+
+        // Set conv_need, this gets applied to the inner assignment node, as self node is a statement
+        // I think this is more logical, if not the conversion will be attached to the let nodes type
+        // which is already typed as the conversion, conversion should happen on nodes last and make sense
+        // to apply to the expression in-between assignment instead of at.
+        if conv_need.is_some() {
+            data.node_data.assignment.add_type_conversion(conv_need);
+        }
+
+        // Now that everything is validated, add the symbol to the environment
+        let identifier = data.node_data.identifier;
         let modifiers = if let Some(modifiers) = &data.node_data.modifiers {
             ModifierFlags::from_mods(modifiers)
         } else { ModifierFlags::NONE };
 
-        // Handle different types of assignments (functions need special handling)
-        if let Err(err) = self.env.add_symbol(name, symbol_type_id, modifiers) {
-            ResolveError::env_error(data.line_char, err)?
-        } else { Ok(true) }
+        if let Err(err) = self.env.add_symbol(identifier, symbol_type.id(), modifiers) {
+            return ResolveError::env_error(data.line_char, err);
+        }
+
+
+        // Now generate the final resolution for the self let node
+
+        let res_data = self.env.get_resolve_data_by_type_id(symbol_type.id());
+        data.resolve_state = ResolveState::Resolved(res_data);
+        Ok(true)
     }
 
 
     fn resolve_assign_stmnt(&mut self, data: &mut AstData<AssignData>) -> Result<bool, ResolveError> {
-        if data.resolve_state.is_resolved() { return Ok(true); }
+        if data.resolve_state.is_node_resolved() { return Ok(true); }
 
         let identifier = data.node_data.identifier;
 
@@ -253,13 +247,13 @@ impl<'a> Resolver<'a> {
 
     // Resolves function call S-Expressions Operations (+-*/...) use resolve_op_expr
     fn resolve_s_expr(&mut self, data: &mut AstData<SCallData>) -> Result<bool, ResolveError> {
-        if data.resolve_state.is_resolved() { return Ok(true); }
+        if data.resolve_state.is_node_resolved() { return Ok(true); }
         let operation = &mut data.node_data.operation_expr;
         let operands = &mut data.node_data.operand_exprs;
 
 
         // Check and resolve operation expression if needed
-        let operation_resolved = if !operation.get_resolve_state().is_resolved() {
+        let operation_resolved = if !operation.get_resolve_state().is_node_resolved() {
             self.resolve_expression(operation)?
         } else { true };
 
@@ -267,7 +261,7 @@ impl<'a> Resolver<'a> {
         let operands_resolved = if let Some(ops) = operands {
             let mut is_resolved = true;
             for o in ops.iter_mut() {
-                if !o.get_resolve_state().is_resolved() {
+                if !o.get_resolve_state().is_node_resolved() {
                     match self.resolve_expression(o) {
                         Ok(resolved) => if !resolved { is_resolved = false },
                         Err(e) => return Err(e),
@@ -327,7 +321,7 @@ impl<'a> Resolver<'a> {
                 let res_data = ResolveData::new(self.env.get_scope_context(), op_type.clone());
                 data.resolve_state = ResolveState::Resolved(res_data);
                 Ok(true)
-            } // As of now the only correct operations are built in and functions, so error on rest 
+            } // As of now the only correct operations are built in and functions, so error on rest
             // (built in ops have their own node to simplify things)
             _ => {
                 ResolveError::invalid_operation(data.line_char, format!(
@@ -373,7 +367,7 @@ impl<'a> Resolver<'a> {
     // FIXME: need a more detailed representation for numerical types in type system, currently
     //  simplified to focus on bootstrapping the language, so all numerics are 8 bytes until stack rep is figured out.
     fn resolve_value(&mut self, data: &mut AstData<Value>) -> Result<bool, ResolveError> {
-        if data.resolve_state.is_resolved() { Ok(true) } else {
+        if data.resolve_state.is_node_resolved() { Ok(true) } else {
             match *data.node_data {
                 Value::I32(_) | Value::I64(_) | Value::U8(_)
                 | Value::U16(_) | Value::U32(_) | Value::U64(_) => {
@@ -413,7 +407,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_op_expr(&mut self, data: &mut AstData<OpCallData>) -> Result<bool, ResolveError> {
-        if data.resolve_state.is_resolved() { return Ok(true); }
+        if data.resolve_state.is_node_resolved() { return Ok(true); }
 
         println!("Resolving Operand Expression");
         let operands = if let Some(oprs) = data.node_data.operands.as_mut() {
@@ -426,18 +420,23 @@ impl<'a> Resolver<'a> {
         // First operands must be resolved
         let mut ops_resolved = true;
         for o in operands.iter_mut() {
-            if o.get_resolve_state().is_resolved() { continue; }
+            if o.get_resolve_state().is_node_resolved() { continue; }
 
             let resolved = self.resolve_expression(o)?;
-            if !resolved { ops_resolved = false; }
-
+            println!("\n\n\nResolved Symbol: {:?}, Is Resolved:{:?}\n\n\n", o, resolved);
+            if !resolved {
+                ops_resolved = false;
+                continue; // continue, some work can still be done to resolve
+            }
 
             if let ResolveState::Resolved(res_data) = o.get_resolve_state() {
-                if {
-                    let t = res_data.type_entry.lang_type();
-                    !t.is_primitive() || t.is_nil()
-                } {
-                    return ResolveError::invalid_operation(data.line_char, "Non-primitive value(s) in operation arguments", None);
+                let t = res_data.type_entry.lang_type();
+                let invalid_type = t.is_nil() || !t.is_primitive();
+                if invalid_type {
+                    println!("Invalid Type: {:?}, On: {:?}", t, o);
+                    return ResolveError::invalid_operation(
+                        data.line_char, "Non-primitive value(s) in operation arguments", None,
+                    );
                 }
             } else { panic!("Fatal<Internal>: Path should not be reached") }
         }
@@ -475,7 +474,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_block_expression(&mut self, data: &mut AstData<Vec<AstNode>>) -> Result<bool, ResolveError> {
         println!("Resolving Block Expression");
-        if data.resolve_state.is_resolved() { return Ok(true); }
+        if data.resolve_state.is_node_resolved() { return Ok(true); }
 
 
         if data.node_data.is_empty() {
@@ -512,7 +511,7 @@ impl<'a> Resolver<'a> {
 
     // FIXME messy AF all these lower ones need cleaned up as they didnt need much of a logic re-write and exist as mehyuck
     fn resolve_predicate_expression(&mut self, data: &mut AstData<PredicateData>) -> Result<bool, ResolveError> {
-        if data.resolve_state.is_resolved() { return Ok(true); }
+        if data.resolve_state.is_node_resolved() { return Ok(true); }
 
         let pred_resolve = self.resolve_expression(&mut data.node_data.pred_expr)?;
         if pred_resolve && !matches!(
@@ -535,9 +534,8 @@ impl<'a> Resolver<'a> {
 
         // Now its known then branch is resolved along with the else branch if it exists
         let then_type = data.node_data.then_expr.get_resolve_state().get_type_entry().unwrap();
-        let else_type = if let Some(els) = &data.node_data.else_expr {
-            Some(els.get_resolve_state().get_type_entry().unwrap().clone())
-        } else { None };
+        let else_type = data.node_data.else_expr.as_ref()
+            .map(|els| els.get_resolve_state().get_type_entry().unwrap().clone());
 
         if else_type.is_none() {
             let res_data = self.env.get_resolve_data_by_type_id(then_type.id());
@@ -556,7 +554,7 @@ impl<'a> Resolver<'a> {
             expr
         } else { panic!("Fatal<Internal>: This path should not occur, else_expr should always exist") };
 
-        // If a conversion is need on the else branch, and branches are compatible, 
+        // If a conversion is need on the else branch, and branches are compatible,
         // apply it to the else and return as resolved
         if branches_compat && conv_need != TypeConversion::None {
             else_expr.add_type_conversion(conv_need);
@@ -574,7 +572,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_lambda_expression(&mut self, data: &mut AstData<LambdaData>) -> Result<bool, ResolveError> {
         println!("Resolving lambda expression");
-        if data.resolve_state.is_resolved() { return Ok(true); }
+        if data.resolve_state.is_node_resolved() { return Ok(true); }
 
 
         let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;

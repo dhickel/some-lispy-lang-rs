@@ -156,6 +156,10 @@ impl Symbol {
     }
 }
 
+impl From<Symbol> for IString {
+    fn from(symbol: Symbol) -> Self { symbol.name() }
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
@@ -260,7 +264,7 @@ impl ExprVariant {
         }
     }
 
-    
+
     // FIXME: this should be atleast be unsafe, or maybe switch to an internal error idk?
     pub fn add_type_conversion(&mut self, conversion: TypeConversion) {
         let resolve_state = self.get_resolve_state_mut();

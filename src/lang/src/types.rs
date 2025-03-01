@@ -287,16 +287,16 @@ impl Default for TypeTable {
 
 impl TypeTable {
     pub const NIL: TypeEntry = TypeEntry { id: TypeId(0), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const BOOL: TypeEntry = TypeEntry { id: TypeId(1), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const STRING: TypeEntry = TypeEntry { id: TypeId(2), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const U8: TypeEntry = TypeEntry { id: TypeId(3), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const U16: TypeEntry = TypeEntry { id: TypeId(4), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const U32: TypeEntry = TypeEntry { id: TypeId(5), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const U64: TypeEntry = TypeEntry { id: TypeId(6), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const I32: TypeEntry = TypeEntry { id: TypeId(7), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const I64: TypeEntry = TypeEntry { id: TypeId(8), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const F32: TypeEntry = TypeEntry { id: TypeId(9), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
-    pub const F64: TypeEntry = TypeEntry { id: TypeId(10), lang_type: LangType::Primitive(PrimitiveType::Nil), meta_data: None };
+    pub const BOOL: TypeEntry = TypeEntry { id: TypeId(1), lang_type: LangType::Primitive(PrimitiveType::Bool), meta_data: None };
+    pub const STRING: TypeEntry = TypeEntry { id: TypeId(2), lang_type: LangType::Composite(CompositeType::String), meta_data: None };
+    pub const U8: TypeEntry = TypeEntry { id: TypeId(3), lang_type: LangType::Primitive(PrimitiveType::U8), meta_data: None };
+    pub const U16: TypeEntry = TypeEntry { id: TypeId(4), lang_type: LangType::Primitive(PrimitiveType::U16), meta_data: None };
+    pub const U32: TypeEntry = TypeEntry { id: TypeId(5), lang_type: LangType::Primitive(PrimitiveType::U32), meta_data: None };
+    pub const U64: TypeEntry = TypeEntry { id: TypeId(6), lang_type: LangType::Primitive(PrimitiveType::U64), meta_data: None };
+    pub const I32: TypeEntry = TypeEntry { id: TypeId(7), lang_type: LangType::Primitive(PrimitiveType::I32), meta_data: None };
+    pub const I64: TypeEntry = TypeEntry { id: TypeId(8), lang_type: LangType::Primitive(PrimitiveType::I64), meta_data: None };
+    pub const F32: TypeEntry = TypeEntry { id: TypeId(9), lang_type: LangType::Primitive(PrimitiveType::F32), meta_data: None };
+    pub const F64: TypeEntry = TypeEntry { id: TypeId(10), lang_type: LangType::Primitive(PrimitiveType::F64), meta_data: None };
 
     pub fn get_entry(&self, type_id: TypeId) -> TypeEntry { self.type_table[type_id.as_usize()].clone() }
 

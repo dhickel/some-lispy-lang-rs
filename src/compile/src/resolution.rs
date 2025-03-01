@@ -192,6 +192,7 @@ impl<'a> Resolver<'a> {
         // Now generate the final resolution for the self let node
 
         let res_data = self.env.get_resolve_data_by_type_id(symbol_type.id());
+        println!("\n\n\t\tResolved symbol2: {:?}, Type: {:?}\n\n\t\t", SCACHE.resolve(IString::from(identifier)), symbol_type);
         data.resolve_state = ResolveState::Resolved(res_data);
         Ok(true)
     }

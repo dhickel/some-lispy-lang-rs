@@ -77,7 +77,7 @@ impl<'a> Resolver<'a> {
         Self { fully_resolved: false, ast_nodes, env, warnings: vec![] }
     }
 
-    pub fn resolve(&mut self, attempts: u32) -> Result<bool, ResolveError> {
+    pub fn resolve(mut self, attempts: u32) -> Result<(bool, Vec<AstNode>), ResolveError> {
         for _ in 0..attempts {
             self.env.reset_scope_for_next_iter();
             let mut cloned_ast = self.ast_nodes.clone(); // FIXME, working around BC
@@ -90,10 +90,10 @@ impl<'a> Resolver<'a> {
 
             if resolved {
                 self.fully_resolved = true;
-                return Ok(true);
+                return Ok((true, self.ast_nodes));
             }
         }
-        Ok(false)
+        Ok((false, self.ast_nodes))
     }
 
     pub fn is_resolved(&self) -> bool { self.fully_resolved }

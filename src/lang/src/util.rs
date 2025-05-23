@@ -19,7 +19,7 @@ pub struct Interner {
     list: Vec<Box<String>>,
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Hash,  Eq, PartialEq, PartialOrd)]
 pub struct IString {
     pub value: u32,
 }

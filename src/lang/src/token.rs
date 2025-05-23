@@ -184,7 +184,7 @@ pub enum Syn {
 }
 
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug,  PartialEq, Clone, Copy)]
 pub enum Op {
     List,
     And,
@@ -256,7 +256,7 @@ pub enum Def {
 }
 
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug,  PartialEq, Clone, Copy)]
 pub enum Mod {
     Mutable,
     Public,

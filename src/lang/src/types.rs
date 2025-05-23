@@ -1,10 +1,7 @@
-use std::process::id;
 use ahash::{HashSet, HashSetExt};
 use intmap::IntMap;
-use sha2::digest::typenum::private::IsEqualPrivate;
 use crate::util::{IString, SCache, SCACHE};
 use crate::ast::{Symbol, TypeConversion};
-use crate::PrimType;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct TypeId(u16);
@@ -37,7 +34,7 @@ pub enum TypeError {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone,  PartialEq, Eq, Hash)]
 pub enum LangType {
     Primitive(PrimitiveType),
     Composite(CompositeType),
@@ -70,7 +67,7 @@ impl LangType {
     pub fn parse_type_from_string(name: IString) -> LangType {
         let name_str = SCACHE.resolve(name);
         // TODO add _ and * type modifiers
-        
+
         println!("Type From String: {:?}", name_str);
         match name_str {
             "U8" => LangType::U8,
@@ -87,7 +84,7 @@ impl LangType {
             //"Tuple" => Type::Tuple,
             // "Array" => LangType::Composite(CompositeType::Array(Box::new(LangType::UNDEFINED))),
             // "Fn" => LangType::Composite(CompositeType::Function(FunctionType::default())),
-            _ => panic!("Fuck")
+            _ => panic!("Custom Types Off")
             // "()" => LangType::Primitive(PrimitiveType::Nil),
             // _ => LangType::Custom(CustomType { identifier: name, is_resolved: false }),
         }
@@ -138,7 +135,7 @@ impl LangType {
 }
 
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy,  Clone, PartialEq, Eq, Hash)]
 pub enum PrimitiveType {
     U8,
     U16,
@@ -170,7 +167,7 @@ impl PrimitiveType {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone,  PartialEq, Eq, Hash)]
 pub enum CompositeType {
     Function(FunctionType),
     Array(Box<LangType>),
@@ -180,11 +177,8 @@ pub enum CompositeType {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CustomType {
-    pub identifier: IString,
-    pub is_resolved: bool,
-}
+#[derive(Debug, Clone,  PartialEq, Eq, Hash)]
+pub struct CustomType { pub identifier: IString }
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -194,7 +188,7 @@ pub struct ObjType {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone,  PartialEq, Eq, Hash)]
 pub struct FunctionType {
     pub rtn_type: Box<LangType>,
     pub param_types: Vec<LangType>,
@@ -228,15 +222,16 @@ impl FunctionType {
 }
 
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug,  PartialEq)]
 pub struct TypeMeta {}
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug,  PartialEq)]
 pub struct TypeEntry {
     id: TypeId,
     lang_type: LangType,
     meta_data: Option<TypeMeta>, // FIXME this should be stored here as it takes up unneeded space as these are currently cloned
 }
+
 
 impl TypeEntry {
     pub fn id(&self) -> TypeId { self.id }

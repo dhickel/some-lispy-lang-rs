@@ -19,25 +19,33 @@ let y: Int  = 11 \
 let x : Int = (- 10 20 30 (* (+ 10  y) (+ 20 -20)))\
 ";
 
-const LAMBDA_BLOCK : &str = "
-let x : Fn<I32;I32> = (=> |y: I32| {
-    let x: I32 = 10
+const LAMBDA_BLOCK: &str = "
+let x :Fn<I64;I64> = (=> :I64 |y :I64| {
+    let x: I64 = 10
     (* x y 10 30)
 })";
 
 
+const PARAM_TEST: &str = "
+let x: I64 = 10
+(+ x x)
+";
+
 #[test]
 fn test_compile() {
-    let tokens = lexer::process(LAMBDA_BLOCK).unwrap();
+    let tokens = lexer::process(PARAM_TEST).unwrap();
     let mut parser = ParserState::new(tokens);
     let ast = parser.process().unwrap();
 
-    println!("Ast: {:?}", ast);
+    println!("Ast In: {:?}", ast);
 
     let env = Environment::default();
     let mut sub_env = env.new_sub_env(0);
     let mut resolved = Resolver::new(ast.root_expressions, &mut sub_env);
-    resolved.resolve(4).expect("Failed to resolve");
-    println!("Resolver:{:?} ", resolved);
-    assert!(resolved.is_resolved(), "Failed to full resolve test code");
+    let (res, asts) = resolved.resolve(10).expect("Failed to resolve");
+
+    asts.iter().for_each(|ast| {
+       if 
+    });
+    assert!(res, "Failed to full resolve test code");
 }

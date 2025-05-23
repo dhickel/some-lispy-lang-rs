@@ -458,7 +458,7 @@ impl ParserState {
                 }
                 Lit::Identifier => {
                     if let Some(TokenData::String(val)) = token.data {
-                        (Some(LangType::Custom(CustomType { identifier: val, is_resolved: false })), Value::Identifier(Symbol::Reference(val)))
+                        (Some(LangType::Custom(CustomType { identifier: val})), Value::Identifier(Symbol::Reference(val)))
                     } else { ParseError::parsing_error(self.peek()?, "Expected Identifier")? }
                 }
                 Lit::Nil => (Some(LangType::NIL), Value::Nil(())),

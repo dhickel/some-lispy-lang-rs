@@ -1,3 +1,4 @@
+use std::any::Any;
 use crate::ModifierFlags;
 use crate::util::IString;
 use crate::token::{Mod, Op};
@@ -10,6 +11,7 @@ pub struct AstData<T> {
     pub node_data: Box<T>,
     pub line_char: (u32, u32),
 }
+
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +53,7 @@ pub enum TypeConversion {
     Custom(TypeId),
 }
 
+
 impl TypeConversion {
     // pub fn conv_type_id(&self) -> TypeId {
     //     match self {
@@ -83,6 +86,7 @@ pub struct ResolveData {
     pub type_entry: TypeEntry,
     pub type_conversion: TypeConversion,
 }
+
 
 
 impl ResolveData {
@@ -124,7 +128,7 @@ pub struct FuncParam {
 }
 
 
-impl<T> AstData<T> {
+impl<T:> AstData<T> {
     pub fn new(data: T, line_char: (u32, u32), typ: Option<LangType>) -> Self {
         Self {
             resolve_state: ResolveState::Unresolved(typ.unwrap_or(LangType::Undefined)),
@@ -167,8 +171,16 @@ pub enum AstNode {
     Expression(ExprVariant),
 }
 
+impl AstNode {
+    pub fn get_inner_resolve_state(&self) -> ResolveState {
+        match self {
+            AstNode::Statement(stmt) => {}
+            AstNode::Expression(expr) => {}
+        }
+    }
+}
 
-impl AstNode {}
+
 
 
 ////////////////

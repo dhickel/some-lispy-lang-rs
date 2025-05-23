@@ -1,8 +1,32 @@
-use std::any::Any;
 use crate::ModifierFlags;
 use crate::util::IString;
 use crate::token::{Mod, Op};
 use crate::types::{LangType, PrimitiveType, TypeEntry, TypeError, TypeId, TypeTable};
+
+macro_rules! impl_resolvable {
+    ($enum_name:ident { $($variant:ident),* $(,)? }) => {
+        impl Resolvable for $enum_name {
+            fn get_resolve_state(&self) -> &ResolveState {
+                match self {
+                    $($enum_name::$variant(data) => &data.resolve_state,)*
+                }
+            }
+            
+            fn get_resolve_state_mut(&mut self) -> &mut ResolveState {
+                match self {
+                    $($enum_name::$variant(data) => &mut data.resolve_state,)*
+                }
+            }
+            
+            fn get_line_char(&self) -> (u32, u32) {
+                match self {
+                    $($enum_name::$variant(data) => data.line_char,)*
+                }
+            }
+        }
+    };
+}
+
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -10,6 +34,34 @@ pub struct AstData<T> {
     pub resolve_state: ResolveState,
     pub node_data: Box<T>,
     pub line_char: (u32, u32),
+}
+
+pub trait Resolvable {
+    fn get_resolve_state(&self) -> &ResolveState;
+    fn get_resolve_state_mut(&mut self) -> &mut ResolveState;
+    fn get_line_char(&self) -> (u32, u32);
+
+    // Convenience methods with default implementations
+    fn is_resolved(&self) -> bool {
+        self.get_resolve_state().is_node_resolved()
+    }
+
+    fn get_lang_type(&self) -> &LangType {
+        self.get_resolve_state().get_lang_type()
+    }
+
+    fn get_type_entry(&self) -> Option<&TypeEntry> {
+        self.get_resolve_state().get_type_entry()
+    }
+
+    fn add_type_conversion(&mut self, conversion: TypeConversion) {
+        let resolve_state = self.get_resolve_state_mut();
+        if let ResolveState::Resolved(resolve_data) = resolve_state {
+            resolve_data.type_conversion = conversion;
+        } else {
+            panic!("Fatal<Internal>: Attempted to add type conversion to unresolved node")
+        }
+    }
 }
 
 
@@ -171,16 +223,28 @@ pub enum AstNode {
     Expression(ExprVariant),
 }
 
-impl AstNode {
-    pub fn get_inner_resolve_state(&self) -> ResolveState {
+impl Resolvable for AstNode {
+    fn get_resolve_state(&self) -> &ResolveState {
         match self {
-            AstNode::Statement(stmt) => {}
-            AstNode::Expression(expr) => {}
+            AstNode::Statement(stmt) => stmt.get_resolve_state(),
+            AstNode::Expression(expr) => expr.get_resolve_state(),
+        }
+    }
+
+    fn get_resolve_state_mut(&mut self) -> &mut ResolveState {
+        match self {
+            AstNode::Statement(stmt) => stmt.get_resolve_state_mut(),
+            AstNode::Expression(expr) => expr.get_resolve_state_mut(),
+        }
+    }
+
+    fn get_line_char(&self) -> (u32, u32) {
+        match self {
+            AstNode::Statement(stmt) => stmt.get_line_char(),
+            AstNode::Expression(expr) => expr.get_line_char(),
         }
     }
 }
-
-
 
 
 ////////////////
@@ -193,6 +257,8 @@ pub enum StmntVariant {
     Let(AstData<LetData>),
     Assign(AstData<AssignData>),
 }
+
+impl_resolvable!(StmntVariant { Let, Assign });
 
 
 impl Into<AstNode> for StmntVariant {
@@ -227,6 +293,10 @@ impl LetData {
 }
 
 
+/////////////////
+// Expressions //
+/////////////////
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprVariant {
     SCall(AstData<SCallData>),
@@ -238,57 +308,7 @@ pub enum ExprVariant {
     Lambda(AstData<LambdaData>),
 }
 
-
-impl ExprVariant {
-    pub fn get_line_char(&self) -> (u32, u32) {
-        match self {
-            ExprVariant::SCall(data) => data.line_char,
-            ExprVariant::FCall(data) => data.line_char,
-            ExprVariant::Value(data) => data.line_char,
-            ExprVariant::OpCall(data) => data.line_char,
-            ExprVariant::Block(data) => data.line_char,
-            ExprVariant::Predicate(data) => data.line_char,
-            ExprVariant::Lambda(data) => data.line_char,
-        }
-    }
-
-    pub fn get_resolve_state(&self) -> &ResolveState {
-        match self {
-            ExprVariant::SCall(data) => &data.resolve_state,
-            ExprVariant::FCall(data) => &data.resolve_state,
-            ExprVariant::Value(data) => &data.resolve_state,
-            ExprVariant::OpCall(data) => &data.resolve_state,
-            ExprVariant::Block(data) => &data.resolve_state,
-            ExprVariant::Predicate(data) => &data.resolve_state,
-            ExprVariant::Lambda(data) => &data.resolve_state,
-        }
-    }
-
-    pub fn get_resolve_state_mut(&mut self) -> &mut ResolveState {
-        match self {
-            ExprVariant::SCall(data) => &mut data.resolve_state,
-            ExprVariant::FCall(data) => &mut data.resolve_state,
-            ExprVariant::Value(data) => &mut data.resolve_state,
-            ExprVariant::OpCall(data) => &mut data.resolve_state,
-            ExprVariant::Block(data) => &mut data.resolve_state,
-            ExprVariant::Predicate(data) => &mut data.resolve_state,
-            ExprVariant::Lambda(data) => &mut data.resolve_state,
-        }
-    }
-
-
-    // FIXME: this should be atleast be unsafe, or maybe switch to an internal error idk?
-    pub fn add_type_conversion(&mut self, conversion: TypeConversion) {
-        let resolve_state = self.get_resolve_state_mut();
-
-        if let ResolveState::Resolved(resolve_data) = resolve_state {
-            resolve_data.type_conversion = conversion;
-        } else {
-            panic!("Fatal<Internal>: Attempted to add type conversion to unresolved node, this path should not occur")
-        }
-    }
-}
-
+impl_resolvable!(ExprVariant { SCall, FCall, Value, OpCall, Block, Predicate, Lambda });
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SCallData {

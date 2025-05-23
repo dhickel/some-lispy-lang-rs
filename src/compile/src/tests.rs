@@ -1,3 +1,4 @@
+use lang::ast::Resolvable;
 use parser::lexer;
 use parser::parser::ParserState;
 use crate::environment::{Environment, SubEnvironment};
@@ -43,9 +44,18 @@ fn test_compile() {
     let mut sub_env = env.new_sub_env(0);
     let mut resolved = Resolver::new(ast.root_expressions, &mut sub_env);
     let (res, asts) = resolved.resolve(10).expect("Failed to resolve");
+    
+    let mut r_vec = vec![];
+    let mut ur_vec = vec![];
 
     asts.iter().for_each(|ast| {
-       if 
+       if ast.is_resolved() {  r_vec.push(ast); } else { ur_vec.push(ast) }
     });
+
+    println!("\n\nResolved: {:?}", r_vec);
+    println!("\n\nUn Resolved: {:?}", ur_vec);
+    
     assert!(res, "Failed to full resolve test code");
+    
+
 }

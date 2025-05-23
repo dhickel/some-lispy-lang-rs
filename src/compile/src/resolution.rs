@@ -1,4 +1,4 @@
-use lang::ast::{AssignData, AstData, AstNode, ExprVariant, FExprData, LambdaData, LetData, MType, OpCallData, Parameter, PredicateData, ResolveData, ResolveState, SCallData, StmntVariant, TypeConversion, Value};
+use lang::ast::{AssignData, AstData, AstNode, ExprVariant, FExprData, LambdaData, LetData, MType, OpCallData, Parameter, PredicateData, Resolvable, ResolveData, ResolveState, SCallData, StmntVariant, TypeConversion, Value};
 use lang::{ModifierFlags, ValueType};
 use lang::types::{CompositeType, LangType, TypeTable};
 use lang::util::{IString, SCACHE};

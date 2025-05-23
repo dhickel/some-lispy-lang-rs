@@ -113,7 +113,7 @@ pub fn match_modifier_token(input: &str) -> Option<TokenType> {
 }
 
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TokenType {
     TSyntactic(Syn),
     TOperation(Op),
@@ -151,7 +151,7 @@ impl TokenType {
 }
 
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Syn {
     LeftParen,
     RightParen,
@@ -184,7 +184,7 @@ pub enum Syn {
 }
 
 
-#[derive(Debug,  PartialEq, Clone, Copy)]
+#[derive(Debug,  PartialEq, Eq, Clone, Copy)]
 pub enum Op {
     List,
     And,
@@ -212,7 +212,7 @@ pub enum Op {
 }
 
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Lit {
     True,
     False,
@@ -224,7 +224,7 @@ pub enum Lit {
 }
 
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BuiltIn {
     If,
     Cond,
@@ -247,7 +247,7 @@ pub enum BuiltIn {
 }
 
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Def {
     DefineLet,
     DefineFunc,
@@ -256,7 +256,7 @@ pub enum Def {
 }
 
 
-#[derive(Debug,  PartialEq, Clone, Copy)]
+#[derive(Debug,  PartialEq, Eq, Clone, Copy)]
 pub enum Mod {
     Mutable,
     Public,

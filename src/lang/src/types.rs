@@ -275,6 +275,23 @@ impl Default for TypeTable {
         type_table.insert(SCACHE.F32, TypeTable::F32);
         type_table.insert(SCACHE.F64, TypeTable::F64);
 
+        type_table.type_set.insert(LangType::NIL);
+        type_table.type_set.insert(LangType::BOOL);
+        type_table.type_set.insert(LangType::STRING);
+        type_table.type_set.insert(LangType::U8);
+        type_table.type_set.insert(LangType::U16);
+        type_table.type_set.insert(LangType::U32);
+        type_table.type_set.insert(LangType::U64);
+        type_table.type_set.insert(LangType::I32);
+        type_table.type_set.insert(LangType::I64);
+        type_table.type_set.insert(LangType::F32);
+        type_table.type_set.insert(LangType::F64);
+        // Note: LangType::QUOTE is not inserted into type_set by default in many implementations
+        // as it might require special handling or might not be considered a "standard" resolved type
+        // in the same vein as I64 or BOOL. For now, follow the pattern of other primitives.
+        // If QUOTE also needs to be in type_set by default, add:
+        // type_table.type_set.insert(LangType::QUOTE);
+
         type_table
     }
 }

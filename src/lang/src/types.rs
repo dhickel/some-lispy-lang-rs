@@ -33,7 +33,6 @@ pub enum TypeError {
     TypeOverflow,
 }
 
-
 #[derive(Debug, Clone,  PartialEq, Eq, Hash)]
 pub enum LangType {
     Primitive(PrimitiveType),

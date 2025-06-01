@@ -69,7 +69,7 @@ const TEST_PROJECT: &str = "../../test_project";
 
 
 #[test]
-fn parser_I32egration() {
+fn parser_integration() {
     FORMS.iter().for_each(|s| parse_instance(s))
     
     // parse_instance("(:.member obj 10 20 30)");

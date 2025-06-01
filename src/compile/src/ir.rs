@@ -1,4 +1,5 @@
-use lang::ast::{AstData, AstNode, ExprVariant, LetData, SCallData, StmntVariant, Value};
+use lang::ast::{AstData, AstNode, ExprVariant, LetData, OpCallData, SCallData, StmntVariant, Value};
+use lang::token::Op;
 use lang::types::TypeId;
 use crate::environment::{ConstantPool, SubEnvironment};
 
@@ -28,19 +29,20 @@ pub enum IROp {
     Store(Box<IRStore>),
     Load(Box<IRLoad>),
     Invoke(Box<IRInvoke>),
+    Operation(Op),
 }
 
 
 pub enum IRStore {
-    StoreMember { data_expr: IROp },
-    StoreLocal { data_expr: IROp },
+    Member { data_expr: IROp },
+    Local { data_expr: IROp },
 }
 
 
 pub enum IRLoad {
-    LoadLocal { offset: u16, size: u16 },
-    LoadMember { c_pool_index: u16 },
-    LoadStatic { c_pool_index: u16 },
+    Local { offset: u16, size: u16 },
+    Member { c_pool_index: u16 },
+    Static { c_pool_index: u16 },
 }
 
 
@@ -150,7 +152,7 @@ impl IRLower {
                 if let Some(curr_func) = &mut self.curr_func {
                     let store_idx = curr_func.add_local(let_data.resolve_state.get_type_entry().unwrap().id())?;
                     let assign_expr = self.lower_expression(&mut let_data.node_data.assignment)?;
-                    Ok(IROp::Store(Box::new(IRStore::StoreLocal { data_expr: assign_expr })))
+                    Ok(IROp::Store(Box::new(IRStore::Local { data_expr: assign_expr })))
                 } else { panic!("Fatal<internal>: Expected function in focus") }
             }
             LState::Object | LState::Namespace => panic!(
@@ -164,7 +166,10 @@ impl IRLower {
             ExprVariant::SCall(s_call) => self.lower_s_call(s_call),
             ExprVariant::FCall(f_call) => {todo!()}
             ExprVariant::Value(val) => {todo!()}
-            ExprVariant::OpCall(op_call) => {todo!()}
+            ExprVariant::OpCall(op_call) => {
+              todo!()
+                
+            }
             ExprVariant::Block(block_data) => {todo!()}
             ExprVariant::Predicate(pred_data) => {todo!()}
             ExprVariant::Lambda(func_data) => {todo!()}

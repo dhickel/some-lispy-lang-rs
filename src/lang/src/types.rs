@@ -74,7 +74,7 @@ impl LangType {
             "U32" => LangType::U32,
             "U64" => LangType::U64,
             "I32" => LangType::I32,
-            "I64" => LangType::I64,
+            "Int" | "I64" => LangType::I64,
             "F32" => LangType::F32,
             "F64" => LangType::F64,
             "Bool" => LangType::BOOL,

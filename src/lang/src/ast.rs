@@ -190,7 +190,7 @@ impl<T:> AstData<T> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Symbol {
     Definition { name: IString, is_defined: bool },
     Reference(IString),

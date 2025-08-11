@@ -285,30 +285,30 @@ impl SubEnvironment {
 
     pub fn add_symbol(
         &mut self,
-        symbol: Symbol,
+        symbol: &mut Symbol,
         type_id: TypeId,
         mod_flags: ModifierFlags,
     ) -> Result<(), EnvError> {
-        if let Symbol::Definition { mut is_defined, .. } = symbol {
-            if is_defined { return Ok(()); } //FIXMR should return an error on re-definitions
+        if let Symbol::Definition { name, is_defined } = symbol {
+            if *is_defined { return Ok(()); } //FIXMR should return an error on re-definitions
 
             println!("Adding Symbol({:?}) In Scope: ns={:?}, curr_scope={:?}, active scopes:={:?}",
-                     SCACHE.resolve(symbol.name()), self.curr_ns, self.curr_scope, self.active_scopes);
+                     SCACHE.resolve(*name), self.curr_ns, self.curr_scope, self.active_scopes);
 
             let typ = self.type_table_ref.read().unwrap().get_entry(type_id);
 
-            let symbol = SymbolContext {
-                name: symbol.name(),
+            let symbol_context = SymbolContext {
+                name: *name,
                 mod_flags,
                 scope_context: self.get_scope_context(),
                 type_entry: typ,
             };
 
-            println!("Resolved Symbol: {:?}", symbol);
+            println!("Resolved Symbol: {:?}", symbol_context);
             match self.symbol_table_ref.write().unwrap()
-                .insert_symbol(self.curr_ns, self.get_curr_scope(), symbol) {
+                .insert_symbol(self.curr_ns, self.get_curr_scope(), symbol_context) {
                 Ok(_) => {
-                    is_defined = true;
+                    *is_defined = true;
                     Ok(())
                 }
                 Err(err) => Err(err)

@@ -179,12 +179,11 @@ impl<'a> Resolver<'a> {
         }
 
         // Now that everything is validated, add the symbol to the environment
-        let identifier = data.node_data.identifier;
         let modifiers = if let Some(modifiers) = &data.node_data.modifiers {
             ModifierFlags::from_mods(modifiers)
         } else { ModifierFlags::NONE };
 
-        if let Err(err) = self.env.add_symbol(identifier, symbol_type.id(), modifiers) {
+        if let Err(err) = self.env.add_symbol(&mut data.node_data.identifier, symbol_type.id(), modifiers) {
             return ResolveError::env_error(data.line_char, err);
         }
 
@@ -192,7 +191,7 @@ impl<'a> Resolver<'a> {
         // Now generate the final resolution for the self let node
 
         let res_data = self.env.get_resolve_data_by_type_id(symbol_type.id());
-        println!("\n\n\t\tResolved symbol2: {:?}, Type: {:?}\n\n\t\t", SCACHE.resolve(IString::from(identifier)), symbol_type);
+        println!("\n\n\t\tResolved symbol2: {:?}, Type: {:?}\n\n\t\t", SCACHE.resolve(IString::from(data.node_data.identifier.clone())), symbol_type);
         data.resolve_state = ResolveState::Resolved(res_data);
         Ok(true)
     }
@@ -201,9 +200,9 @@ impl<'a> Resolver<'a> {
     fn resolve_assign_stmnt(&mut self, data: &mut AstData<AssignData>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_node_resolved() { return Ok(true); }
 
-        let identifier = data.node_data.identifier;
+        let identifier = data.node_data.identifier.clone();
 
-        if let Some(symbol) = self.env.find_symbol_in_scope(identifier) {
+        if let Some(symbol) = self.env.find_symbol_in_scope(identifier.clone()) {
             if !symbol.mod_flags.contains(ModifierFlags::MUTABLE) {
                 return ResolveError::invalid_operation(
                     data.line_char, "Assignment to immutable symbol", Some(identifier.name()),
@@ -342,7 +341,7 @@ impl<'a> Resolver<'a> {
                         // this is a local call
                         // TODO local calls should be callable as both ::<func> and <func>, currently only ::<func> works
                         if first {
-                            self.env.find_symbol_in_scope(*method).is_some();
+                            self.env.find_symbol_in_scope(method.clone()).is_some();
                         }
                         if let Some(args) = arguments {}
                     } else {
@@ -369,7 +368,7 @@ impl<'a> Resolver<'a> {
     //  simplified to focus on bootstrapping the language, so all numerics are 8 bytes until stack rep is figured out.
     fn resolve_value(&mut self, data: &mut AstData<Value>) -> Result<bool, ResolveError> {
         if data.resolve_state.is_node_resolved() { Ok(true) } else {
-            match *data.node_data {
+            match &*data.node_data {
                 Value::I32(_) | Value::I64(_) | Value::U8(_)
                 | Value::U16(_) | Value::U32(_) | Value::U64(_) => {
                     data.resolve_state = ResolveState::Resolved(self.env.get_resolve_data_by_type(&LangType::I64).unwrap());
@@ -396,7 +395,7 @@ impl<'a> Resolver<'a> {
                 Value::String => todo!("String type resolution WIP"),
                 Value::Tuple => todo!("Tuple Type Resolution WIP"),
                 Value::Identifier(ident) => {
-                    if let Some(symbol_context) = self.env.find_symbol_in_scope(ident) {
+                    if let Some(symbol_context) = self.env.find_symbol_in_scope(ident.clone()) {
                         data.resolve_state = ResolveState::Resolved(symbol_context.into());
                         Ok(true)
                     } else { Ok(false) }
@@ -579,7 +578,7 @@ impl<'a> Resolver<'a> {
         // TODO we need to make sure to parse alternative type declarations, as types can be on symbol or
         //  in the lambda signature or both.
 
-        let params = &data.node_data.parameters;
+        let params = &mut data.node_data.parameters;
 
         let mut resolved_params: Vec<ResolveData> = Vec::with_capacity(params.len());
 
@@ -595,10 +594,10 @@ impl<'a> Resolver<'a> {
         // Return early cant do anymore work until they are fully resolved
         if !params_resolved { return Ok(false); }
 
-        for (param, res_data) in params.iter().zip(resolved_params.iter()) {
+        for (param, res_data) in params.iter_mut().zip(resolved_params.iter()) {
             println!("Adding Param Symbol for: {:?}", param);
             if let Err(err) = self.env.add_symbol(
-                param.identifier,
+                &mut param.identifier,
                 res_data.type_entry.id(), // FIXME need to keep from cloning this
                 ModifierFlags::from_mods(&param.modifiers.clone().unwrap_or(vec![])),
             ) {

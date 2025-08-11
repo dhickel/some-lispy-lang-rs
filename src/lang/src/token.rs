@@ -68,6 +68,7 @@ pub fn match_double_token(input: (char, char)) -> Option<TokenType> {
 
 pub fn match_word_token(input: &str) -> Option<TokenType> {
     match input {
+        "mut" => Some(TModifier(Mutable)),
         "else" => Some(TSyntactic(Else)),
         "and" => Some(TOperation(And)),
         "or" => Some(TOperation(Or)),

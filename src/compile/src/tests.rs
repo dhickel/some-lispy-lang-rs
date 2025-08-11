@@ -12,7 +12,7 @@ const PRED_ELSE_ONLY: &str = "\
 //FIXME improper doesnt assign anything
 const BLOCK_EXPR2: &str = "\
 let x :Int = {
-    let x : Int =  10
+    let mut x : Int =  10
     x := (+ x 10)
 }";
 
@@ -35,7 +35,7 @@ let x: I64 = 10
 
 #[test]
 fn test_compile() {
-    let tokens = lexer::process(LAMBDA_BLOCK).unwrap();
+    let tokens = lexer::process(BLOCK_EXPR2).unwrap();
     let mut parser = ParserState::new(tokens);
     let ast = parser.process().unwrap();
 

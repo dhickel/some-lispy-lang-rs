@@ -254,7 +254,7 @@ pub fn is_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, Pars
 }
 
 
-// ::= 'let' Identifier [ (':' Type) ] { Modifier } '=' Expr
+// ::= 'let' { Modifier } Identifier [ (':' Type) ] '=' Expr
 pub fn is_let_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, ParseError> {
     let mut has_type = false;
 
@@ -262,6 +262,9 @@ pub fn is_let_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, 
     if !match_tokens(parser, &[MATCH_LET])? { return Ok(None); }
 
     println!("At let statement");
+
+    // ::= { Modifier }
+    let modifier_count = is_modifiers(parser)?;
 
     // ::= Identifier
     if !match_tokens(parser, &[MATCH_IDENTIFIER])? {
@@ -276,9 +279,6 @@ pub fn is_let_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, 
     } else {
         return validation_error(parser.peek_n(1)?, ":");
     }
-
-    // ::= { Modifier }
-    let modifier_count = is_modifiers(parser)?;
     
     // ::= '='
     if !match_tokens(parser, &[MATCH_EQUAL])? {
@@ -288,7 +288,7 @@ pub fn is_let_statement(parser: &mut SubParser) -> Result<Option<StmntPattern>, 
     // ::= Expr
     println!("Next statement token: {:?}", parser.peek_n(1)?);
     if let Some(expr) = is_expression(parser)? {
-        println!("Exit let statement");       
+        println!("Exit let statement");
         Ok(Some(StmntPattern::Let(LetStmntPattern { has_type, modifier_count, expr })))
     } else { validation_error(parser.peek_n(1)?, "Expr") }
 }

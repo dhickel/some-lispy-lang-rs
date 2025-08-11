@@ -391,6 +391,7 @@ name = "vm"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "compile",
  "intmap",
  "lang",
  "lazy_static",

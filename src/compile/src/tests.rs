@@ -9,6 +9,7 @@ const PRED_ELSE_ONLY: &str = "\
     x := (+ x 10)
 ";
 
+//FIXME improper doesnt assign anything
 const BLOCK_EXPR2: &str = "\
 let x :Int = {
     let x : Int =  10
@@ -34,7 +35,7 @@ let x: I64 = 10
 
 #[test]
 fn test_compile() {
-    let tokens = lexer::process(PARAM_TEST).unwrap();
+    let tokens = lexer::process(LAMBDA_BLOCK).unwrap();
     let mut parser = ParserState::new(tokens);
     let ast = parser.process().unwrap();
 
@@ -44,20 +45,16 @@ fn test_compile() {
     let mut sub_env = env.new_sub_env(0);
     let mut resolved = Resolver::new(ast.root_expressions, &mut sub_env);
     let (res, asts) = resolved.resolve(10).expect("Failed to resolve");
-    
+
     let mut r_vec = vec![];
     let mut ur_vec = vec![];
 
     asts.iter().for_each(|ast| {
-       if ast.is_resolved() {  r_vec.push(ast); } else { ur_vec.push(ast) }
+        if ast.is_resolved() { r_vec.push(ast); } else { ur_vec.push(ast) }
     });
 
     println!("\n\nResolved: {:?}", r_vec);
     println!("\n\nUn Resolved: {:?}", ur_vec);
-    
-    assert!(res, "Failed to full resolve test code");
-    
-    
-    
 
+    assert!(res, "Failed to full resolve test code");
 }

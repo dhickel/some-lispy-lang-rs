@@ -6,6 +6,7 @@ pub mod code_gen;
 pub mod resolution;
 pub mod environment;
 mod ir;
+#[cfg(test)]
 mod tests;
 
 #[derive(Debug, Clone)]

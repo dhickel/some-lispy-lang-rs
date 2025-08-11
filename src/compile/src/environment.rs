@@ -235,7 +235,7 @@ impl SubEnvironment {
     pub fn get_scope_context(&self) -> ScopeContext {
         ScopeContext {
             ns_id: self.curr_ns,
-            scope_id: self.curr_scope,
+            scope_id: self.get_curr_scope(),
             depth: self.curr_depth,
         }
     }

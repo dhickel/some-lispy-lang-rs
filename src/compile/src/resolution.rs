@@ -576,14 +576,6 @@ impl<'a> Resolver<'a> {
         if data.resolve_state.is_node_resolved() { return Ok(true); }
 
 
-        let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;
-
-        // Return early cant do anymore work until body fully resolved
-        if !body_resolved { return Ok(false); }
-
-        println!("Lambda BOdy Expression: {:?}", &data.node_data.body_expr);
-        println!("Lambda BOdy Resolved: {:?}", body_resolved);
-
         // TODO we need to make sure to parse alternative type declarations, as types can be on symbol or
         //  in the lambda signature or both.
 
@@ -615,6 +607,15 @@ impl<'a> Resolver<'a> {
                 );
             };
         }
+
+        let body_resolved = self.resolve_expression(&mut data.node_data.body_expr)?;
+
+        // Return early cant do anymore work until body fully resolved
+        if !body_resolved { return Ok(false); }
+
+        println!("Lambda BOdy Expression: {:?}", &data.node_data.body_expr);
+        println!("Lambda BOdy Resolved: {:?}", body_resolved);
+
 
         // Set resolution data for the node and return resolved
         let return_type = &data.node_data.body_expr.get_resolve_state().get_type_entry()

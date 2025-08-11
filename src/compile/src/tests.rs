@@ -5,20 +5,20 @@ use crate::environment::{Environment, SubEnvironment};
 use crate::resolution::Resolver;
 
 const PRED_ELSE_ONLY: &str = "\
-    let x: Int = 10
+    let x: I64 = 10
     x := (+ x 10)
 ";
 
 //FIXME improper doesnt assign anything
 const BLOCK_EXPR2: &str = "\
-let x :Int = {
-    let x : Int =  10
-    x := (+ x 10)
+let x :I64 = {
+    let x : I64 =  10
+    (+ x 10)
 }";
-
+// x := (+ x 10)
 const S_EXPR_OP: &str = "\
-let y: Int  = 11 \
-let x : Int = (- 10 20 30 (* (+ 10  y) (+ 20 -20)))\
+let y: I64  = 11 \
+let x : I64 = (- 10 20 30 (* (+ 10  y) (+ 20 -20)))\
 ";
 
 const LAMBDA_BLOCK: &str = "
